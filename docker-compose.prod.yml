@@ -16,7 +16,9 @@ services:
       retries: 10
 
   api:
-    build: .
+    build:
+      context: .
+      network: host # the VPS has IPv6 but Docker does not, so bun install fails on the default build network
     restart: unless-stopped
     env_file: .env.production
     environment:

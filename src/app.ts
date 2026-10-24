@@ -6,6 +6,7 @@ import type { Env } from "./http";
 import { io } from "./io";
 import { toSafeError } from "./lib/errors";
 import { account } from "./routes/account";
+import { admin } from "./routes/admin";
 import { dm } from "./routes/dm";
 import { coinSellerRoutes } from "./routes/coinSellers";
 import { postRoutes } from "./routes/posts";
@@ -34,6 +35,7 @@ app.get("/health", (c) => c.json({ ok: true }));
 app.get("/games/socket.io.min.js", () => new Response(Bun.file(`${import.meta.dir}/../node_modules/socket.io/client-dist/socket.io.min.js`)));
 app.use("/games/*", serveStatic({ root: `${import.meta.dir}/../public` }));
 app.route("/v1", account);
+app.route("/v1", admin); // before roomRoutes, whose "*" auth would run a second time
 app.route("/v1", postRoutes); // before roomRoutes, whose "*" auth would cover the public /uploads too
 app.route("/v1", roomRoutes);
 app.route("/v1", dm);

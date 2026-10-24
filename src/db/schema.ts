@@ -440,7 +440,8 @@ export const postLikes = pgTable(
 );
 
 // Authorised coin sellers. A user applies (PENDING); staff approve or reject.
-// shortcut: no seller wallet or bulk purchase yet; that module comes later.
+// Each approved seller has a seller wallet (balance) that staff top up and the seller sells from.
+// Two levels only: a top seller (parentId null) can make sub sellers (parentId = that seller); sub sellers can't.
 export const coinSellerStatus = pgEnum("coin_seller_status", ["PENDING", "APPROVED", "REJECTED"]);
 export const coinSellers = pgTable(
   "coin_sellers",
@@ -450,8 +451,33 @@ export const coinSellers = pgTable(
     message: text("message").notNull(),
     appliedAt: ts("applied_at").notNull().defaultNow(),
     decidedAt: ts("decided_at"),
+    parentId: uuid("parent_id").references(() => users.id),
+    balance: integer("balance").notNull().default(0),
   },
-  (t) => [index("coin_sellers_status").on(t.status)],
+  (t) => [
+    index("coin_sellers_status").on(t.status),
+    index("coin_sellers_parent").on(t.parentId),
+    check("seller_balance_non_negative", sql`${t.balance} >= 0`),
+    check("seller_not_own_parent", sql`${t.parentId} <> ${t.userId}`),
+  ],
+);
+
+// Every seller-wallet movement. amount is signed (+ in, - out). kind: MINT (staff top-up), SALE (to a user's main wallet),
+// SUB_TOPUP (to a sub seller's wallet), SUB_RETURN (a removed sub seller's balance back to the parent).
+export const sellerLedger = pgTable(
+  "seller_ledger",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    sellerId: uuid("seller_id").notNull().references(() => users.id),
+    kind: text("kind").notNull(),
+    amount: integer("amount").notNull(),
+    counterpartyId: uuid("counterparty_id").references(() => users.id),
+    actorId: uuid("actor_id").notNull().references(() => users.id),
+    // Set on the sending side of a request so a double-submitted form moves coins once.
+    idempotencyKey: text("idempotency_key"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("seller_ledger_seller").on(t.sellerId, t.id), uniqueIndex("seller_ledger_idem").on(t.actorId, t.idempotencyKey)],
 );
 
 // Profile likes: one per liker per profile, never your own.

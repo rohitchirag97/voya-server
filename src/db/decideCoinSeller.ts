@@ -3,7 +3,7 @@
 // List pending ones with: select u.display_name, c.message from coin_sellers c join users u on u.id = c.user_id where c.status = 'PENDING';
 import { eq } from "drizzle-orm";
 import { db } from ".";
-import { decideCoinSeller } from "../routes/coinSellers";
+import { decideCoinSeller } from "../services/sellers";
 import { users } from "./schema";
 
 const [name, decision] = process.argv.slice(2);

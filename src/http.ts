@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import type { User } from "./db/schema";
+import { AppError } from "./lib/errors";
 import { authenticate } from "./services/auth";
 
 export type Env = { Variables: { user: User; sessionId: string; requestId: string } };
@@ -12,6 +13,14 @@ export const requireAuth = createMiddleware<Env>(async (c, next) => {
   c.set("sessionId", sessionId);
   await next();
 });
+
+// After requireAuth: only these staff roles get through.
+export const requireStaff = (...roles: NonNullable<User["staffRole"]>[]) =>
+  createMiddleware<Env>(async (c, next) => {
+    const role = c.get("user").staffRole;
+    if (!role || !roles.includes(role)) throw new AppError("FORBIDDEN", 403, "Not allowed");
+    await next();
+  });
 
 export const json = async <T extends z.ZodType>(c: Context, schema: T): Promise<z.infer<T>> =>
   schema.parse(await c.req.json().catch(() => ({})));
@@ -37,4 +46,7 @@ export const schemas = {
   giftAll: z.object({ giftId: z.string().min(1).max(64), quantity: z.number().int().min(1).max(9999) }),
   seatIndex: z.coerce.number().int().min(0).max(19),
   uuid: z.uuid(),
+  coins: z.number().int().min(1).max(10_000_000),
+  // Sent by the client once per intended transfer, so a retried or double-submitted request moves coins once.
+  idempotencyKey: z.string().min(8).max(64),
 };

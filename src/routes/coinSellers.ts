@@ -3,11 +3,11 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { db } from "../db";
 import { coinSellers, users } from "../db/schema";
-import { json, requireAuth, type Env } from "../http";
+import { json, requireAuth, schemas, type Env } from "../http";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
-import { assertCanParticipate } from "../services/auth";
-import { grantBadge, revokeBadge } from "../services/badges";
+import { assertCanParticipate, findUserByRef } from "../services/auth";
+import { createSub, removeSub, sell, sellerWallet, topUpSub } from "../services/sellers";
 import { userSummary } from "../services/rooms";
 
 export const coinSellerRoutes = new Hono<Env>();
@@ -53,15 +53,27 @@ coinSellerRoutes.post("/coin-sellers/apply", async (c) => {
   return c.json(row, 201);
 });
 
-// Staff decision (CLI for now, admin console later). Approval also gives the Coin Seller badge; rejection removes it.
-export async function decideCoinSeller(userId: string, approve: boolean) {
-  const [row] = await db
-    .update(coinSellers)
-    .set({ status: approve ? "APPROVED" : "REJECTED", decidedAt: new Date() })
-    .where(eq(coinSellers.userId, userId))
-    .returning();
-  if (!row) throw new AppError("NO_APPLICATION", 404, "This user has not applied");
-  if (approve) await grantBadge(userId, "coin_seller", null);
-  else await revokeBadge(userId, "coin_seller");
-  return row;
-}
+// ---------- seller wallet (approved sellers only; each call re-checks) ----------
+
+coinSellerRoutes.get("/coin-sellers/wallet", async (c) => c.json(await sellerWallet(c.get("user"))));
+
+// Sell: seller wallet -> any user's main wallet (`to` = profile ID, special ID or name; your own works too).
+coinSellerRoutes.post("/coin-sellers/wallet/sell", async (c) => {
+  const b = await json(c, z.object({ to: z.string().trim().min(1).max(40), amount: schemas.coins, idempotencyKey: schemas.idempotencyKey }));
+  rateLimit(`sellerMove:${c.get("user").id}`, 60, 60_000);
+  return c.json(await sell(c.get("user"), await findUserByRef(b.to), b.amount, b.idempotencyKey));
+});
+
+coinSellerRoutes.post("/coin-sellers/sub-sellers", async (c) => {
+  const b = await json(c, z.object({ user: z.string().trim().min(1).max(40) }));
+  return c.json(await createSub(c.get("user"), await findUserByRef(b.user)), 201);
+});
+
+coinSellerRoutes.post("/coin-sellers/sub-sellers/:userId/topup", async (c) => {
+  const subId = schemas.uuid.parse(c.req.param("userId"));
+  const b = await json(c, z.object({ amount: schemas.coins, idempotencyKey: schemas.idempotencyKey }));
+  rateLimit(`sellerMove:${c.get("user").id}`, 60, 60_000);
+  return c.json(await topUpSub(c.get("user"), subId, b.amount, b.idempotencyKey));
+});
+
+coinSellerRoutes.delete("/coin-sellers/sub-sellers/:userId", async (c) => c.json(await removeSub(c.get("user"), schemas.uuid.parse(c.req.param("userId")))));

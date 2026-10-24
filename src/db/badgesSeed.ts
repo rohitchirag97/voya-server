@@ -78,8 +78,28 @@ const coinSeller = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <path transform="translate(11 46)" d="M0,-3 L0.8,-0.8 L3,0 L0.8,0.8 L0,3 L-0.8,0.8 L-3,0 L-0.8,-0.8 Z" fill="#FFF6C9" opacity="0.85"/>
 </svg>`;
 
+
+// Sub Seller: silver sibling of the Coin Seller badge (teal medallion, small tiara, silver coin). Given by a top seller.
+const subSeller = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="silver" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.45" stop-color="#D5DDE8"/><stop offset="1" stop-color="#7C8BA1"/></linearGradient>
+    <radialGradient id="teal" cx="0.5" cy="0.38" r="0.62"><stop offset="0" stop-color="#2DE1C2"/><stop offset="0.6" stop-color="#0E8C8C"/><stop offset="1" stop-color="#064450"/></radialGradient>
+  </defs>
+  <circle cx="32" cy="32" r="31" fill="url(#silver)" stroke="#4A5568" stroke-width="1.2"/>
+  <circle cx="32" cy="32" r="26.5" fill="url(#teal)"/>
+  <circle cx="32" cy="32" r="23.5" fill="none" stroke="#E2F7F4" stroke-width="1.2" stroke-dasharray="1.6 3.2" opacity="0.7"/>
+  <path d="M19 30 L21.5 18 L27 24 L32 15 L37 24 L42.5 18 L45 30 Z" fill="url(#silver)" stroke="#4A5568" stroke-width="1.2" stroke-linejoin="round"/>
+  <rect x="18.5" y="28.5" width="27" height="5.5" rx="2" fill="url(#silver)" stroke="#4A5568" stroke-width="1.1"/>
+  <circle cx="32" cy="15" r="2.6" fill="#34D3FF" stroke="#00507A" stroke-width="0.8"/>
+  <circle cx="32" cy="31.2" r="1.5" fill="#2DE1C2"/>
+  <circle cx="32" cy="45" r="10" fill="url(#silver)" stroke="#4A5568" stroke-width="1.3"/>
+  <circle cx="32" cy="45" r="7.4" fill="none" stroke="#64748B" stroke-width="1" opacity="0.8"/>
+  <text x="32" y="49.6" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="900" fill="#334155">₹</text>
+  <path d="M22 22 L27.5 18.5" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+</svg>`;
 export const SAMPLE_BADGES = [
   { id: "coin_seller", name: "Coin Seller", description: "Authorised VoyaLive coin seller. Safe to buy coins from.", svg: coinSeller, sortOrder: 0 },
+  { id: "sub_seller", name: "Sub Seller", description: "Authorised VoyaLive sub seller, appointed by a coin seller. Safe to buy coins from.", svg: subSeller, sortOrder: 0 },
   { id: "vip", name: "VIP", description: "A valued member of the VoyaLive family.", svg: vip, sortOrder: 1 },
   { id: "top_gifter", name: "Top Gifter", description: "Among the most generous gifters this week.", svg: topGifter, sortOrder: 2 },
   { id: "party_star", name: "Party Star", description: "Brings the energy to every room.", svg: partyStar, sortOrder: 3 },

@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { sign, verify } from "hono/jwt";
 import { config } from "../config";
@@ -196,4 +196,15 @@ export async function loadUser(userId: string) {
 export function assertCanParticipate(user: User) {
   if (user.status !== "ACTIVE") throw new AppError("ACCOUNT_SUSPENDED", 403);
   if (!user.displayName) throw new AppError("PROFILE_INCOMPLETE", 403, "Set a display name first");
+}
+
+// A user by what people type: the 10-digit profile ID, a special ID, or the display name (unique ignoring case).
+export async function findUserByRef(ref: string) {
+  const r = ref.trim();
+  const match = /^\d+$/.test(r)
+    ? or(eq(users.specialId, r), r.length === 10 ? eq(users.publicId, Number(r)) : undefined)
+    : eq(sql`lower(${users.displayName})`, r.toLowerCase());
+  const [u] = await db.select().from(users).where(match);
+  if (!u) throw new AppError("USER_NOT_FOUND", 404, `No user ${r}`);
+  return u;
 }

@@ -11,7 +11,7 @@ import { resetRateLimits } from "../src/lib/rateLimit";
 import { generateToken04 } from "../src/lib/zegoToken";
 import { grantBadge } from "../src/services/badges";
 import { setSpecialId } from "../src/services/specialIds";
-import { decideCoinSeller } from "../src/routes/coinSellers";
+import { decideCoinSeller } from "../src/services/sellers";
 import { levelInfo, levelOf, loadLevels, maxLevel, xpToReach } from "../src/lib/levels";
 import { tierFor } from "../src/services/svip";
 
@@ -22,7 +22,7 @@ const sockets: Socket[] = [];
 beforeAll(async () => {
   await migrateAndSeed();
   await db.execute(sql`truncate users, user_badges, user_sessions, otp_codes, rooms, room_participants, room_seats, chat_messages,
-    wallet_accounts, wallet_ledger, gift_transactions, follows, blocks, reports, posts, post_likes, direct_messages, coin_sellers, profile_likes, profile_visits, post_comments, greedy_bets, greedy_rounds, rocket_bets, rocket_rounds cascade`);
+    wallet_accounts, wallet_ledger, seller_ledger, gift_transactions, follows, blocks, reports, posts, post_likes, direct_messages, coin_sellers, profile_likes, profile_visits, post_comments, greedy_bets, greedy_rounds, rocket_bets, rocket_rounds cascade`);
   server = serve(0);
   base = `http://localhost:${server.port}`;
 });
@@ -1254,6 +1254,83 @@ describe("coin sellers", () => {
     await decideCoinSeller(a.id, false);
     expect((await api("GET", `/users/${a.id}`, b.token)).body.badges.some((x: any) => x.id === "coin_seller")).toBe(false);
     expect((await api("POST", "/coin-sellers/apply", b.token, { message: "Trying again with a shop" })).body.status).toBe("PENDING");
+  });
+});
+
+describe("staff console and seller wallets", () => {
+  const key = () => crypto.randomUUID();
+  const coins = async (token: string) => (await api("GET", "/wallet", token)).body.balance as number;
+  const badgeIds = async (id: string, token: string) => ((await api("GET", `/users/${id}`, token)).body.badges as any[]).map((b) => b.id);
+
+  test("only the owner sets staff roles; handing over ownership demotes the old owner", async () => {
+    const owner = await signup("own");
+    const adm = await signup("adm");
+    const joe = await signup("joe");
+    await db.execute(sql`update users set staff_role = null where staff_role = 'OWNER'`);
+    await db.execute(sql`update users set staff_role = 'OWNER' where id = ${owner.id}`);
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+
+    expect((await api("GET", `/admin/users?q=${joe.handle}`, joe.token)).status).toBe(403);
+    expect((await api("GET", `/admin/users?q=${joe.handle}`, adm.token)).body.users[0].userId).toBe(joe.id);
+    expect((await api("POST", `/admin/users/${joe.id}/staff-role`, adm.token, { role: "ADMIN" })).status).toBe(403);
+    expect((await api("POST", `/admin/users/${owner.id}/staff-role`, owner.token, { role: null })).body.error.code).toBe("CANNOT_CHANGE_OWN_ROLE");
+    expect((await api("POST", `/admin/users/${joe.id}/staff-role`, owner.token, { role: "MODERATOR" })).body.staffRole).toBe("MODERATOR");
+
+    expect((await api("POST", `/admin/users/${adm.id}/staff-role`, owner.token, { role: "OWNER" })).body.staffRole).toBe("OWNER");
+    expect((await api("GET", `/users/${owner.id}`, joe.token)).body.staffRole).toBe("ADMIN");
+    expect((await api("POST", `/admin/users/${joe.id}/staff-role`, owner.token, { role: null })).status).toBe(403);
+  });
+
+  test("mint, sell, sub sellers, top-ups and removal move coins exactly once", async () => {
+    const adm = await signup("mint");
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const seller = await signup("sell");
+    const sub = await signup("sub");
+    const buyer = await signup("buy");
+    const sid = (await api("GET", "/me", seller.token)).body.publicId;
+
+    expect((await api("GET", "/coin-sellers/wallet", seller.token)).body.error.code).toBe("NOT_A_SELLER");
+    expect((await api("POST", `/admin/coin-sellers/${seller.id}/decision`, adm.token, { approve: true })).body.status).toBe("APPROVED");
+    expect(await badgeIds(seller.id, buyer.token)).toContain("coin_seller");
+
+    const k = key();
+    expect((await api("POST", `/admin/coin-sellers/${seller.id}/mint`, adm.token, { amount: 1000, idempotencyKey: k })).body.balance).toBe(1000);
+    expect((await api("POST", `/admin/coin-sellers/${seller.id}/mint`, adm.token, { amount: 1000, idempotencyKey: k })).body.error.code).toBe("DUPLICATE_REQUEST");
+    expect((await api("POST", `/admin/coin-sellers/${buyer.id}/mint`, adm.token, { amount: 5, idempotencyKey: key() })).body.error.code).toBe("NOT_A_SELLER");
+    expect((await api("POST", `/admin/coin-sellers/${seller.id}/mint`, seller.token, { amount: 5, idempotencyKey: key() })).status).toBe(403);
+
+    // sell to a user, then to my own main wallet
+    const before = await coins(buyer.token);
+    const sold = await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: buyer.handle, amount: 300, idempotencyKey: key() });
+    expect(sold.body).toMatchObject({ balance: 700, to: { userId: buyer.id } });
+    expect(await coins(buyer.token)).toBe(before + 300);
+    const mine = await coins(seller.token);
+    expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: String(sid), amount: 100, idempotencyKey: key() })).body.balance).toBe(600);
+    expect(await coins(seller.token)).toBe(mine + 100);
+    expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: buyer.handle, amount: 601, idempotencyKey: key() })).body.error.code).toBe("INSUFFICIENT_SELLER_BALANCE");
+
+    // sub seller
+    expect((await api("POST", "/coin-sellers/sub-sellers", seller.token, { user: sub.handle })).status).toBe(201);
+    expect((await api("POST", "/coin-sellers/sub-sellers", seller.token, { user: sub.handle })).body.error.code).toBe("ALREADY_SELLER");
+    expect(await badgeIds(sub.id, buyer.token)).toContain("sub_seller");
+    expect((await api("POST", "/coin-sellers/sub-sellers", sub.token, { user: buyer.handle })).body.error.code).toBe("SUB_CANNOT_APPOINT");
+    expect((await api("POST", `/coin-sellers/sub-sellers/${sub.id}/topup`, buyer.token, { amount: 1, idempotencyKey: key() })).body.error.code).toBe("NOT_YOUR_SUB_SELLER");
+    expect((await api("POST", `/coin-sellers/sub-sellers/${sub.id}/topup`, seller.token, { amount: 200, idempotencyKey: key() })).body.balance).toBe(400);
+    expect((await api("POST", "/coin-sellers/wallet/sell", sub.token, { to: buyer.handle, amount: 50, idempotencyKey: key() })).body.balance).toBe(150);
+    const w = (await api("GET", "/coin-sellers/wallet", seller.token)).body;
+    expect(w.subSellers.map((s: any) => [s.userId, s.balance])).toEqual([[sub.id, 150]]);
+    expect(w.history[0]).toMatchObject({ kind: "SUB_TOPUP", amount: -200, counterparty: { userId: sub.id } });
+    expect((await api("GET", "/coin-sellers/wallet", sub.token)).body).toMatchObject({ isSub: true, parent: { userId: seller.id }, subSellers: [] });
+
+    // removal returns the rest to the parent
+    expect((await api("DELETE", `/coin-sellers/sub-sellers/${sub.id}`, seller.token)).body).toEqual({ returned: 150, balance: 550 });
+    expect((await api("POST", "/coin-sellers/wallet/sell", sub.token, { to: buyer.handle, amount: 1, idempotencyKey: key() })).body.error.code).toBe("NOT_A_SELLER");
+    expect(await badgeIds(sub.id, buyer.token)).not.toContain("sub_seller");
+
+    // staff revoke freezes the wallet
+    await api("POST", `/admin/coin-sellers/${seller.id}/decision`, adm.token, { approve: false });
+    expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: buyer.handle, amount: 1, idempotencyKey: key() })).body.error.code).toBe("NOT_A_SELLER");
+    expect((await api("GET", "/admin/coin-sellers?status=REJECTED", adm.token)).body.sellers.find((s: any) => s.userId === seller.id).balance).toBe(550);
   });
 });
 
