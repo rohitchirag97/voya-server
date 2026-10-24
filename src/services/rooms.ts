@@ -84,6 +84,7 @@ export async function getSnapshot(roomId: string) {
     kind: room.kind,
     pinned: room.pinSlot !== null,
     official: room.official,
+    ludo: room.ludo !== null, // Ludo mode: seats in one row, board below (the board page follows the game itself)
   };
 }
 
@@ -500,6 +501,9 @@ async function assertAdmin(q: Tx | typeof db, room: Room, userId: string) {
   if (!power) throw new AppError("NOT_ROOM_ADMIN", 403);
   return power;
 }
+
+// For other services (e.g. Ludo): the room's owner or one of its admins, else NOT_ROOM_ADMIN.
+export const assertRoomAdmin = async (roomId: string, userId: string) => assertAdmin(db, await getRoom(roomId), userId);
 
 // The owner can act on anyone else; admins can't act on the owner or on other admins; nobody below an SVIP5+ member's tier can act on them.
 async function assertCanModerate(q: Tx | typeof db, room: Room, actorId: string, targetId: string) {

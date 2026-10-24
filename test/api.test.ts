@@ -14,6 +14,7 @@ import { setSpecialId } from "../src/services/specialIds";
 import { decideCoinSeller } from "../src/services/sellers";
 import { levelInfo, levelOf, loadLevels, maxLevel, xpToReach } from "../src/lib/levels";
 import { tierFor } from "../src/services/svip";
+import * as ludo from "../src/services/ludo";
 
 let base = "";
 let server: ReturnType<typeof serve>;
@@ -1361,6 +1362,84 @@ describe("staff console and seller wallets", () => {
     expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: buyer.handle, amount: 1, idempotencyKey: key() })).body.error.code).toBe("NOT_A_SELLER");
     expect((await api("GET", "/admin/coin-sellers?status=REJECTED", adm.token)).body.sellers.find((s: any) => s.userId === seller.id).balance).toBe(550);
   });
+});
+
+describe("ludo", () => {
+  const far = () => Date.now() + 10 * ludo.TURN_MS; // a "now" past every deadline
+  const state = async (s: Socket, roomId: string) => (await emit(s, "ludo:watch", { roomId })).data.state;
+
+  test("owner/admins switch it on; seated players join; the owner starts; turns, timeouts and leavers; play to a win", async () => {
+    const { host, roomId } = await liveRoom();
+    const b = await joined(roomId, "lb");
+    const c = await joined(roomId, "lc"); // stays a listener
+    const sh = socketFor(host.token), sb = socketFor(b.token), sc = socketFor(c.token);
+    await Promise.all([sh, sb, sc].map((s) => nextEvent(s, "connect")));
+    await emit(sh, "room:join", { roomId });
+    await emit(sb, "room:join", { roomId });
+    expect((await emit(sb, "room:seat:claim", { roomId, seatIndex: 1 })).ok).toBe(true);
+
+    // mode: owner/admins only; snapshot and room event say so; listeners can watch
+    expect((await api("POST", `/rooms/${roomId}/ludo`, b.token, { on: true })).status).toBe(403);
+    const modeEvt = nextEvent(sb, "room:ludo");
+    expect((await api("POST", `/rooms/${roomId}/ludo`, host.token, { on: true })).body).toEqual({ on: true });
+    expect(await modeEvt).toEqual({ roomId, on: true });
+    expect((await emit(sc, "room:join", { roomId })).data.ludo).toBe(true); // in the snapshot for everyone joining
+    expect(await state(sc, roomId)).toMatchObject({ phase: "lobby", lobby: [] });
+
+    // lobby: seated only; start needs the owner/admin and 2 players
+    expect((await emit(sc, "ludo:join", { roomId })).error.code).toBe("LUDO_SEAT_REQUIRED");
+    expect((await emit(sh, "ludo:join", { roomId })).ok).toBe(true);
+    expect((await emit(sh, "ludo:start", { roomId })).error.code).toBe("LUDO_NEED_PLAYERS");
+    const watcherSaw = nextEvent(sc, "ludo:state");
+    expect((await emit(sb, "ludo:join", { roomId })).data.lobby.map((p: any) => p.userId)).toEqual([host.id, b.id]);
+    expect((await watcherSaw).state.lobby).toHaveLength(2); // watchers get every change
+    expect((await emit(sb, "ludo:start", { roomId })).error.code).toBe("NOT_ROOM_ADMIN");
+    const started = (await emit(sh, "ludo:start", { roomId })).data;
+    expect(started).toMatchObject({ phase: "playing", turn: 0, step: "roll" });
+    expect(started.players.map((p: any) => [p.userId, p.color])).toEqual([[host.id, 0], [b.id, 2]]);
+
+    // only the player on turn acts, one step at a time
+    expect((await emit(sb, "ludo:roll", { roomId })).error.code).toBe("LUDO_NOT_YOUR_TURN");
+    expect((await emit(sh, "ludo:move", { roomId, token: 0 })).error.code).toBe("LUDO_WRONG_STEP");
+    const rolled = (await emit(sh, "ludo:roll", { roomId })).data;
+    expect(rolled.last).toMatchObject({ userId: host.id, auto: false });
+    expect(rolled.last.dice).toBeWithin(1, 7);
+
+    // timeout: the server plays that step for whoever is on turn
+    const before = (await state(sh, roomId)).v;
+    await ludo.tick(far());
+    const afterTimeout = await state(sh, roomId);
+    expect(afterTimeout.v).toBe(before + 1);
+    expect(afterTimeout.last.auto).toBe(true);
+
+    // b leaves the seat: from b's next turn on, the server plays b
+    await emit(sb, "room:seat:release", { roomId, seatIndex: 1 });
+    for (let i = 0; i < 200 && !(await state(sh, roomId)).players[1].auto; i++) {
+      const s = await state(sh, roomId);
+      if (s.phase !== "playing") break;
+      await ludo.tick(far());
+    }
+    expect((await state(sh, roomId)).players[1].auto).toBe(true);
+
+    // play it out on the clock
+    let s = await state(sh, roomId);
+    for (let i = 0; i < 5000 && s.phase === "playing"; i++) {
+      await ludo.tick(far());
+      s = await state(sh, roomId);
+    }
+    expect(s.phase).toBe("finished");
+    expect([host.id, b.id]).toContain(s.winner);
+    expect(s.players.find((p: any) => p.userId === s.winner).tokens).toEqual([56, 56, 56, 56]);
+    const hist = (await api("GET", `/rooms/${roomId}/messages`, host.token)).body.messages;
+    expect(hist.some((m: any) => m.body.includes("won the Ludo game"))).toBe(true);
+
+    // after a game the mode stays on; the next join opens a new lobby; off clears it for everyone
+    expect((await emit(sh, "ludo:join", { roomId })).data).toMatchObject({ phase: "lobby", lobby: [{ userId: host.id }] });
+    const off = nextEvent(sc, "ludo:state");
+    await api("POST", `/rooms/${roomId}/ludo`, host.token, { on: false });
+    expect((await off).state).toBeNull();
+    expect((await emit(sh, "ludo:join", { roomId })).error.code).toBe("LUDO_OFF");
+  }, 60_000);
 });
 
 describe("greedy game", () => {

@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Ludo</title>
+<style>
+  /* Ludo board for a room in Ludo mode. Shown inline in the room (a square under the seat row), never minimized.
+     Everyone watches; only the player on turn gets a live dice and tappable tokens. The server decides everything. */
+  :root { --red:#e8414f; --green:#2fae5b; --yellow:#f6c22e; --blue:#2f80ed; --ink:#1d1838; --paper:#fffdf8; --line:#d9d3e6; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: transparent; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); overflow: hidden; user-select: none; }
+  #wrap { position: relative; width: 100vmin; height: 100vmin; margin: 0 auto; }
+  #board { position: absolute; inset: 0; border-radius: 18px; overflow: hidden; box-shadow: 0 6px 24px rgba(0,0,0,.35); background: var(--paper); }
+  svg { display: block; width: 100%; height: 100%; }
+  .token { position: absolute; width: calc(100% / 15 * .78); height: calc(100% / 15 * .78); margin: calc(100% / 15 * -.39) 0 0 calc(100% / 15 * -.39);
+    border-radius: 50%; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,.45), inset 0 -3px 0 rgba(0,0,0,.18); transition: left .13s linear, top .13s linear, transform .2s; z-index: 2; }
+  .token::after { content: ""; position: absolute; inset: 26%; border-radius: 50%; background: rgba(255,255,255,.55); }
+  .token.movable { z-index: 4; cursor: pointer; animation: hop .7s ease-in-out infinite; }
+  .token.movable::before { content: ""; position: absolute; inset: -7px; border-radius: 50%; border: 2px dashed #fff; animation: spin 2.4s linear infinite; }
+  .token.home { opacity: .9; }
+  @keyframes hop { 0%,100% { transform: translateY(0) scale(var(--s,1)); } 50% { transform: translateY(-14%) scale(var(--s,1)); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .seat { position: absolute; width: calc(100% / 15 * 6); height: calc(100% / 15 * 6); display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+  .seat .av { width: 28%; aspect-ratio: 1; border-radius: 50%; background: #fff center/cover no-repeat; border: 3px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.3); display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 3.2vmin; color: var(--ink); }
+  .seat .nm { position: absolute; top: 1.2%; max-width: 92%; padding: .4vmin 1.6vmin; border-radius: 99px; background: rgba(0,0,0,.45); color: #fff; font-size: 2.7vmin; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .seat .bar { position: absolute; left: 9%; right: 9%; bottom: 5%; height: 1.2vmin; border-radius: 99px; background: rgba(255,255,255,.35); overflow: hidden; visibility: hidden; }
+  .seat .bar i { display: block; height: 100%; width: 100%; background: #fff; transform-origin: left; }
+  .seat.turn .bar { visibility: visible; }
+  .seat.turn .av { animation: pulse 1s ease-in-out infinite; }
+  .seat .tag { position: absolute; top: 17%; right: 17%; font-size: 2.3vmin; font-weight: 900; color: #fff; background: rgba(0,0,0,.5); padding: .2vmin 1.2vmin; border-radius: 99px; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 1.4vmin rgba(255,255,255,.45); } }
+  #dice { position: absolute; left: 50%; top: 50%; width: 12.6vmin; height: 12.6vmin; transform: translate(-50%, -50%); border-radius: 2.8vmin; background: #fff; box-shadow: 0 3px 8px rgba(0,0,0,.4); display: none; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: 1.8vmin; z-index: 5; border: 0; }
+  #dice i { width: 2.4vmin; height: 2.4vmin; border-radius: 50%; background: var(--ink); place-self: center; visibility: hidden; }
+  #dice.live { cursor: pointer; animation: glow 1s ease-in-out infinite; }
+  #dice.rolling { animation: tumble .45s linear infinite; }
+  @keyframes glow { 50% { box-shadow: 0 0 0 1.2vmin rgba(255,255,255,.9), 0 0 3vmin rgba(255,255,255,.9); } }
+  @keyframes tumble { 0% { transform: translate(-50%,-50%) rotate(0); } 100% { transform: translate(-50%,-50%) rotate(360deg); } }
+  #hint { position: absolute; left: 50%; top: calc(50% + 8.6vmin); transform: translateX(-50%); z-index: 5; font-size: 2.6vmin; font-weight: 900; color: #fff; background: rgba(29,24,56,.82); padding: .5vmin 1.8vmin; border-radius: 99px; white-space: nowrap; pointer-events: none; }
+  #hint:empty { display: none; }
+  #panel { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(18,11,46,.55); border-radius: 18px; backdrop-filter: blur(2px); }
+  #panel[hidden] { display: none; }
+  .card { width: 80%; background: #fff; border-radius: 20px; padding: 5vmin 4vmin; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+  .card h2 { margin: 0; font-size: 5.6vmin; letter-spacing: -.02em; }
+  .card p { margin: 1.5vmin 0 0; font-size: 3.2vmin; color: #6d6788; }
+  .slots { display: flex; justify-content: center; gap: 2.4vmin; margin: 4vmin 0; }
+  .slot { width: 13vmin; display: flex; flex-direction: column; align-items: center; gap: 1vmin; font-size: 2.6vmin; font-weight: 700; }
+  .slot b { width: 11vmin; height: 11vmin; border-radius: 50%; background: #f0edfa center/cover no-repeat; border: 3px solid var(--c, #ddd); display: flex; align-items: center; justify-content: center; font-size: 4vmin; color: #b3acc9; }
+  .slot span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btns { display: flex; gap: 2vmin; justify-content: center; flex-wrap: wrap; }
+  .btn { border: 0; border-radius: 12px; padding: 2.4vmin 4.8vmin; font-size: 3.4vmin; font-weight: 800; cursor: pointer; background: #ff3d8b; color: #fff; }
+  .btn.ghost { background: #f0edfa; color: var(--ink); }
+  .btn[disabled] { opacity: .45; }
+  #toast { position: absolute; left: 50%; bottom: 3vmin; transform: translateX(-50%) translateY(20%); opacity: 0; visibility: hidden; z-index: 20; background: rgba(29,24,56,.92); color: #fff; padding: 1.6vmin 3.2vmin; border-radius: 12px; font-size: 3vmin; font-weight: 700; transition: transform .25s, opacity .25s, visibility .25s; max-width: 90%; text-align: center; }
+  #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; visibility: visible; }
+  @media (prefers-reduced-motion: reduce) { .token, .token.movable, #dice.live, #dice.rolling, .seat.turn .av { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="board"><svg id="svg" viewBox="0 0 15 15" aria-hidden="true"></svg></div>
+  <div id="layer"></div>
+  <div id="dice" role="button" aria-label="Dice"></div>
+  <div id="hint" aria-live="polite"></div>
+  <div id="panel"><div class="card" id="card"><h2>🎲 Ludo</h2><p>Connecting…</p></div></div>
+  <div id="toast" role="status"></div>
+</div>
+<script src="/games/socket.io.min.js"></script>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const ROOM = new URLSearchParams(location.search).get('room') || '';
+const COLORS = ['var(--red)', 'var(--green)', 'var(--yellow)', 'var(--blue)'];
+const HEX = ['#e8414f', '#2fae5b', '#f6c22e', '#2f80ed'];
+const HOME = 56, LOOP = 52;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2200); }
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ---------- geometry (must match server lib/ludo.ts) ----------
+// [row, col] of the 52 loop squares, starting at red's start square and going clockwise; colour c starts at index c*13.
+const TRACK = [
+  [6,1],[6,2],[6,3],[6,4],[6,5], [5,6],[4,6],[3,6],[2,6],[1,6],[0,6], [0,7],
+  [0,8],[1,8],[2,8],[3,8],[4,8],[5,8], [6,9],[6,10],[6,11],[6,12],[6,13],[6,14], [7,14],
+  [8,14],[8,13],[8,12],[8,11],[8,10],[8,9], [9,8],[10,8],[11,8],[12,8],[13,8],[14,8], [14,7],
+  [14,6],[13,6],[12,6],[11,6],[10,6],[9,6], [8,5],[8,4],[8,3],[8,2],[8,1],[8,0], [7,0], [6,0],
+];
+const HOMECOL = [
+  [[7,1],[7,2],[7,3],[7,4],[7,5]], [[1,7],[2,7],[3,7],[4,7],[5,7]],
+  [[7,13],[7,12],[7,11],[7,10],[7,9]], [[13,7],[12,7],[11,7],[10,7],[9,7]],
+];
+const BASE = [[0,0],[0,9],[9,9],[9,0]]; // top-left cell of each colour's 6x6 base
+const SPOTS = [[1.8,1.8],[1.8,4.2],[4.2,1.8],[4.2,4.2]];
+const FINISH = [[7.5,6.55],[6.55,7.5],[7.5,8.45],[8.45,7.5]]; // [row, col] centre of each colour's home triangle
+const SAFE = [0, 8, 13, 21, 26, 34, 39, 47];
+
+// Centre of a token, in cell units [x, y].
+function spot(color, pos, i) {
+  if (pos === -1) { const [r, c] = BASE[color], [dr, dc] = SPOTS[i]; return [c + dc, r + dr]; }
+  if (pos === HOME) { const [r, c] = FINISH[color]; return [c + (i % 2 ? .22 : -.22) * (color % 2 ? 1 : 0), r + (i % 2 ? .22 : -.22) * (color % 2 ? 0 : 1)]; }
+  const [r, c] = pos <= 50 ? TRACK[(color * 13 + pos) % LOOP] : HOMECOL[color][pos - 51];
+  return [c + .5, r + .5];
+}
+
+// ---------- the board picture ----------
+function drawBoard() {
+  const n = (t, a, kids = '') => `<${t} ${Object.entries(a).map(([k, v]) => `${k}="${v}"`).join(' ')}>${kids}</${t}>`;
+  let s = '';
+  BASE.forEach(([r, c], i) => {
+    s += n('rect', { x: c, y: r, width: 6, height: 6, fill: HEX[i] });
+    s += n('rect', { x: c + .8, y: r + .8, width: 4.4, height: 4.4, rx: .5, fill: '#fff' });
+    SPOTS.forEach(([dr, dc]) => (s += n('circle', { cx: c + dc, cy: r + dr, r: .52, fill: HEX[i], opacity: .22 })));
+  });
+  TRACK.forEach(([r, c], g) => {
+    const start = g % 13 === 0 ? g / 13 : -1;
+    s += n('rect', { x: c, y: r, width: 1, height: 1, fill: start >= 0 ? HEX[start] : '#fff', stroke: 'var(--line)', 'stroke-width': .04 });
+    if (SAFE.includes(g) && start < 0) s += n('path', { d: star(c + .5, r + .5, .36, .16), fill: '#b9b1cf' });
+    if (start >= 0) s += n('path', { d: star(c + .5, r + .5, .32, .14), fill: '#fff', opacity: .85 });
+  });
+  HOMECOL.forEach((col, i) => col.forEach(([r, c]) => (s += n('rect', { x: c, y: r, width: 1, height: 1, fill: HEX[i], stroke: 'var(--line)', 'stroke-width': .04 }))));
+  s += n('polygon', { points: '6,6 7.5,7.5 6,9', fill: HEX[0] }) + n('polygon', { points: '6,6 9,6 7.5,7.5', fill: HEX[1] });
+  s += n('polygon', { points: '9,6 9,9 7.5,7.5', fill: HEX[2] }) + n('polygon', { points: '6,9 9,9 7.5,7.5', fill: HEX[3] });
+  $('svg').innerHTML = s;
+}
+function star(cx, cy, R, r) {
+  let d = '';
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, k = i % 2 ? r : R; d += `${i ? 'L' : 'M'}${(cx + k * Math.cos(a)).toFixed(3)} ${(cy + k * Math.sin(a)).toFixed(3)}`; }
+  return d + 'Z';
+}
+
+// ---------- state ----------
+let me = null, admin = false, state = null, offset = 0;
+const shown = new Map(); // `${userId}:${i}` -> position currently drawn (lags the state while a move animates)
+const queue = []; let busy = false; // state updates, applied in order with their animations
+
+function enqueue(s) { queue.push(s); if (!busy) drain(); }
+async function drain() {
+  busy = true;
+  while (queue.length) {
+    const s = queue.shift();
+    if (state && s && s.v <= state.v && s.phase === state.phase) continue; // stale
+    const prev = state; state = s;
+    await animate(prev, s);
+  }
+  busy = false;
+  render(); // after busy clears, so the player's tokens can light up
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Walks the moved token square by square, then sends captured tokens home. Big jumps (missed updates) just snap.
+async function animate(prev, s) {
+  const last = s?.last;
+  const fresh = prev && s && prev.phase !== 'lobby' && s.v === prev.v + 1 && last;
+  if (fresh && (last.kind === 'roll' || last.kind === 'pass')) await rollDice(last.dice);
+  if (fresh && last.kind === 'move') {
+    const p = s.players.find((x) => x.userId === last.userId);
+    const key = `${p.userId}:${last.token}`;
+    const steps = last.from === -1 ? [0] : Array.from({ length: last.to - last.from }, (_, i) => last.from + 1 + i);
+    for (const pos of steps) { shown.set(key, pos); place(); await sleep(140); }
+    if (last.captured.length) { await sleep(120); last.captured.forEach((c) => shown.set(`${c.userId}:${c.token}`, -1)); place(); await sleep(260); }
+  }
+  syncShown();
+}
+function syncShown() {
+  shown.clear();
+  for (const p of state?.players ?? []) p.tokens.forEach((t, i) => shown.set(`${p.userId}:${i}`, t));
+}
+
+// ---------- drawing tokens, seats, dice, panel ----------
+const tokenEls = new Map();
+function place() {
+  const layer = $('layer');
+  const players = state?.players ?? [];
+  const keys = new Set();
+  const stacks = new Map(); // cell -> tokens there, to fan them out
+  for (const p of players) p.tokens.forEach((_, i) => {
+    const pos = shown.get(`${p.userId}:${i}`) ?? p.tokens[i];
+    const [x, y] = spot(p.color, pos, i);
+    const cell = pos === -1 ? `b${p.color}${i}` : pos === HOME ? `h${p.color}${i}` : `${Math.floor(x)},${Math.floor(y)}`;
+    (stacks.get(cell) ?? stacks.set(cell, []).get(cell)).push({ p, i, x, y, pos });
+  });
+  const mine = state?.phase === 'playing' && state.step === 'move' && state.players[state.turn]?.userId === me?.userId;
+  for (const list of stacks.values()) list.forEach(({ p, i, x, y, pos }, k) => {
+    const key = `${p.userId}:${i}`; keys.add(key);
+    let el = tokenEls.get(key);
+    if (!el) {
+      el = document.createElement('div'); el.className = 'token'; el.style.background = COLORS[p.color];
+      el.onclick = () => tap(p.userId, i); layer.append(el); tokenEls.set(key, el);
+    }
+    const spread = list.length > 1 ? (k - (list.length - 1) / 2) * .26 : 0;
+    el.style.left = `${((x + spread) / 15) * 100}%`; el.style.top = `${((y + (list.length > 1 ? spread * .3 : 0)) / 15) * 100}%`;
+    el.style.setProperty('--s', list.length > 1 ? .78 : 1); el.style.transform = `scale(${list.length > 1 ? .78 : 1})`;
+    el.classList.toggle('movable', !busy && mine && p.userId === me.userId && state.legal.includes(i));
+    el.classList.toggle('home', pos === HOME);
+    el.setAttribute('aria-label', `${p.displayName ?? 'Player'} token ${i + 1}`);
+  });
+  for (const [key, el] of tokenEls) if (!keys.has(key)) { el.remove(); tokenEls.delete(key); }
+}
+
+function seats() {
+  document.querySelectorAll('.seat').forEach((e) => e.remove());
+  for (const p of state?.players ?? []) {
+    const [r, c] = BASE[p.color];
+    const el = document.createElement('div');
+    el.className = 'seat' + (state.phase === 'playing' && state.players[state.turn] === p ? ' turn' : '');
+    el.style.left = `${(c / 15) * 100}%`; el.style.top = `${(r / 15) * 100}%`;
+    const initial = esc((p.displayName ?? '?').slice(0, 1).toUpperCase());
+    el.innerHTML = `${p.auto ? '<span class="tag">AUTO</span>' : ''}<div class="av" style="${p.avatarUrl ? `background-image:url('${esc(p.avatarUrl)}')` : ''}">${p.avatarUrl ? '' : initial}</div><div class="nm">${p.userId === me?.userId ? 'You' : esc(p.displayName ?? 'Player')}</div><div class="bar"><i></i></div>`;
+    el.dataset.user = p.userId;
+    $('wrap').append(el);
+  }
+}
+
+const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+function face(n) { $('dice').innerHTML = Array.from({ length: 9 }, (_, i) => `<i style="visibility:${PIPS[n]?.includes(i) ? 'visible' : 'hidden'}"></i>`).join(''); $('dice').setAttribute('aria-label', n ? `Dice shows ${n}` : 'Dice'); }
+async function rollDice(n) {
+  const d = $('dice'); d.classList.add('rolling');
+  for (let k = 0; k < 6; k++) { face(1 + Math.floor(Math.random() * 6)); await sleep(70); }
+  d.classList.remove('rolling'); face(n); await sleep(n === 6 ? 450 : 300);
+}
+
+function render() {
+  place(); seats();
+  const s = state;
+  const playing = s?.phase === 'playing';
+  const cur = playing ? s.players[s.turn] : null;
+  const myTurn = cur && cur.userId === me?.userId;
+  $('dice').style.display = playing ? 'grid' : 'none';
+  $('dice').classList.toggle('live', !!myTurn && s.step === 'roll');
+  $('dice').style.boxShadow = cur ? `0 0 0 .8vmin ${HEX[cur.color]}, 0 3px 8px rgba(0,0,0,.4)` : '';
+  if (!busy) face(playing ? (s.dice ?? (s.last ? s.last.dice : 0)) : 0); // show the roll waiting to be used, else the last one
+  $('hint').textContent = !playing ? '' : myTurn ? (s.step === 'roll' ? 'Your turn · tap the dice' : 'Tap a glowing token') : cur.auto ? `${cur.displayName} (auto) is playing` : `${cur.displayName}'s turn`;
+  panel();
+}
+
+function panel() {
+  const s = state;
+  const card = $('card');
+  if (s && s.phase === 'playing') { $('panel').hidden = true; return; }
+  $('panel').hidden = false;
+  if (!s) { card.innerHTML = '<h2>Ludo is off</h2><p>The owner or an admin can turn it on.</p>'; return; }
+  const winner = s.phase === 'finished' ? s.players.find((p) => p.userId === s.winner) : null;
+  const lobby = s.phase === 'lobby' ? s.lobby : [];
+  const joined = lobby.some((p) => p.userId === me?.userId);
+  const colorsFor = (n) => (n === 2 ? [0, 2] : [0, 1, 2, 3].slice(0, n)); // same seating as the server
+  const slot = (p, i) => `<div class="slot" style="--c:${p ? HEX[colorsFor(Math.max(2, lobby.length))[i]] : '#ddd'}"><b style="${p?.avatarUrl ? `background-image:url('${esc(p.avatarUrl)}')` : ''}">${p ? (p.avatarUrl ? '' : esc((p.displayName ?? '?').slice(0, 1).toUpperCase())) : '+'}</b><span>${p ? (p.userId === me?.userId ? 'You' : esc(p.displayName ?? 'Player')) : 'Open'}</span></div>`;
+  const head = winner
+    ? `<h2>🏆 ${winner.userId === me?.userId ? 'You won!' : esc(winner.displayName ?? 'Someone') + ' won!'}</h2><p>Join to play the next game.</p>`
+    : `<h2>🎲 Ludo</h2><p>${lobby.length < 2 ? 'Seated players: join the game (2 to 4).' : admin ? 'Ready when you are.' : 'Waiting for the owner or an admin to start.'}</p>`;
+  const btns = [
+    !joined ? `<button class="btn" data-act="join">${winner ? 'Join next game' : 'Join game'}</button>` : `<button class="btn ghost" data-act="leave">Leave</button>`,
+    admin && s.phase === 'lobby' ? `<button class="btn" data-act="start" ${lobby.length < 2 ? 'disabled' : ''}>Start</button>` : '',
+  ].join('');
+  card.innerHTML = `${head}${s.phase === 'lobby' ? `<div class="slots">${[0, 1, 2, 3].map((i) => slot(lobby[i], i)).join('')}</div>` : '<div style="height:4vmin"></div>'}<div class="btns">${btns}</div>`;
+  card.querySelectorAll('[data-act]').forEach((b) => (b.onclick = () => act(`ludo:${b.dataset.act}`)));
+}
+
+// The turn timer on the active player's base.
+function frame() {
+  const s = state;
+  const bar = document.querySelector('.seat.turn .bar i');
+  if (bar && s?.deadline) {
+    const left = Math.max(0, new Date(s.deadline).getTime() - (Date.now() + offset));
+    bar.style.transform = `scaleX(${Math.min(1, left / 15000)})`;
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------- actions ----------
+async function act(event, extra = {}) {
+  const r = await socket.timeout(8000).emitWithAck(event, { roomId: ROOM, ...extra }).catch(() => null);
+  if (!r) return toast('No connection. Try again.');
+  if (!r.ok) toast(r.error?.message || 'That didn’t work');
+}
+$('dice').onclick = () => {
+  const s = state;
+  if (s?.phase === 'playing' && s.step === 'roll' && s.players[s.turn]?.userId === me?.userId && !busy) { $('dice').classList.remove('live'); act('ludo:roll'); }
+};
+function tap(userId, token) {
+  const s = state;
+  if (busy || s?.phase !== 'playing' || s.step !== 'move' || userId !== me?.userId || s.players[s.turn]?.userId !== me?.userId) return;
+  if (s.legal.includes(token)) act('ludo:move', { token });
+}
+
+// ---------- connection (same token bridge as the other games) ----------
+const pendingToken = [];
+window.voyaToken = (t) => pendingToken.splice(0).forEach((r) => r(t));
+function getToken() {
+  if (!window.ReactNativeWebView) return Promise.resolve(new URLSearchParams(location.hash.slice(1)).get('token') || '');
+  return new Promise((r) => { pendingToken.push(r); window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'token' })); });
+}
+drawBoard(); face(0); requestAnimationFrame(frame);
+const socket = io({ path: '/socket.io/', transports: ['websocket'], auth: (cb) => getToken().then((token) => cb({ token })) });
+socket.on('connect', async () => {
+  const r = await socket.timeout(8000).emitWithAck('ludo:watch', { roomId: ROOM }).catch(() => null);
+  if (!r?.ok) return toast('Could not open Ludo');
+  me = r.data.me; admin = r.data.me.admin; offset = new Date(r.data.serverNow) - Date.now();
+  state = null; queue.length = 0; enqueue(r.data.state); // a fresh start after every (re)connect
+  if (!r.data.state) render();
+});
+socket.on('connect_error', () => toast("Can't reach the game. Retrying…"));
+socket.on('ludo:state', (e) => {
+  if (e.roomId !== ROOM) return;
+  offset = new Date(e.serverNow) - Date.now();
+  if (!e.state) { queue.length = 0; state = null; syncShown(); render(); return; }
+  enqueue(e.state);
+});
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { LudoState } from "../lib/ludo";
 import {
   bigint,
   bigserial,
@@ -127,6 +128,8 @@ export const rooms = pgTable(
     charismaStartedAt: ts("charisma_started_at"),
     // Running PK 1v1 battle between two seated people (null = none). Scores = gift coins each receives in this room in [startedAt, endsAt).
     pk: jsonb("pk").$type<{ a: string; b: string; startedAt: string; endsAt: string }>(),
+    // Ludo mode (null = off): the lobby or running game, see lib/ludo.ts. Seats show in one row with the board below.
+    ludo: jsonb("ludo").$type<LudoState>(),
     // PUBLIC: listed, anyone joins. LOCKED: listed with a lock; joining needs the 4-digit password (hashed here).
     // PRIVATE: hidden from lists and profiles; only the owner and room admins can enter.
     privacy: roomPrivacy("privacy").notNull().default("PUBLIC"),

@@ -8,6 +8,7 @@ import { authenticate, loadUser } from "./services/auth";
 import * as chat from "./services/chat";
 import * as gifts from "./services/gifts";
 import * as greedy from "./services/greedy";
+import * as ludo from "./services/ludo";
 import * as rocket from "./services/rocket";
 import * as rooms from "./services/rooms";
 
@@ -97,6 +98,19 @@ io.on("connection", (socket: Socket) => {
     const q = greedy.historySchema.parse(p);
     return greedy.history(q.before, 50, q.game);
   });
+
+  // Ludo (rooms in Ludo mode). Watching needs only room membership; the board page then follows the ludo channel.
+  handle("ludo:watch", async (user, p) => {
+    const roomId = id(p);
+    const state = await ludo.watch(user, roomId);
+    socket.join(ludo.channel(roomId));
+    return state;
+  });
+  handle("ludo:join", (user, p) => ludo.join(user, id(p)));
+  handle("ludo:leave", (user, p) => ludo.leaveLobby(user, id(p)));
+  handle("ludo:start", (user, p) => ludo.start(user, id(p)));
+  handle("ludo:roll", (user, p) => ludo.rollDice(user, id(p)));
+  handle("ludo:move", (user, p) => ludo.moveToken(user, id(p), ludo.tokenSchema.parse(p.token)));
 
   // Rocket (crash) game: one global round at a time.
   handle("rocket:join", async (user) => {
