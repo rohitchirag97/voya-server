@@ -1281,6 +1281,20 @@ describe("staff console and seller wallets", () => {
     expect((await api("POST", `/admin/users/${joe.id}/staff-role`, owner.token, { role: null })).status).toBe(403);
   });
 
+  test("staff give and remove special ids", async () => {
+    const adm = await signup("sid");
+    const u = await signup("sidu");
+    const v = await signup("sidv");
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const set = (who: string, specialId: string | null, token = adm.token) => api("POST", `/admin/users/${who}/special-id`, token, { specialId });
+    expect((await set(u.id, "7777", u.token)).status).toBe(403);
+    expect((await set(u.id, "12")).body.error.code).toBe("BAD_SPECIAL_ID");
+    expect((await set(u.id, "7777")).body.specialId).toBe("7777");
+    expect((await set(v.id, "7777")).body.error.code).toBe("SPECIAL_ID_TAKEN");
+    expect((await api("GET", "/admin/users?q=7777", adm.token)).body.users[0].userId).toBe(u.id);
+    expect((await set(u.id, null)).body.specialId).toBeNull();
+  });
+
   test("mint, sell, sub sellers, top-ups and removal move coins exactly once", async () => {
     const adm = await signup("mint");
     await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);

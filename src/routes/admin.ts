@@ -8,6 +8,7 @@ import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
 import { userSummary } from "../services/rooms";
 import { decideCoinSeller, listSellers, mint } from "../services/sellers";
+import { setSpecialId } from "../services/specialIds";
 
 // Staff console API. OWNER and ADMIN get in; only the OWNER changes staff roles.
 export const admin = new Hono<Env>();
@@ -48,6 +49,13 @@ admin.post("/admin/users/:userId/staff-role", requireStaff("OWNER"), async (c) =
     return u;
   });
   return c.json(updated);
+});
+
+// Give a special ID (3-9 digits) or remove it (null).
+admin.post("/admin/users/:userId/special-id", async (c) => {
+  const { specialId } = await json(c, z.object({ specialId: z.string().trim().nullable() }));
+  const u = await setSpecialId(schemas.uuid.parse(c.req.param("userId")), specialId || null);
+  return c.json({ userId: u.id, specialId: u.specialId });
 });
 
 admin.get("/admin/coin-sellers", async (c) => {
