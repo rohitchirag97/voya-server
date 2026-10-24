@@ -16,6 +16,7 @@ import { activeBadges, badgeCatalog } from "../services/badges";
 import { weeklyGiftStats } from "../services/gifts";
 import { userSummary } from "../services/rooms";
 import { cosmeticMinSvip, SVIP_PERKS, svipOf, svipStatus, visibleAvatar, wearable } from "../services/svip";
+import { nameError, normalizeName } from "../lib/displayName";
 
 const phone = z.string().regex(/^\+[1-9]\d{7,14}$/, "E.164 phone number, e.g. +919876543210");
 const publicUser = (u: typeof users.$inferSelect) => ({
@@ -153,7 +154,15 @@ account.patch("/me/profile", async (c) => {
   const b = await json(
     c,
     z.object({
-      displayName: z.string().regex(/^[A-Za-z0-9_.]{3,24}$/, "3-24 letters, digits, _ or .").optional(),
+      displayName: z
+        .string()
+        .max(200)
+        .transform(normalizeName)
+        .superRefine((n, ctx) => {
+          const e = nameError(n);
+          if (e) ctx.addIssue({ code: "custom", message: e });
+        })
+        .optional(),
       bio: z.string().max(160).nullable().optional(),
       gender: z.enum(["MALE", "FEMALE", "OTHER"]).nullable().optional(),
       birthday: z.iso

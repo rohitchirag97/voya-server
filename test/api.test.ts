@@ -205,10 +205,23 @@ describe("profiles", () => {
   });
 });
 
+describe("display names", () => {
+  test("decorative names are allowed; invisible, layout-breaking and mention-breaking ones are not", async () => {
+    const a = await signup("fancy");
+    const ok = async (displayName: string, saved = displayName) =>
+      expect((await api("PATCH", "/me/profile", a.token, { displayName })).body.displayName).toBe(saved);
+    await ok(`꧁༺ 𝓡𝓪𝓳 ${n} ༻꧂`);
+    await ok(`★彡 ᴘʀɪʏᴀ 彡★ ${n}`);
+    await ok(`  राज   ${n} 👑 `, `राज ${n} 👑`); // trimmed, spaces collapsed
+    for (const displayName of ["\u3164\u3164\u3164", "ab\u202Ecd", "ab\u200Bcd", "@raj_x","zalgo\u0302\u0303\u0304\u0305\u0306\u0307", "ab", "x".repeat(31), "   "])
+      expect((await api("PATCH", "/me/profile", a.token, { displayName })).body.error.code).toBe("VALIDATION_ERROR");
+  });
+});
+
 describe("staff and impersonation", () => {
   test("reserved names and fake-official bios are blocked for regular users, allowed for staff", async () => {
     const a = await signup("imp");
-    for (const displayName of ["Admin", "voyalive_help", "Adm1n_raj", "0fficial", "supp0rt", "5taff.x", "offlcial"])
+    for (const displayName of ["Admin", "voyalive_help", "Adm1n_raj", "0fficial", "supp0rt", "5taff.x", "offlcial", "𝓐𝓭𝓶𝓲𝓷", "ᴀᴅᴍɪɴ", "Ⓢⓣⓐⓕⓕ", "аdmin"])
       expect((await api("PATCH", "/me/profile", a.token, { displayName })).body.error.code).toBe("RESERVED_NAME");
     for (const bio of ["Official VoyaLive account", "✅ verified seller", "VoyaLive Support Team", "staff here"])
       expect((await api("PATCH", "/me/profile", a.token, { bio })).body.error.code).toBe("IMPERSONATION");

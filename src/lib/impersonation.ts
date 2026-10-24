@@ -1,9 +1,16 @@
-// Stops regular users posing as app staff. Names are already limited to [A-Za-z0-9_.], so only words and digit swaps matter there.
+// Stops regular users posing as app staff.
 
-// Lowercase, drop separators, fold look-alikes (adm1n, 0fficial, supp0rt, 5taff, offlcial) onto one spelling.
+// Fancy fonts back to plain letters (𝓐𝓭𝓶𝓲𝓷, ⓐⓓⓜⓘⓝ, ＡＤＭＩＮ), lowercase, drop separators, fold look-alikes
+// (adm1n, 0fficial, supp0rt, 5taff, offlcial) onto one spelling.
+// Small caps and Cyrillic look-alikes that NFKD leaves alone.
+const LOOKALIKE: Record<string, string> = Object.fromEntries(
+  [..."ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡʏᴢ"].map((c, i) => [c, "abcdefghijklmnopqrstuvwyz"[i]!]).concat([..."аеорсухіѕ"].map((c, i) => [c, "aeopcyxis"[i]!])),
+);
 const fold = (s: string) =>
   s
+    .normalize("NFKD")
     .toLowerCase()
+    .replace(/./gu, (c) => LOOKALIKE[c] ?? c)
     .replace(/[^a-z0-9]/g, "")
     .replace(/[1l|]/g, "i")
     .replace(/0/g, "o")
