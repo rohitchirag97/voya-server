@@ -1,0 +1,1 @@
+ALTER TABLE "cosmetics" ADD COLUMN "min_svip" integer DEFAULT 0 NOT NULL;

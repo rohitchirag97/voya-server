@@ -1,0 +1,6 @@
+# Host Caddy: copy to /etc/caddy/Caddyfile, replace the domain, then `sudo systemctl reload caddy`.
+# Automatic HTTPS (Let's Encrypt). WebSockets for /socket.io/ are proxied as-is.
+api.example.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:3000
+}

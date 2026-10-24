@@ -1,0 +1,1 @@
+CREATE INDEX "gift_tx_recipient_time" ON "gift_transactions" USING btree ("recipient_id","created_at");

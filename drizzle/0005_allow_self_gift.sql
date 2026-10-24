@@ -1,0 +1,1 @@
+ALTER TABLE "gift_transactions" DROP CONSTRAINT "gift_no_self";

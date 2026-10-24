@@ -1,0 +1,1 @@
+CREATE INDEX "greedy_rounds_created" ON "greedy_rounds" USING btree ("created_at");

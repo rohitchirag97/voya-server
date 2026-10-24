@@ -1,0 +1,1 @@
+ALTER TABLE "room_seats" ADD COLUMN "mod_muted" boolean DEFAULT false NOT NULL;

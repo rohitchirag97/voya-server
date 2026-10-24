@@ -1,0 +1,1163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Greedy</title>
+<style>
+  :root {
+    --bg: #05110c; --glass: rgba(10,30,22,.72); --glass-2: rgba(16,42,31,.82); --raised: rgba(32,66,50,.9);
+    --hair: rgba(255,255,255,.08); --hair-2: rgba(255,255,255,.14);
+    --text: #eef3ee; --muted: #9db3a6; --faint: #6b8476;
+    --gold: #e9c47c; --gold-soft: rgba(233,196,124,.14); --rose: #f0a8bd;
+    --small: rgba(150,205,160,.45); --big: rgba(222,160,108,.5); --up: #86e2b0; --down: #f2a0a0;
+    --r: 14px; --r-sm: 10px;
+    --bg-grad: linear-gradient(180deg, #0b2419 0%, #071710 55%, #040c08 100%);
+    --disc: radial-gradient(circle at 50% 32%, rgba(46,92,68,.95), rgba(9,26,19,.96) 72%);
+    --hub: radial-gradient(circle at 50% 35%, rgba(24,52,39,.95), rgba(6,18,13,.97));
+    --pill: #0a1d15; --card: linear-gradient(180deg, #11291e, #0a1a13); --panel-bg: linear-gradient(180deg, #0b2419, #05110c 40%);
+    --toast: #12291f; --scrim: rgba(3,10,7,.6);
+  }
+  /* Galaxy: deep space blues and violets; gold stays the colour of money. */
+  .galaxy {
+    --bg: #060818; --glass: rgba(16,20,48,.72); --glass-2: rgba(24,30,70,.82); --raised: rgba(46,54,116,.9);
+    --text: #eef0ff; --muted: #a9aed8; --faint: #6f75a8;
+    --small: rgba(140,190,255,.5); --big: rgba(196,150,255,.55);
+    --bg-grad: linear-gradient(180deg, #0d1233 0%, #080b22 55%, #04050f 100%);
+    --disc: radial-gradient(circle at 50% 30%, rgba(48,58,128,.95), rgba(8,10,30,.97) 72%);
+    --hub: radial-gradient(circle at 50% 35%, rgba(30,36,86,.95), rgba(6,8,24,.97));
+    --pill: #0b0e26; --card: linear-gradient(180deg, #161b46, #0b0e28); --panel-bg: linear-gradient(180deg, #0d1233, #05060f 40%);
+    --toast: #171c48; --scrim: rgba(3,4,14,.6);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+  html, body { margin: 0; height: 100%; color: var(--text); font: 500 14px/1.35 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-variant-numeric: tabular-nums; }
+  body { background: var(--bg-grad); display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; overflow: hidden; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .micro { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  /* Tablets: keep the game a phone-width column. */
+  body > header, body > .recent, body > .stage, body > .dock { width: 100%; max-width: 640px; margin-inline: auto; position: relative; z-index: 1; }
+
+  .jungle .bg-galaxy, .galaxy .bg-jungle { display: none; }
+  /* Galaxy backdrop: nebula glow, a starfield (filled in by script), a big planet rising from one corner. */
+  .nebula { position: fixed; inset: 0; pointer-events: none; z-index: 0;
+            background: radial-gradient(45% 30% at 20% 22%, rgba(122,92,255,.22), transparent 70%), radial-gradient(40% 28% at 85% 70%, rgba(40,190,220,.14), transparent 70%), radial-gradient(60% 40% at 50% 42%, rgba(233,196,124,.06), transparent 70%); }
+  .stars { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+  .stars .tw { animation: twinkle 3.5s ease-in-out infinite; }
+  @keyframes twinkle { 0%, 100% { opacity: .15; } 50% { opacity: .9; } }
+  .giant { position: fixed; left: -18vmin; bottom: -24vmin; width: 62vmin; height: 62vmin; border-radius: 50%; pointer-events: none; z-index: 0; opacity: .55;
+           background: radial-gradient(circle at 62% 30%, #5a63c9, #23286b 55%, #0b0d2b 80%); box-shadow: 0 0 60px rgba(122,132,255,.25); }
+  @media (prefers-reduced-motion: reduce) { .stars .tw { animation: none; } }
+  /* Jungle backdrop: canopy leaves framing the screen, light falling through the middle. */
+  .sunlight { position: fixed; inset: 0; pointer-events: none; z-index: 0; background: radial-gradient(60% 42% at 50% 40%, rgba(233,196,124,.1), transparent 70%); }
+  .corner { position: fixed; width: min(56vw, 300px); height: auto; pointer-events: none; z-index: 0; }
+  .corner.tl { top: 0; left: 0; }
+  .corner.tr { top: 0; right: 0; transform: scaleX(-1); }
+  .corner.bl { bottom: 0; left: 0; }
+  .corner.br { bottom: 0; right: 0; transform: scaleX(-1); }
+  .firefly { position: fixed; width: 4px; height: 4px; border-radius: 50%; background: #f6e7a6; box-shadow: 0 0 8px 2px rgba(246,231,166,.55); opacity: 0; animation: glow 5s ease-in-out infinite; pointer-events: none; z-index: 0; }
+  @keyframes glow { 0%, 100% { opacity: 0; transform: translateY(0); } 50% { opacity: .75; transform: translateY(-10px); } }
+  @media (prefers-reduced-motion: reduce) { .firefly { animation: none; opacity: .4; } }
+
+  /* Header */
+  header { display: flex; align-items: center; gap: 6px; }
+  header .spacer { flex: 1; }
+  /* One panel for the whole recent-results row; the animals sit on it without their own backgrounds. */
+  .recent { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 8px; border-radius: 16px; background: var(--glass); border: 1px solid var(--hair); backdrop-filter: blur(8px); }
+  .recent .strip { min-width: 0; }
+  .recent .ghost { border: 0; background: none; flex: none; }
+  .balance { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px 0 10px; border-radius: 17px; background: var(--glass); border: 1px solid var(--hair); font-weight: 600; backdrop-filter: blur(8px); }
+  .balance svg { width: 16px; height: 16px; color: var(--gold); }
+  [hidden] { display: none !important; }
+  .ghost { width: 34px; height: 34px; border-radius: 17px; border: 1px solid var(--hair); background: var(--glass); display: grid; place-items: center; color: var(--muted); backdrop-filter: blur(8px); }
+  .ghost:active { background: var(--glass-2); color: var(--text); }
+
+  /* Recent results */
+  .strip { flex: 1; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(90deg, #000 88%, transparent); }
+  .strip::-webkit-scrollbar { display: none; }
+  .strip span { flex: none; position: relative; width: 34px; height: 38px; display: grid; place-items: center; }
+  .strip .art { width: 28px; height: 28px; }
+  .strip span:first-child::after { content: ""; position: absolute; bottom: 1px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--gold); } /* newest */
+
+  /* Arena: 8 animals on a circular track around the timer hub. */
+  /* Stage adapts to its shape: wide → legends beside the circle; tall → circle full width, legends in one line below. */
+  .stage { --side: 78px; flex: 1; min-height: 0; container-type: size; }
+  .stage-in { height: 100%; display: grid; grid-template-columns: var(--side) auto var(--side); grid-template-areas: "l a r"; align-items: center; justify-content: center; }
+  .arena { grid-area: a; position: relative; width: min(100cqh, 100cqw - 2 * var(--side)); aspect-ratio: 1; }
+  .side { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; color: var(--faint); font-size: 10.5px; line-height: 1.25; }
+  .side:first-child { grid-area: l; }
+  .side:last-child { grid-area: r; }
+  .side .art { width: 26px; height: 26px; margin-bottom: 2px; }
+  .side b { color: var(--muted); font-weight: 600; font-size: 11.5px; }
+  @container (orientation: portrait) {
+    .stage-in { grid-template-columns: auto auto; grid-template-areas: "a a" "l r"; align-content: center; column-gap: 10px; row-gap: 10px; }
+    .arena { width: min(100cqw, 100cqh - 34px); }
+    .side { flex-direction: row; gap: 5px; white-space: nowrap; }
+    .side .art { width: 18px; height: 18px; margin: 0; }
+    .side br { display: none; }
+    .side span::before { content: "· "; }
+  }
+  @container (orientation: landscape) and (max-width: 380px) { .side { display: none; } .stage-in { grid-template-columns: auto; grid-template-areas: "a"; } .arena { width: min(100cqh, 100cqw); } }
+  .track { position: absolute; inset: 12%; border-radius: 50%; border: 1px dashed rgba(233,196,124,.22); }
+  .track::after { content: ""; position: absolute; inset: -9%; border-radius: 50%; background: radial-gradient(circle, rgba(233,196,124,.06), transparent 62%); }
+  .spot { position: absolute; width: 21%; aspect-ratio: 1; transform: translate(-50%, -50%); border: 0; padding: 0; background: none; }
+  .disc { position: absolute; inset: 0; border-radius: 50%; display: grid; place-items: center;
+          background: var(--disc);
+          border: 1.5px solid var(--small); box-shadow: 0 10px 22px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.1);
+          transition: transform .12s, border-color .15s, box-shadow .15s, opacity .2s; }
+  .spot.big .disc { border-color: var(--big); }
+  .spot:active .disc { transform: scale(.95); }
+  .art { display: block; width: 100%; height: 100%; }
+  .spot .art { width: 68%; height: 68%; filter: drop-shadow(0 4px 6px rgba(0,0,0,.45)); }
+  .spot .mult { position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%); padding: 1px 6px; border-radius: 999px; background: var(--pill); border: 1px solid var(--hair-2); font-size: 10px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+  .spot .mult.high { color: var(--gold); border-color: rgba(233,196,124,.4); }
+  .spot .mine { position: absolute; left: 50%; top: -8px; transform: translateX(-50%); padding: 0 6px; border-radius: 999px; background: var(--gold); color: #2a1d05; font-size: 10px; font-weight: 700; white-space: nowrap; box-shadow: 0 3px 8px rgba(0,0,0,.4); }
+  .spot .mine:empty { display: none; }
+  .spot .mine.won { background: var(--up); color: #062014; }
+  .arena.closed .disc { opacity: .55; }
+  .spot.lit .disc { opacity: 1; border: 2px solid var(--gold); box-shadow: 0 0 0 5px rgba(233,196,124,.16), 0 0 30px rgba(233,196,124,.5); }
+  .spot.lit.special .disc { border-color: var(--rose); box-shadow: 0 0 0 5px rgba(240,168,189,.16), 0 0 30px rgba(240,168,189,.5); }
+  .spot.win .disc { animation: breathe .6s ease-in-out 3 alternate; }
+  @keyframes breathe { to { transform: scale(1.06); } }
+
+  .hub { position: absolute; left: 50%; top: 50%; width: 37%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; display: grid; place-items: center; text-align: center;
+         background: var(--hub); box-shadow: 0 14px 34px rgba(0,0,0,.55), inset 0 0 0 1px var(--hair); }
+  .hub svg { position: absolute; inset: 6%; width: 88%; height: 88%; transform: rotate(-90deg); }
+  .hub circle { fill: none; }
+  .hub .track-c { stroke: var(--hair-2); stroke-width: 1.5; }
+  .hub .prog { stroke: var(--gold); stroke-width: 2.5; stroke-linecap: round; transition: stroke-dashoffset .2s linear; }
+  .hub .big { font-size: clamp(18px, 9cqmin, 36px); font-weight: 300; line-height: 1; letter-spacing: -.02em; }
+  .hub .small { margin-top: 3px; font-size: 9px; }
+  .hub .mybet { margin-top: 3px; font-size: 10.5px; color: var(--gold); font-weight: 600; }
+  .hub .mybet:empty { display: none; }
+
+  /* Footer */
+  .dock { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 4px; border-radius: var(--r); background: var(--glass); border: 1px solid var(--hair); backdrop-filter: blur(10px); }
+  .seg { height: 34px; border: 0; border-radius: var(--r-sm); background: none; color: var(--muted); font-weight: 600; font-size: 13.5px; }
+  .seg[aria-pressed="true"] { background: var(--raised); color: var(--gold); box-shadow: inset 0 0 0 1px rgba(233,196,124,.4); }
+  .seg.custom { display: flex; align-items: center; padding: 0 4px; }
+  .seg.custom input { width: 100%; border: 0; outline: 0; background: none; color: inherit; font: inherit; text-align: center; padding: 0; user-select: text; -moz-appearance: textfield; }
+  .seg.custom input::placeholder { color: var(--faint); }
+  .seg.custom input::-webkit-outer-spin-button, .seg.custom input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+  /* Round result: appears after the spin, then hides by itself. */
+  .result { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; padding: 24px; background: var(--scrim); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 0; pointer-events: none; transition: opacity .25s; }
+  .result.show { opacity: 1; pointer-events: auto; }
+  /* Compact, horizontal result card so it fits the short panel. */
+  .card { width: min(400px, 100%); background: var(--card); border: 1px solid var(--hair-2); border-radius: 16px; padding: 12px 14px 10px; box-shadow: 0 18px 40px rgba(0,0,0,.6); transform: translateY(6px); transition: transform .25s; }
+  .result.show .card { transform: none; }
+  .card-head { display: flex; align-items: center; gap: 12px; }
+  .card .medal { width: 64px; height: 64px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--disc); box-shadow: inset 0 0 0 1.5px rgba(233,196,124,.55); }
+  .card .medal .art { width: 48px; height: 48px; }
+  .mybets { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--hair); }
+  .mybets .bets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .bet { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px 3px 4px; border-radius: 999px; background: var(--glass-2); border: 1px solid var(--hair); font-size: 12px; font-weight: 600; }
+  .bet .art { width: 20px; height: 20px; }
+  .bet.won { color: var(--up); background: rgba(134,226,176,.1); border-color: rgba(134,226,176,.45); }
+  .card .medal.special { box-shadow: inset 0 0 0 1.5px rgba(240,168,189,.6); }
+  .card-title { flex: 1; min-width: 0; }
+  .card .what { font-size: 15px; font-weight: 600; }
+  .card .sub { color: var(--muted); font-size: 11.5px; }
+  .card .sub:empty { display: none; }
+  .card .you { text-align: right; flex: none; }
+  .card .you .amt { font-size: 20px; font-weight: 600; }
+  .card .you .amt.up { color: var(--up); }
+  .card .you .amt.down { color: var(--down); }
+  .card .you .amt.none { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .card .top { list-style: none; margin: 10px 0 0; padding: 4px 0 0; border-top: 1px solid var(--hair); }
+  .card .top:empty { display: none; }
+  .card .foot { margin-top: 6px; color: var(--faint); font-size: 11px; text-align: center; }
+
+  /* Rows shared by the result card and the sheet */
+  .row { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--hair); }
+  .row:last-child { border-bottom: 0; }
+  .card .row { padding: 4px 0; border: 0; gap: 10px; font-size: 13px; }
+  .row.me { background: var(--gold-soft); border-radius: var(--r-sm); padding-inline: 10px; border-bottom-color: transparent; }
+  .rank { width: 20px; text-align: center; color: var(--faint); font-weight: 600; font-size: 12.5px; flex: none; }
+  .rank.top3 { color: var(--gold); }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--raised); color: var(--muted); display: grid; place-items: center; overflow: hidden; flex: none; font-size: 12px; font-weight: 600; }
+  .card .avatar { width: 22px; height: 22px; font-size: 10px; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .name .sub2 { display: block; font-size: 11.5px; color: var(--faint); }
+  .amount { font-weight: 600; color: var(--gold); flex: none; }
+  .amount.zero { color: var(--faint); font-weight: 500; }
+  .dish-row .emoji { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--glass-2); border: 1px solid var(--hair); flex: none; }
+  .dish-row .art { width: 22px; height: 22px; }
+  .dish-row.special .emoji { border-color: rgba(240,168,189,.55); }
+  .dish-row .when { color: var(--faint); font-size: 12px; flex: none; }
+
+  /* Sheet: Today + History */
+  .panel { position: fixed; inset: 0; z-index: 4; display: flex; flex-direction: column; gap: 14px; background: var(--panel-bg); padding: 14px 16px; transform: translateY(100%); transition: transform .28s cubic-bezier(.2,.8,.2,1); }
+  .panel.show { transform: none; }
+  .panel > * { width: 100%; max-width: 500px; margin-inline: auto; }
+  /* Help page */
+  .help { z-index: 5; }
+  .help .panel-head h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 600; }
+  .help-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; padding-bottom: 12px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+  .help-body b { color: var(--text); font-weight: 600; }
+  .help-body .lead { margin: 0 0 14px; color: var(--text); }
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
+  .step-head { display: flex; align-items: center; gap: 10px; }
+  .step .num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--gold); color: #2a1d05; font-size: 12px; font-weight: 700; flex: none; }
+  .step h3 { margin: 0; font-size: 14.5px; color: var(--text); font-weight: 600; }
+  .step p { margin: 6px 0 8px 34px; }
+  .step img { display: block; width: 100%; border-radius: 12px; border: 1px solid var(--hair-2); }
+  .help .sec { margin: 22px 0 8px; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .pays { display: flex; flex-direction: column; border: 1px solid var(--hair); border-radius: 12px; background: var(--glass); }
+  .pay { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--hair); color: var(--text); }
+  .pay:last-child { border-bottom: 0; }
+  .pay .art { width: 26px; height: 26px; flex: none; }
+  .pay span { flex: 1; margin-left: 4px; }
+  .pay > b { color: var(--gold); }
+  .pay b.plain { color: var(--text); }
+  .note { margin: 6px 2px 0; font-size: 12px; color: var(--faint); }
+  .facts { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+  .facts .i { width: 15px; height: 15px; vertical-align: -3px; color: var(--text); }
+  .panel-head { display: flex; align-items: center; gap: 10px; }
+  #panelTitle { flex: 1; margin: 0; font-size: 16px; font-weight: 600; }
+  .view { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; }
+  .view[hidden] { display: none; }
+  .summary { color: var(--muted); font-size: 12px; text-align: center; padding-bottom: 4px; }
+  .list { flex: 1; overflow-y: auto; scrollbar-width: none; margin: 0; padding: 0; list-style: none; }
+  .empty { text-align: center; color: var(--faint); padding: 36px 0; border: 0; }
+  .load-more { height: 40px; border: 1px solid var(--hair); border-radius: var(--r-sm); background: var(--glass); color: var(--muted); font-weight: 600; }
+  .load-more:disabled { opacity: .5; }
+  #todayMe .row { margin-top: 6px; }
+
+  /* Bet feedback: "+100" floats up from the spot you tapped (both games). */
+  .float { position: absolute; left: 50%; top: 10%; transform: translateX(-50%); font-size: 12px; font-weight: 700; color: var(--gold); pointer-events: none; text-shadow: 0 2px 6px rgba(0,0,0,.6); animation: floatUp .9s ease-out forwards; z-index: 40; }
+  @keyframes floatUp { from { opacity: 1; transform: translate(-50%, 0); } to { opacity: 0; transform: translate(-50%, -26px); } }
+  /* Last seconds of betting: the timer ring turns red. */
+  .hub.hurry .prog { stroke: #ff8a7a; }
+
+  /* ===== Galaxy layout: a tilted solar system. Planets float on an elliptical orbit around the Sun (the timer),
+     nearer planets drawn bigger; a comet runs the orbit on the spin. ===== */
+  .galaxy .arena { aspect-ratio: 1.1; width: min(100cqh * 1.1, 100cqw - 2 * var(--side)); }
+  @container (orientation: portrait) { .galaxy .arena { width: min(100cqw, (100cqh - 34px) * 1.1); } }
+  .orbit-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .orbit-lines ellipse { fill: none; vector-effect: non-scaling-stroke; }
+  .orbit-lines .o1 { stroke: rgba(170,185,255,.38); stroke-width: 1.4; }
+  .orbit-lines .o2 { stroke: rgba(170,185,255,.12); stroke-width: 1; stroke-dasharray: 2 6; }
+  .spot.planet { width: calc(19% * var(--s)); aspect-ratio: 1; }
+  .spot.planet .glow { position: absolute; inset: -16%; border-radius: 50%; opacity: .6; transition: opacity .15s, background .15s;
+                       background: radial-gradient(circle, rgba(130,170,255,.32), transparent 64%); }
+  .spot.planet.big .glow { background: radial-gradient(circle, rgba(190,140,255,.36), transparent 64%); }
+  .spot.planet .art { position: relative; width: 100%; height: 100%; filter: drop-shadow(0 8px 14px rgba(0,0,0,.6)); transition: transform .15s, opacity .2s; }
+  .spot.planet:active .art { transform: scale(.94); }
+  .arena.closed .spot.planet .art { opacity: .5; }
+  .spot.planet.lit .art { opacity: 1; transform: scale(1.14); }
+  .spot.planet.lit .glow { opacity: 1; background: radial-gradient(circle, rgba(255,214,120,.8), transparent 66%); }
+  .spot.planet.lit.special .glow { background: radial-gradient(circle, rgba(255,140,190,.75), transparent 66%); }
+  .spot.planet.win::after { content: ""; position: absolute; inset: -6%; border-radius: 50%; border: 2px solid var(--gold); animation: shock 1.1s ease-out 2; pointer-events: none; }
+  .spot.planet.win.special::after { border-color: var(--rose); }
+  @keyframes shock { from { transform: scale(.85); opacity: 1; } to { transform: scale(1.9); opacity: 0; } }
+  .spot.planet .mult { bottom: -9px; }
+  .galaxy .spot .mult.high { background: linear-gradient(90deg, #fff0c4, #e9b84c 50%, #fff0c4); background-size: 200% 100%; color: #2a1700; border: 0; font-weight: 800; animation: foil 2.6s linear infinite; }
+  @keyframes foil { to { background-position: -200% 0; } }
+  .comet { position: absolute; width: 4.5%; aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%); z-index: 30; opacity: 0; pointer-events: none;
+           background: radial-gradient(circle, #fff 0 22%, #ffe08a 45%, transparent 72%); box-shadow: 0 0 18px 6px rgba(255,214,120,.55);
+           transition: left .09s linear, top .09s linear, opacity .3s; }
+  .comet.on { opacity: 1; }
+  /* The Sun: the countdown lives on it. */
+  .galaxy .hub { width: 29%; background: radial-gradient(circle at 42% 38%, #fff6cf, #ffc54d 45%, #f07a1c 82%);
+                 box-shadow: 0 0 40px 10px rgba(255,170,60,.35), 0 0 120px 34px rgba(255,140,40,.16); animation: sunpulse 3.2s ease-in-out infinite; }
+  .galaxy .hub.hurry { background: radial-gradient(circle at 42% 38%, #ffe3c4, #ff8a4d 45%, #e2401c 82%); animation-duration: .8s; }
+  @keyframes sunpulse { 50% { box-shadow: 0 0 52px 16px rgba(255,170,60,.45), 0 0 140px 40px rgba(255,140,40,.2); } }
+  .galaxy .hub .big { color: #3b1a00; font-weight: 600; }
+  .galaxy .hub .small { color: rgba(59,26,0,.72); }
+  .galaxy .hub .mybet { color: #5a2600; }
+  .galaxy .hub .track-c { stroke: rgba(255,255,255,.35); }
+  .galaxy .hub .prog { stroke: #fff; }
+  .galaxy .hub.hurry .prog { stroke: #fff; }
+  @media (prefers-reduced-motion: reduce) { .galaxy .hub, .galaxy .spot .mult.high { animation: none; } }
+  /* Glowing pill chips instead of the jungle's segmented bar. */
+  .galaxy .dock { background: none; border: 0; backdrop-filter: none; padding: 0; gap: 8px; }
+  .galaxy .seg { height: 38px; border-radius: 999px; background: rgba(20,24,62,.7); box-shadow: inset 0 0 0 1px rgba(140,160,255,.28); }
+  .galaxy .seg[aria-pressed="true"] { background: linear-gradient(135deg, #7c5cff, #3aa0ff); color: #fff; box-shadow: 0 0 18px rgba(124,92,255,.55); }
+
+  .toast { position: fixed; z-index: 6; left: 50%; bottom: 54px; transform: translate(-50%, 6px); background: var(--toast); border: 1px solid var(--hair-2); padding: 9px 14px; border-radius: 12px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: calc(100% - 32px); text-align: center; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+  <!-- Galaxy backdrop -->
+  <div class="bg-galaxy" aria-hidden="true">
+    <div class="nebula"></div>
+    <svg class="stars" id="stars" preserveAspectRatio="none"></svg>
+    <div class="giant"></div>
+  </div>
+  <div class="bg-jungle">
+  <!-- Jungle backdrop: foliage pinned to each corner (so it frames phones and wide tablets alike), light in the middle. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="leafA" x1="0" x2="1"><stop offset="0" stop-color="#17432e"/><stop offset="1" stop-color="#0d2b1e"/></linearGradient>
+      <linearGradient id="leafB" x1="0" x2="1"><stop offset="0" stop-color="#1d5038"/><stop offset="1" stop-color="#113524"/></linearGradient>
+      <g id="leaf"><path d="M0 0C38-26 112-28 168 0C112 28 38 26 0 0Z"/><path d="M6 0H160" stroke="rgba(0,0,0,.28)" stroke-width="1.5" fill="none"/></g>
+      <g id="frond"><use href="#leaf" transform="scale(.7)"/><use href="#leaf" transform="translate(40 0) rotate(-34) scale(.55)"/><use href="#leaf" transform="translate(40 0) rotate(34) scale(.55)"/><use href="#leaf" transform="translate(80 0) rotate(-30) scale(.45)"/><use href="#leaf" transform="translate(80 0) rotate(30) scale(.45)"/></g>
+      <g id="canopy">
+        <path d="M64 0C58 70 88 120 74 200" stroke="#163a29" stroke-width="2.5" fill="none" opacity=".8"/>
+        <g fill="url(#leafB)" opacity=".8"><use href="#leaf" transform="translate(-30 110) rotate(-8) scale(.95)"/></g>
+        <g fill="url(#leafA)" opacity=".95"><use href="#frond" transform="translate(-20 30) rotate(18)"/><use href="#leaf" transform="translate(-10 -10) rotate(38) scale(1.1)"/></g>
+      </g>
+      <g id="undergrowth" fill="url(#leafA)" opacity=".9">
+        <use href="#leaf" transform="translate(-10 170) rotate(-20) scale(.9)"/>
+        <use href="#frond" transform="translate(-20 260) rotate(-42) scale(1.2)"/>
+      </g>
+    </defs>
+  </svg>
+  <div class="sunlight" aria-hidden="true"></div>
+  <svg class="corner tl" viewBox="0 0 220 260" aria-hidden="true"><use href="#canopy"/></svg>
+  <svg class="corner tr" viewBox="0 0 220 260" aria-hidden="true"><use href="#canopy"/></svg>
+  <svg class="corner bl" viewBox="0 0 220 260" aria-hidden="true"><use href="#undergrowth"/></svg>
+  <svg class="corner br" viewBox="0 0 220 260" aria-hidden="true"><use href="#undergrowth"/></svg>
+  <span class="firefly" style="left:14%;top:30%;animation-delay:0s"></span>
+  <span class="firefly" style="left:84%;top:24%;animation-delay:1.6s"></span>
+  <span class="firefly" style="left:10%;top:66%;animation-delay:3.1s"></span>
+  <span class="firefly" style="left:90%;top:58%;animation-delay:2.2s"></span>
+  <span class="firefly" style="left:50%;top:14%;animation-delay:4s"></span>
+  </div>
+  <!-- Line icons, referenced with <use>. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v9M9.5 10c0-1.2 1.1-2 2.5-2s2.5.7 2.5 1.8c0 2.6-5 1.6-5 4.3 0 1.1 1.1 1.9 2.5 1.9s2.5-.8 2.5-2"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0V4z"/><path d="M8 6H5a2 2 0 0 0 2 3.5M16 6h3a2 2 0 0 1-2 3.5M12 13v4M9 20h6M10 17h4"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 4v4.5h4.5M12 8v4l2.8 1.8"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.6a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.6"/><path d="M12 16.8v.2"/></symbol>
+    <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9.5h3l4.5-4v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9.5h3l4.5-4v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></symbol>
+    <symbol id="i-min" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  </svg>
+
+  <!-- Animal art: drawn here (not emoji) so every device shows the same pictures. Symbol id = "a-" + outcome id. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <clipPath id="zebra-head"><ellipse cx="32" cy="35" rx="14" ry="19"/></clipPath>
+      <!-- 0 Rabbit -->
+      <symbol id="a-0" viewBox="0 0 64 64">
+        <g transform="rotate(-10 23 22)"><ellipse cx="23" cy="16" rx="6.5" ry="14" fill="#e6e2ee"/><ellipse cx="23" cy="17" rx="3.2" ry="10" fill="#f1b3c4"/></g>
+        <g transform="rotate(10 41 22)"><ellipse cx="41" cy="16" rx="6.5" ry="14" fill="#e6e2ee"/><ellipse cx="41" cy="17" rx="3.2" ry="10" fill="#f1b3c4"/></g>
+        <circle cx="32" cy="40" r="17" fill="#f3f1f7"/>
+        <ellipse cx="32" cy="47" rx="9" ry="6.5" fill="#ffffff"/>
+        <circle cx="25" cy="37.5" r="2.4" fill="#2b2433"/><circle cx="39" cy="37.5" r="2.4" fill="#2b2433"/>
+        <circle cx="25.8" cy="36.7" r=".8" fill="#fff"/><circle cx="39.8" cy="36.7" r=".8" fill="#fff"/>
+        <path d="M29.6 43.5h4.8L32 46.4z" fill="#e7849f"/>
+        <path d="M32 46.4v2.2M32 48.6q-2.4 1.8-4 0M32 48.6q2.4 1.8 4 0" stroke="#b9a9c4" stroke-width="1.1" fill="none" stroke-linecap="round"/>
+        <circle cx="20.5" cy="44" r="3" fill="#f6c3d2" opacity=".7"/><circle cx="43.5" cy="44" r="3" fill="#f6c3d2" opacity=".7"/>
+      </symbol>
+      <!-- 1 Monkey -->
+      <symbol id="a-1" viewBox="0 0 64 64">
+        <circle cx="13" cy="33" r="7.5" fill="#8a5a3c"/><circle cx="13" cy="33" r="4.2" fill="#e9c39d"/>
+        <circle cx="51" cy="33" r="7.5" fill="#8a5a3c"/><circle cx="51" cy="33" r="4.2" fill="#e9c39d"/>
+        <circle cx="32" cy="32" r="19" fill="#9c6646"/>
+        <path d="M32 25.5c-3-5-13.5-4.5-13.5 3.5 0 2.6.9 4.6 2.2 6-2 1.9-3.2 4.3-3.2 7.2C17.5 49 24.4 53 32 53s14.5-4 14.5-10.8c0-2.9-1.2-5.3-3.2-7.2 1.3-1.4 2.2-3.4 2.2-6 0-8-10.5-8.5-13.5-3.5z" fill="#f0cfa8"/>
+        <circle cx="25.5" cy="31" r="2.4" fill="#2b2018"/><circle cx="38.5" cy="31" r="2.4" fill="#2b2018"/>
+        <circle cx="26.3" cy="30.2" r=".8" fill="#fff"/><circle cx="39.3" cy="30.2" r=".8" fill="#fff"/>
+        <ellipse cx="29.6" cy="40" rx="1.3" ry="1.1" fill="#6b4630"/><ellipse cx="34.4" cy="40" rx="1.3" ry="1.1" fill="#6b4630"/>
+        <path d="M26 45q6 5 12 0" stroke="#6b4630" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+        <path d="M27 14q5-5 10 0" stroke="#7a4d33" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      </symbol>
+      <!-- 2 Parrot -->
+      <symbol id="a-2" viewBox="0 0 64 64">
+        <path d="M18 60c-4-9-3-20 4-26l20 2c3 9 0 18-6 24z" fill="#2fae6a"/>
+        <path d="M20 58c2-7 7-12 14-13l2 14c-6 2-11 1-16-1z" fill="#2b7fd0"/>
+        <path d="M22 18c-3-7 1-12 6-12-1 4 0 8 3 10z" fill="#f5c84b"/>
+        <path d="M27 15c0-7 6-10 11-9-3 3-3 7-3 10z" fill="#2b7fd0"/>
+        <circle cx="31" cy="30" r="15" fill="#e2453c"/>
+        <path d="M18 34c4 6 12 8 18 4" stroke="#c2352d" stroke-width="2" fill="none" stroke-linecap="round" opacity=".7"/>
+        <circle cx="33" cy="26" r="5.4" fill="#fff"/><circle cx="34.2" cy="26" r="2.6" fill="#1d1d24"/><circle cx="35" cy="25.2" r=".8" fill="#fff"/>
+        <path d="M42 22c9-1 14 5 12 14-2-3-5-5-10-4.5z" fill="#3b3b46"/>
+        <path d="M43.5 31.5c4.5 0 6.5 2.2 6.5 4.5-3.5 1-7 0-8-2z" fill="#5a5a66"/>
+      </symbol>
+      <!-- 3 Turtle -->
+      <symbol id="a-3" viewBox="0 0 64 64">
+        <ellipse cx="20" cy="47" rx="5" ry="4" fill="#79c47f"/><ellipse cx="44" cy="47" rx="5" ry="4" fill="#79c47f"/>
+        <path d="M52 41l7 2-7 3z" fill="#79c47f"/>
+        <circle cx="10.5" cy="37" r="7" fill="#86d08b"/>
+        <circle cx="8.5" cy="35.5" r="1.7" fill="#22301f"/><circle cx="8.9" cy="35" r=".55" fill="#fff"/>
+        <path d="M6 40q2.5 1.6 5 0" stroke="#3e7a44" stroke-width="1.1" fill="none" stroke-linecap="round"/>
+        <path d="M14 44c0-12 8-22 19-22s19 10 19 22z" fill="#3c9658"/>
+        <path d="M33 25l6 4v7l-6 4-6-4v-7z M20 33l5 3v6h-9c0-3 1.5-6.5 4-9z M46 33c2.5 2.5 4 6 4 9h-9v-6z M27 40l6 4h-12z M39 40l6 4H33z" fill="#5dbb72"/>
+        <rect x="12" y="43" width="42" height="4" rx="2" fill="#2d7043"/>
+      </symbol>
+      <!-- 4 Zebra -->
+      <symbol id="a-4" viewBox="0 0 64 64">
+        <path d="M20 22l-3-14 9 8z" fill="#f2f2f5"/><path d="M44 22l3-14-9 8z" fill="#f2f2f5"/>
+        <path d="M18.6 13l-1.6-5 4.6 4z M45.4 13l1.6-5-4.6 4z" fill="#26262c"/>
+        <path d="M24 16c2-6 4-9 8-9s6 3 8 9c-3-2-5-2-8-2s-5 0-8 2z" fill="#26262c"/>
+        <ellipse cx="32" cy="35" rx="14" ry="19" fill="#f4f4f7"/>
+        <g clip-path="url(#zebra-head)" fill="#26262c">
+          <path d="M18 20q14 6 28 0v3q-14 6-28 0z M17 27q8 3 11 1l-1 3q-5 1-10-1z M47 27q-8 3-11 1l1 3q5 1 10-1z M17 34q6 2 9 0l-.5 3q-4 1.5-8.5-.5z M47 34q-6 2-9 0l.5 3q4 1.5 8.5-.5z M28 22l2 9h4l2-9q-4 2-8 0z"/>
+        </g>
+        <ellipse cx="32" cy="48" rx="10" ry="7.5" fill="#3a3a42"/>
+        <ellipse cx="28" cy="48" rx="1.6" ry="2.2" fill="#15151a"/><ellipse cx="36" cy="48" rx="1.6" ry="2.2" fill="#15151a"/>
+        <circle cx="24" cy="33" r="2.3" fill="#15151a"/><circle cx="40" cy="33" r="2.3" fill="#15151a"/>
+        <circle cx="24.7" cy="32.3" r=".75" fill="#fff"/><circle cx="40.7" cy="32.3" r=".75" fill="#fff"/>
+      </symbol>
+      <!-- 5 Elephant -->
+      <symbol id="a-5" viewBox="0 0 64 64">
+        <ellipse cx="14" cy="29" rx="12" ry="15" fill="#9aa3b6"/><ellipse cx="15" cy="29.5" rx="7.5" ry="10.5" fill="#c4a9b9"/>
+        <ellipse cx="50" cy="29" rx="12" ry="15" fill="#9aa3b6"/><ellipse cx="49" cy="29.5" rx="7.5" ry="10.5" fill="#c4a9b9"/>
+        <circle cx="32" cy="28" r="15.5" fill="#b0b8ca"/>
+        <path d="M27 34c0 8-.5 14 1.5 18.5 1.6 3.6 7.5 3.4 8-.8.3-2.8-2.6-3.3-3-1.2-.3-3.5-.5-9-.5-16.5z" fill="#b0b8ca"/>
+        <path d="M28 50q2 2.4 4.6 1.2" stroke="#8e97aa" stroke-width="1" fill="none"/>
+        <path d="M25 39q-3.5 6 1.5 10" stroke="#fbf3e2" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <path d="M39 39q3.5 6-1.5 10" stroke="#fbf3e2" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <circle cx="25" cy="26" r="2.3" fill="#23232c"/><circle cx="39" cy="26" r="2.3" fill="#23232c"/>
+        <circle cx="25.7" cy="25.3" r=".75" fill="#fff"/><circle cx="39.7" cy="25.3" r=".75" fill="#fff"/>
+      </symbol>
+      <!-- 6 Rhino -->
+      <symbol id="a-6" viewBox="0 0 64 64">
+        <ellipse cx="18" cy="15" rx="4.5" ry="7" transform="rotate(-25 18 15)" fill="#8c8994"/><ellipse cx="18" cy="15.5" rx="2.2" ry="4.4" transform="rotate(-25 18 15)" fill="#c2b3b8"/>
+        <ellipse cx="46" cy="15" rx="4.5" ry="7" transform="rotate(25 46 15)" fill="#8c8994"/><ellipse cx="46" cy="15.5" rx="2.2" ry="4.4" transform="rotate(25 46 15)" fill="#c2b3b8"/>
+        <path d="M14 31c0-10 8-16 18-16s18 6 18 16v8c0 9-8 16-18 16s-18-7-18-16z" fill="#8f8c97"/>
+        <ellipse cx="32" cy="46" rx="12.5" ry="8.5" fill="#a6a3ad"/>
+        <path d="M33.5 21L36 30h-5z" fill="#e7dfcf"/>
+        <path d="M32 18c2.5 7 5.5 15 6.5 22h-13c1-7 4-15 6.5-22z" fill="#efe7d6"/>
+        <path d="M32 18c1.5 7 2 15 1.8 22" stroke="#d7cbb3" stroke-width="1" fill="none"/>
+        <circle cx="21.5" cy="33" r="2" fill="#22222a"/><circle cx="42.5" cy="33" r="2" fill="#22222a"/>
+        <circle cx="22.1" cy="32.4" r=".65" fill="#fff"/><circle cx="43.1" cy="32.4" r=".65" fill="#fff"/>
+        <ellipse cx="27.5" cy="48" rx="1.6" ry="1.2" fill="#6f6c77"/><ellipse cx="36.5" cy="48" rx="1.6" ry="1.2" fill="#6f6c77"/>
+      </symbol>
+      <!-- 7 Lion -->
+      <symbol id="a-7" viewBox="0 0 64 64">
+        <g fill="#c06f2b">
+          <circle cx="32" cy="32" r="22"/>
+          <circle cx="54" cy="32" r="7"/><circle cx="51" cy="43" r="7"/><circle cx="43" cy="51" r="7"/><circle cx="32" cy="54" r="7"/><circle cx="21" cy="51" r="7"/><circle cx="13" cy="43" r="7"/>
+          <circle cx="10" cy="32" r="7"/><circle cx="13" cy="21" r="7"/><circle cx="21" cy="13" r="7"/><circle cx="32" cy="10" r="7"/><circle cx="43" cy="13" r="7"/><circle cx="51" cy="21" r="7"/>
+        </g>
+        <circle cx="21" cy="20" r="5" fill="#f2b84b"/><circle cx="21" cy="20" r="2.5" fill="#d9903a"/>
+        <circle cx="43" cy="20" r="5" fill="#f2b84b"/><circle cx="43" cy="20" r="2.5" fill="#d9903a"/>
+        <circle cx="32" cy="34" r="16" fill="#f2b84b"/>
+        <circle cx="26" cy="31" r="2.3" fill="#2c1d12"/><circle cx="38" cy="31" r="2.3" fill="#2c1d12"/>
+        <circle cx="26.7" cy="30.3" r=".75" fill="#fff"/><circle cx="38.7" cy="30.3" r=".75" fill="#fff"/>
+        <ellipse cx="28.5" cy="41" rx="4.6" ry="3.6" fill="#fbe3b0"/><ellipse cx="35.5" cy="41" rx="4.6" ry="3.6" fill="#fbe3b0"/>
+        <path d="M28.8 36.5h6.4L32 40z" fill="#5a3826"/>
+        <path d="M32 40v2.5" stroke="#5a3826" stroke-width="1.2" stroke-linecap="round"/>
+      </symbol>
+      <!-- 8 Meadow: all small animals win -->
+      <symbol id="a-8" viewBox="0 0 64 64">
+        <path d="M32 36v22" stroke="#3f9a58" stroke-width="3" stroke-linecap="round"/>
+        <path d="M32 50c-6-1-11-5-12-10 6 0 10 3 12 8z" fill="#5dbb72"/><path d="M32 46c6-1 10-4 11-9-6 0-9.5 3-11 7z" fill="#4aa862"/>
+        <g fill="#f7f3fb">
+          <ellipse cx="32" cy="14" rx="7" ry="10"/><ellipse cx="32" cy="14" rx="7" ry="10" transform="rotate(72 32 26)"/>
+          <ellipse cx="32" cy="14" rx="7" ry="10" transform="rotate(144 32 26)"/><ellipse cx="32" cy="14" rx="7" ry="10" transform="rotate(216 32 26)"/>
+          <ellipse cx="32" cy="14" rx="7" ry="10" transform="rotate(288 32 26)"/>
+        </g>
+        <g fill="#f1c6dc" opacity=".55">
+          <ellipse cx="32" cy="16" rx="3" ry="6"/><ellipse cx="32" cy="16" rx="3" ry="6" transform="rotate(72 32 26)"/><ellipse cx="32" cy="16" rx="3" ry="6" transform="rotate(144 32 26)"/>
+          <ellipse cx="32" cy="16" rx="3" ry="6" transform="rotate(216 32 26)"/><ellipse cx="32" cy="16" rx="3" ry="6" transform="rotate(288 32 26)"/>
+        </g>
+        <circle cx="32" cy="26" r="6.5" fill="#f2b84b"/><circle cx="30" cy="24" r="2" fill="#f8d47e"/>
+      </symbol>
+      <!-- 9 Kingdom: all big animals win -->
+      <symbol id="a-9" viewBox="0 0 64 64">
+        <path d="M10 46L7 20l14 11 11-17 11 17 14-11-3 26z" fill="#e9c47c"/>
+        <path d="M10 46L7 20l14 11 11-17 11 17 14-11-3 26z" fill="none" stroke="#b8893c" stroke-width="1.5" stroke-linejoin="round"/>
+        <rect x="9" y="45" width="46" height="9" rx="2.5" fill="#d4a650"/>
+        <circle cx="7" cy="20" r="3.2" fill="#f5dd9f"/><circle cx="32" cy="14" r="3.6" fill="#f5dd9f"/><circle cx="57" cy="20" r="3.2" fill="#f5dd9f"/>
+        <circle cx="32" cy="49.5" r="3.4" fill="#e2453c"/><circle cx="20" cy="49.5" r="2.6" fill="#2fae6a"/><circle cx="44" cy="49.5" r="2.6" fill="#2b7fd0"/>
+        <path d="M32 26l4 6-4 6-4-6z" fill="#f08aa8"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <!-- Planet art for the galaxy game. Symbol id = "p-" + outcome id. Shared gradients first. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <radialGradient id="pshade" cx="36%" cy="30%" r="78%"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".5"/></radialGradient>
+      <radialGradient id="g-mercury" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#d9d6de"/><stop offset="1" stop-color="#77737f"/></radialGradient>
+      <radialGradient id="g-venus" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#fbe6b4"/><stop offset="1" stop-color="#c98a43"/></radialGradient>
+      <radialGradient id="g-earth" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#6cc2ff"/><stop offset="1" stop-color="#1b4c9c"/></radialGradient>
+      <radialGradient id="g-mars" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#f59a66"/><stop offset="1" stop-color="#8e2f1d"/></radialGradient>
+      <radialGradient id="g-neptune" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#86b0ff"/><stop offset="1" stop-color="#22389c"/></radialGradient>
+      <radialGradient id="g-uranus" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#c6f6f2"/><stop offset="1" stop-color="#3a9db2"/></radialGradient>
+      <radialGradient id="g-saturn" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#fae6b0"/><stop offset="1" stop-color="#b98a40"/></radialGradient>
+      <radialGradient id="g-sun" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#fff6c8"/><stop offset=".55" stop-color="#ffc847"/><stop offset="1" stop-color="#f08a24"/></radialGradient>
+      <radialGradient id="g-sunglow" cx="50%" cy="50%" r="50%"><stop offset=".5" stop-color="#ffc847" stop-opacity=".45"/><stop offset="1" stop-color="#ffc847" stop-opacity="0"/></radialGradient>
+      <clipPath id="clip-planet"><circle cx="32" cy="32" r="20"/></clipPath>
+
+      <!-- 0 Mercury: grey, cratered -->
+      <symbol id="p-0" viewBox="7 7 50 50">
+        <circle cx="32" cy="32" r="20" fill="url(#g-mercury)"/>
+        <g fill="#5f5b66" opacity=".55"><circle cx="25" cy="26" r="3.5"/><circle cx="38" cy="22" r="2.2"/><circle cx="36" cy="38" r="4.2"/><circle cx="24" cy="40" r="2.4"/><circle cx="44" cy="31" r="1.8"/></g>
+        <g fill="none" stroke="#e8e5ec" stroke-opacity=".35" stroke-width=".8"><circle cx="25" cy="26" r="3.5"/><circle cx="36" cy="38" r="4.2"/></g>
+        <circle cx="32" cy="32" r="20" fill="url(#pshade)"/>
+      </symbol>
+      <!-- 1 Venus: pale gold, soft cloud bands -->
+      <symbol id="p-1" viewBox="7 7 50 50">
+        <circle cx="32" cy="32" r="20" fill="url(#g-venus)"/>
+        <g clip-path="url(#clip-planet)" fill="none" stroke="#fff3d6" stroke-opacity=".45" stroke-width="2.4" stroke-linecap="round">
+          <path d="M10 24c8-4 16 3 24-1s14 1 20 0"/><path d="M10 33c9-3 15 3 24 0s13 2 20 0"/><path d="M12 42c8-2 14 2 22 0s12 1 18 0"/>
+        </g>
+        <circle cx="32" cy="32" r="20" fill="url(#pshade)"/>
+      </symbol>
+      <!-- 2 Earth: blue with continents and clouds -->
+      <symbol id="p-2" viewBox="7 7 50 50">
+        <circle cx="32" cy="32" r="20" fill="url(#g-earth)"/>
+        <g clip-path="url(#clip-planet)">
+          <path d="M18 20c4-3 9-2 11 1 2 4-2 6 1 9 2 3-1 7-5 6-4-1-4-5-7-7-3-2-3-6 0-9z" fill="#4fb36a"/>
+          <path d="M36 34c3-2 8-1 10 2 2 4 0 9-4 10-3 1-5-2-6-5-1-3-2-5 0-7z" fill="#4fb36a"/>
+          <path d="M38 16c3 0 6 2 5 4-2 1-5 0-6-2z" fill="#4fb36a"/>
+          <g fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="2.2" stroke-linecap="round"><path d="M14 30c5-2 8 1 13-1"/><path d="M34 26c5-2 9 0 14-2"/><path d="M22 46c4-1 7 1 11 0"/></g>
+        </g>
+        <circle cx="32" cy="32" r="20" fill="url(#pshade)"/>
+      </symbol>
+      <!-- 3 Mars: rust red, dark plains, polar cap -->
+      <symbol id="p-3" viewBox="7 7 50 50">
+        <circle cx="32" cy="32" r="20" fill="url(#g-mars)"/>
+        <g clip-path="url(#clip-planet)">
+          <path d="M20 30c4-3 10-1 12 2s-2 6-6 6-8-4-6-8z M36 40c3-1 7 0 8 3-2 2-6 2-8 0z M38 24c2-1 5 0 5 2-2 1-4 1-5-2z" fill="#7a2617" opacity=".6"/>
+          <ellipse cx="32" cy="13.5" rx="9" ry="3.6" fill="#fff4ee" opacity=".9"/>
+        </g>
+        <circle cx="32" cy="32" r="20" fill="url(#pshade)"/>
+      </symbol>
+      <!-- 4 Neptune: deep blue, bands, dark spot -->
+      <symbol id="p-4" viewBox="7 7 50 50">
+        <circle cx="32" cy="32" r="20" fill="url(#g-neptune)"/>
+        <g clip-path="url(#clip-planet)" fill="none" stroke-linecap="round">
+          <path d="M10 25h44" stroke="#a9c6ff" stroke-opacity=".35" stroke-width="2.5"/>
+          <path d="M10 37h44" stroke="#a9c6ff" stroke-opacity=".3" stroke-width="2"/>
+        </g>
+        <ellipse cx="38" cy="31" rx="4.5" ry="2.6" fill="#162670" opacity=".75"/>
+        <path d="M33 34c3 1 8 1 10 0" stroke="#e3ecff" stroke-opacity=".7" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+        <circle cx="32" cy="32" r="20" fill="url(#pshade)"/>
+      </symbol>
+      <!-- 5 Uranus: pale cyan, tilted thin ring -->
+      <symbol id="p-5" viewBox="3 3 58 58">
+        <!-- Ring is almost upright (Uranus rolls on its side): back half behind the planet, front half over it. -->
+        <path d="M5 32a27 6 0 0 1 54 0" transform="rotate(-72 32 32)" fill="none" stroke="#d9fbf8" stroke-opacity=".4" stroke-width="1.8"/>
+        <circle cx="32" cy="32" r="18" fill="url(#g-uranus)"/>
+        <circle cx="32" cy="32" r="18" fill="url(#pshade)"/>
+        <path d="M5 32a27 6 0 0 0 54 0" transform="rotate(-72 32 32)" fill="none" stroke="#e6fffd" stroke-opacity=".85" stroke-width="1.8"/>
+      </symbol>
+      <!-- 6 Jupiter: cream and orange bands, red spot -->
+      <symbol id="p-6" viewBox="7 7 50 50">
+        <circle cx="32" cy="32" r="20" fill="#e9c79d"/>
+        <g clip-path="url(#clip-planet)">
+          <rect x="10" y="17" width="44" height="4" fill="#c88a5a"/><rect x="10" y="24" width="44" height="5" fill="#f4dfbf"/>
+          <rect x="10" y="29" width="44" height="4" fill="#b7704a"/><rect x="10" y="36" width="44" height="3" fill="#f2d8b4"/>
+          <rect x="10" y="40" width="44" height="4" fill="#c88a5a"/><rect x="10" y="47" width="44" height="3" fill="#d8a77a"/>
+          <ellipse cx="38" cy="38" rx="4.6" ry="2.8" fill="#c0442c"/><ellipse cx="38" cy="38" rx="2.6" ry="1.4" fill="#e0684c"/>
+        </g>
+        <circle cx="32" cy="32" r="20" fill="url(#pshade)"/>
+      </symbol>
+      <!-- 7 Saturn: golden with wide rings (back half behind the planet, front half over it) -->
+      <symbol id="p-7" viewBox="0 0 64 64">
+        <g transform="rotate(-16 32 32)">
+          <path d="M3 32a29 8 0 0 1 58 0" fill="none" stroke="#d9bf86" stroke-width="3.2" opacity=".85"/>
+          <path d="M8 32a24 6 0 0 1 48 0" fill="none" stroke="#a9884e" stroke-width="1.2" opacity=".8"/>
+        </g>
+        <circle cx="32" cy="32" r="16" fill="url(#g-saturn)"/>
+        <g clip-path="url(#clip-planet)"><path d="M14 27h36M14 35h36" stroke="#c99d55" stroke-opacity=".45" stroke-width="2.2"/></g>
+        <circle cx="32" cy="32" r="16" fill="url(#pshade)"/>
+        <g transform="rotate(-16 32 32)">
+          <path d="M3 32a29 8 0 0 0 58 0" fill="none" stroke="#f1dca8" stroke-width="3.2"/>
+          <path d="M8 32a24 6 0 0 0 48 0" fill="none" stroke="#c4a15f" stroke-width="1.2"/>
+        </g>
+      </symbol>
+      <!-- 8 Inner Orbit: the sun with the four inner planets around it -->
+      <symbol id="p-8" viewBox="0 0 64 64">
+        <circle cx="32" cy="32" r="22" fill="url(#g-sunglow)"/>
+        <ellipse cx="32" cy="32" rx="27" ry="11" fill="none" stroke="#cdd6ff" stroke-opacity=".45" stroke-width="1" transform="rotate(-20 32 32)"/>
+        <circle cx="32" cy="32" r="11" fill="url(#g-sun)"/>
+        <use href="#p-0" x="-1" y="20" width="14" height="14"/><use href="#p-1" x="45" y="12" width="15" height="15"/>
+        <use href="#p-2" x="44" y="34" width="16" height="16"/><use href="#p-3" x="6" y="40" width="14" height="14"/>
+      </symbol>
+      <!-- 9 Giants: Jupiter and Saturn together -->
+      <symbol id="p-9" viewBox="0 0 64 64">
+        <use href="#p-6" x="-4" y="-2" width="44" height="44"/>
+        <use href="#p-7" x="18" y="18" width="46" height="46"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <!-- One row: balance, recent results, actions. -->
+  <header>
+    <div class="balance" aria-label="Your coins"><svg class="i"><use href="#i-coin"/></svg><span id="balance">–</span></div>
+    <span class="spacer"></span>
+    <button class="ghost" id="openHelp" aria-label="How to play"><svg class="i"><use href="#i-help"/></svg></button>
+    <button class="ghost" id="soundBtn" aria-label="Sound" aria-pressed="true"><svg class="i"><use href="#i-sound" id="soundIcon"/></svg></button>
+    <button class="ghost" id="openTrophies" aria-label="Today's leaderboard"><svg class="i"><use href="#i-trophy"/></svg></button>
+    <button class="ghost" id="minimizeGame" aria-label="Minimize game" hidden><svg class="i"><use href="#i-min"/></svg></button>
+    <button class="ghost" id="closeGame" aria-label="Close game" hidden><svg class="i"><use href="#i-close"/></svg></button>
+  </header>
+
+  <!-- Recent winning animals, with the full history one tap away. -->
+  <div class="recent">
+    <div class="strip" id="strip" role="button" tabindex="0" aria-label="Recent results, newest first. Open history"></div>
+    <button class="ghost" id="openHistory" aria-label="History"><svg class="i"><use href="#i-history"/></svg></button>
+  </div>
+
+  <!-- Arena in the middle, the two specials explained on either side. -->
+  <div class="stage">
+    <div class="stage-in">
+      <div class="side" id="sideA"></div>
+      <div class="arena" id="board"></div>
+      <div class="side" id="sideB"></div>
+    </div>
+  </div>
+  <div class="dock" id="dock" role="group" aria-label="Bet amount"></div>
+
+  <div class="result" id="result" role="status" aria-live="polite">
+    <div class="card">
+      <div class="card-head">
+        <div class="medal" id="rDish"></div>
+        <div class="card-title">
+          <div class="micro" id="rRound"></div>
+          <div class="what" id="rWhat"></div>
+          <div class="sub" id="rSub"></div>
+        </div>
+        <div class="you"><div class="micro">You</div><div class="amt" id="rMine"></div></div>
+      </div>
+      <div class="mybets" id="rBetsWrap"><span class="micro">Your winning bets</span><div class="bets" id="rBets"></div></div>
+      <ol class="top" id="rTop"></ol>
+      <div class="foot" id="rCount"></div>
+    </div>
+  </div>
+
+  <section class="panel help" id="helpPanel" role="dialog" aria-modal="true" aria-labelledby="helpTitle" inert>
+    <div class="panel-head">
+      <h2 id="helpTitle">How to play</h2>
+      <button class="ghost" id="closeHelp" aria-label="Close help"><svg class="i"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="help-body" id="helpBody"></div>
+  </section>
+
+  <section class="panel" id="panel" role="dialog" aria-modal="true" aria-label="Leaderboard and history" inert>
+    <div class="panel-head">
+      <h2 id="panelTitle"></h2>
+      <button class="ghost" id="closePanel" aria-label="Close"><svg class="i"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="view" id="todayView">
+      <div class="summary" id="todaySummary">Loading…</div>
+      <ol class="list" id="todayList"></ol>
+      <div id="todayMe"></div>
+    </div>
+    <div class="view" id="historyView" hidden>
+      <ol class="list" id="historyList"></ol>
+      <button class="load-more" id="historyMore" hidden>Load older rounds</button>
+    </div>
+  </section>
+
+  <div class="toast" id="toast"></div>
+
+<script src="/games/socket.io.min.js"></script>
+<script>
+// Ring order of the 3×3 grid (cell 4 is the center); items alternate cheap/expensive around it.
+const RING_CELLS = [0, 1, 2, 5, 8, 7, 6, 3];
+// Galaxy puts Saturn (×45) front and centre on the orbit, flanked by Jupiter and Uranus; jungle alternates cheap/expensive.
+const RING_ITEMS = new URLSearchParams(location.search).get('game') === 'galaxy' ? [0, 4, 1, 6, 7, 5, 2, 3] : [0, 4, 1, 5, 2, 6, 3, 7];
+const RESULT_MS = 6500; // how long the round result card stays up (the next round starts ~10s after the result)
+const $ = (id) => document.getElementById(id);
+// Which game this page is: the app opens /games/greedy/?game=galaxy (default jungle). Everything themed hangs off this.
+const GAME = new URLSearchParams(location.search).get('game') === 'galaxy' ? 'galaxy' : 'jungle';
+const NOUN = GAME === 'galaxy' ? 'planet' : 'animal';
+document.body.classList.add(GAME);
+document.title = GAME === 'galaxy' ? 'Greedy Galaxy' : 'Greedy Jungle';
+
+let outcomes = [], items = [], CHIPS = [], chip = 0, round = null, offset = 0, myBets = {}, phase = 'idle', tiles = {}, me = null, maxBet = 0;
+let recent = [], pendingWin = null, nextAt = 0;
+
+// Host app bridge: the app answers {type:'token'} with window.voyaToken(token). In a plain browser, use #token=… for testing.
+const pendingToken = [];
+window.voyaToken = (t) => pendingToken.splice(0).forEach((r) => r(t));
+function getToken() {
+  if (!window.ReactNativeWebView) return Promise.resolve(new URLSearchParams(location.hash.slice(1)).get('token') || '');
+  return new Promise((r) => { pendingToken.push(r); window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'token' })); });
+}
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('show'), 1800);
+}
+const fmt = (n) => n >= 1e6 ? +(n / 1e6).toFixed(1) + 'M' : n >= 1000 ? +(n / 1000).toFixed(1) + 'K' : String(n);
+const num = (n) => n.toLocaleString();
+// Built-in SVG art for an outcome id (0–7 items, 8/9 the specials); same on every device, unlike emoji. a- = animals, p- = planets.
+const art = (id) => `<svg class="art" viewBox="0 0 64 64" aria-hidden="true"><use href="#${GAME === 'galaxy' ? 'p' : 'a'}-${id}"/></svg>`;
+const outcomeTitle = (o) => o.special ? o.name : `${o.name} ×${items[o.id].mult}`;
+const outcomeSub = (o) => o.blurb ?? '';
+
+// ---------- Board ----------
+const RING_LEN = 2 * Math.PI * 47;
+// Animals sit clockwise from the top in RING_ITEMS order, so the spin light simply walks the circle.
+function buildBoard() {
+  if (GAME === 'galaxy') return buildOrbit();
+  const arena = $('board'); arena.innerHTML = '<div class="track"></div>';
+  RING_ITEMS.forEach((id, i) => {
+    const it = items[id];
+    const a = (-90 + i * 45) * Math.PI / 180;
+    const b = document.createElement('button');
+    b.className = 'spot ' + (it.id < 4 ? 'small' : 'big');
+    b.style.left = `${50 + 38 * Math.cos(a)}%`; b.style.top = `${50 + 38 * Math.sin(a)}%`;
+    b.setAttribute('aria-label', `${it.name}, pays ${it.mult} times`);
+    b.innerHTML = `<span class="disc">${art(it.id)}</span><span class="mult${it.mult >= 25 ? ' high' : ''}">×${it.mult}</span><span class="mine"></span>`;
+    b.onclick = () => bet(it.id);
+    tiles[it.id] = b;
+    arena.append(b);
+  });
+  const hub = document.createElement('div'); hub.className = 'hub'; hub.id = 'center';
+  hub.innerHTML = `<svg viewBox="0 0 100 100" aria-hidden="true"><circle class="track-c" cx="50" cy="50" r="47"/><circle class="prog" id="prog" cx="50" cy="50" r="47" stroke-dasharray="${RING_LEN}" stroke-dashoffset="0"/></svg><div><div class="big" id="cBig">–</div><div class="micro small" id="cSmall"></div><div class="mybet" id="myTotal"></div></div>`;
+  arena.append(hub);
+}
+// Galaxy: planets on a tilted ellipse, clockwise from the top in RING_ITEMS order (so the comet walks the orbit).
+// Depth: back of the orbit (top) is small and behind, front (bottom) is big and in front.
+function buildOrbit() {
+  const arena = $('board'); arena.classList.add('orbit');
+  arena.innerHTML = '<svg class="orbit-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><ellipse class="o2" cx="50" cy="50" rx="48" ry="46"/><ellipse class="o1" cx="50" cy="50" rx="41" ry="37"/></svg><span class="comet" id="comet"></span>';
+  RING_ITEMS.forEach((id, i) => {
+    const it = items[id];
+    const a = (-90 + i * 45) * Math.PI / 180, depth = (Math.sin(a) + 1) / 2;
+    const b = document.createElement('button');
+    b.className = 'spot planet ' + (it.id < 4 ? 'small' : 'big');
+    b.style.left = `${50 + 41 * Math.cos(a)}%`; b.style.top = `${50 + 37 * Math.sin(a)}%`;
+    b.style.setProperty('--s', (0.8 + 0.32 * depth).toFixed(3)); b.style.zIndex = String(10 + Math.round(depth * 10));
+    b.setAttribute('aria-label', `${it.name}, pays ${it.mult} times`);
+    b.innerHTML = `<span class="glow"></span>${art(it.id)}<span class="mult${it.mult >= 25 ? ' high' : ''}">×${it.mult}</span><span class="mine"></span>`;
+    b.onclick = () => bet(it.id);
+    tiles[it.id] = b;
+    arena.append(b);
+  });
+  const hub = document.createElement('div'); hub.className = 'hub'; hub.id = 'center';
+  hub.innerHTML = `<svg viewBox="0 0 100 100" aria-hidden="true"><circle class="track-c" cx="50" cy="50" r="47"/><circle class="prog" id="prog" cx="50" cy="50" r="47" stroke-dasharray="${RING_LEN}" stroke-dashoffset="0"/></svg><div><div class="big" id="cBig">–</div><div class="micro small" id="cSmall"></div><div class="mybet" id="myTotal"></div></div>`;
+  arena.append(hub);
+}
+// "+100" rising from the spot you just bet on.
+function floatText(tile, text) {
+  const el = document.createElement('span'); el.className = 'float'; el.textContent = text;
+  tile.append(el); setTimeout(() => el.remove(), 900);
+}
+function setCenter(big, small, progress) {
+  $('cBig').textContent = big; $('cSmall').textContent = small;
+  $('prog').style.strokeDashoffset = String(RING_LEN * (1 - (progress ?? 0)));
+}
+function renderBets() {
+  for (const it of items) {
+    const v = myBets[it.id];
+    const badge = tiles[it.id].querySelector('.mine');
+    badge.textContent = v ? fmt(v) : ''; badge.classList.remove('won');
+  }
+  const total = Object.values(myBets).reduce((s, v) => s + v, 0);
+  $('myTotal').textContent = total ? `Bet ${num(total)}` : '';
+}
+
+// ---------- Amount: 4 presets + a custom field, as one segmented control ----------
+function buildDock() {
+  const dock = $('dock'); dock.innerHTML = '';
+  CHIPS.forEach((v, i) => {
+    const c = document.createElement('button');
+    c.className = 'seg'; c.textContent = fmt(v); c.setAttribute('aria-pressed', String(i === chip));
+    c.onclick = () => selectChip(i);
+    dock.append(c);
+  });
+  const custom = document.createElement('label');
+  custom.className = 'seg custom'; custom.setAttribute('aria-pressed', 'false');
+  custom.innerHTML = `<input id="customAmount" type="number" inputmode="numeric" min="1" max="${maxBet}" step="1" placeholder="Custom" aria-label="Custom amount, 1 to ${num(maxBet)}" />`;
+  dock.append(custom);
+  $('customAmount').addEventListener('focus', () => selectChip(CHIPS.length));
+}
+function selectChip(i) {
+  chip = i;
+  [...$('dock').children].forEach((x, j) => x.setAttribute('aria-pressed', String(j === i)));
+}
+// The amount to bet, or null (with a toast) when the custom field is not a valid whole number.
+function betAmount() {
+  if (chip < CHIPS.length) return CHIPS[chip];
+  const v = Number($('customAmount').value);
+  if (!Number.isInteger(v) || v < 1 || v > maxBet) { toast(`Enter a whole number from 1 to ${num(maxBet)}`); return null; }
+  return v;
+}
+
+// ---------- Recent strip ----------
+function renderRecent() {
+  const strip = $('strip'); strip.innerHTML = '';
+  for (const r of recent) {
+    const o = outcomes[r.item];
+    const s = document.createElement('span'); s.innerHTML = art(o.id); s.title = o.name;
+    strip.append(s);
+  }
+}
+
+// ---------- Rounds ----------
+function startRound(r, serverNow) {
+  round = r; offset = new Date(serverNow) - Date.now(); myBets = {}; phase = 'betting';
+  $('board').classList.remove('closed');
+  for (const t of Object.values(tiles)) t.classList.remove('lit', 'win', 'special');
+  $('comet')?.classList.remove('on'); $('center')?.classList.remove('hurry');
+  hideResult();
+  renderBets();
+}
+
+// Countdown ticks off server time so every phone shows the same number.
+setInterval(() => {
+  if (!round || phase === 'result') return;
+  // After the spin the winner stays lit on the ring; the hub just counts down to the next round.
+  if (phase === 'reveal') return setCenter(String(Math.max(0, Math.ceil((nextAt - (Date.now() + offset)) / 1000))), 'Next round', 0);
+  const msLeft = new Date(round.betEndsAt) - (Date.now() + offset);
+  if (phase === 'betting' && msLeft <= 0) { phase = 'closed'; $('board').classList.add('closed'); }
+  $('center').classList.toggle('hurry', phase === 'betting' && msLeft <= 5000);
+  if (phase === 'betting') setCenter(String(Math.ceil(msLeft / 1000)), 'Place bets', Math.min(1, msLeft / 30000));
+  else setCenter('·', 'Drawing', 0);
+}, 200);
+
+async function bet(item) {
+  if (phase !== 'betting') return toast('Bets are closed. Next round starts shortly');
+  const amount = betAmount();
+  if (amount === null) return;
+  try {
+    // Never retried automatically: a timed-out bet may still have gone through.
+    const r = await socket.timeout(8000).emitWithAck('greedy:bet', { roundId: round.roundId, item, amount });
+    if (!r.ok) return toast(r.error.code === 'INSUFFICIENT_COINS' ? 'Not enough coins' : r.error.code === 'BETTING_CLOSED' ? 'Bets are closed' : r.error.message);
+    myBets[item] = r.data.itemTotal; $('balance').textContent = num(r.data.balance); renderBets(); sound.coin(); floatText(tiles[item], `+${fmt(amount)}`);
+  } catch { toast('Connection is slow. Check your balance before betting again'); }
+}
+
+// Light runs around the ring, slowing down, and stops on the result; a special then lights its whole group.
+function spin(outcome) {
+  return new Promise((done) => {
+    phase = 'result';
+    const steps = 8 * 3 + RING_ITEMS.indexOf(outcome.wins[0]); // three full laps, then land
+    let i = 0;
+    setCenter('·', 'Drawing', 1);
+    const tick = () => {
+      for (const t of Object.values(tiles)) t.classList.remove('lit');
+      const lit = tiles[RING_ITEMS[i % 8]];
+      lit.classList.add('lit'); sound.tick();
+      const comet = $('comet'); // galaxy only: the comet rides to the lit planet
+      if (comet) { comet.classList.add('on'); comet.style.left = lit.style.left; comet.style.top = lit.style.top; }
+      if (i++ >= steps) {
+        if (outcome.special) for (const id of outcome.wins) tiles[id].classList.add('lit', 'special');
+        setTimeout(() => $('comet')?.classList.remove('on'), 500);
+        return done();
+      }
+      setTimeout(tick, 40 + Math.pow(i / steps, 3) * 260);
+    };
+    tick();
+  });
+}
+
+// ---------- Result card ----------
+function showResult(r, mine, myStake, bets = {}) {
+  const o = outcomes[r.item];
+  // Only the bets that won: "amount → +payout". Losses are already in the red total under "You".
+  const list = $('rBets'); list.innerHTML = '';
+  const ids = Object.keys(bets).map(Number).filter((id) => o.wins.includes(id));
+  for (const id of ids) {
+    const chip = document.createElement('span'); chip.className = 'bet won';
+    chip.innerHTML = art(id);
+    chip.append(`${num(bets[id])} → +${num(bets[id] * items[id].mult)}`);
+    chip.title = `${items[id].name} won`;
+    list.append(chip);
+  }
+  $('rBetsWrap').hidden = !ids.length;
+  $('rRound').textContent = `Round ${r.number}`;
+  $('rDish').innerHTML = art(o.id);
+  $('rDish').className = 'medal' + (o.special ? ' special' : '');
+  $('rWhat').textContent = outcomeTitle(o);
+  $('rSub').textContent = outcomeSub(o);
+  const m = $('rMine');
+  m.className = 'amt ' + (mine ? 'up' : myStake ? 'down' : 'none');
+  m.textContent = mine ? `+${num(mine.payout)}` : myStake ? `−${num(myStake)}` : 'No bet this round';
+  const podium = $('rTop'); podium.innerHTML = '';
+  r.winners.slice(0, 3).forEach((w, i) => podium.append(userRow(i + 1, w, w.payout)));
+  $('rCount').textContent = r.winnerCount ? `${r.winnerCount} winner${r.winnerCount > 1 ? 's' : ''} · ${num(r.totalPayout)} paid` : 'No winners this round';
+  $('result').classList.add('show');
+  clearTimeout(showResult.timer); showResult.timer = setTimeout(hideResult, RESULT_MS);
+}
+function hideResult() { $('result').classList.remove('show'); }
+$('result').onclick = hideResult;
+
+// ---------- Rows (names come from users, so only textContent, never innerHTML) ----------
+function userRow(rank, u, amount, sub) {
+  const row = document.createElement('li'); row.className = 'row' + (u.userId === me ? ' me' : '');
+  const rk = document.createElement('span'); rk.className = 'rank' + (rank <= 3 ? ' top3' : ''); rk.textContent = String(rank);
+  const av = document.createElement('span'); av.className = 'avatar';
+  const name = u.displayName ?? 'Player';
+  av.textContent = name.slice(0, 1).toUpperCase();
+  if (u.avatarUrl) { const img = new Image(); img.alt = ''; img.onload = () => { av.textContent = ''; av.append(img); }; img.src = u.avatarUrl; }
+  const n = document.createElement('span'); n.className = 'name'; n.textContent = u.userId === me ? `${name} (you)` : name;
+  if (sub) { const s = document.createElement('span'); s.className = 'sub2'; s.textContent = sub; n.append(s); }
+  const p = document.createElement('span'); p.className = 'amount' + (amount ? '' : ' zero'); p.textContent = amount ? `+${num(amount)}` : '0';
+  row.append(rk, av, n, p);
+  return row;
+}
+const empty = (text) => { const e = document.createElement('li'); e.className = 'empty'; e.textContent = text; return e; };
+
+// ---------- Sheet: Today ----------
+function untilText(ms) {
+  const m = Math.max(0, Math.round(ms / 60000));
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+}
+async function loadToday() {
+  const r = await socket.timeout(8000).emitWithAck('greedy:today', { game: GAME }).catch(() => null);
+  if (!r?.ok) return void ($('todaySummary').textContent = 'Could not load today\'s board');
+  const d = r.data;
+  $('todaySummary').textContent = `${d.players} player${d.players === 1 ? '' : 's'} · resets at midnight (${untilText(new Date(d.resetsAt) - (Date.now() + offset))})`;
+  const list = $('todayList'); list.innerHTML = '';
+  if (!d.rows.length) list.append(empty('Nobody has played today yet'));
+  d.rows.forEach((u) => list.append(userRow(u.rank, u, u.won)));
+  // Your own rank stays visible even when you're outside the top list.
+  const mine = $('todayMe'); mine.innerHTML = '';
+  if (d.me && !d.rows.some((u) => u.userId === me)) mine.append(userRow(d.me.rank, d.me, d.me.won));
+}
+
+// ---------- Sheet: History (every settled round, 50 at a time) ----------
+let historyBefore;
+function historyRow(h) {
+  const o = outcomes[h.item];
+  const row = document.createElement('li'); row.className = 'row dish-row' + (o.special ? ' special' : '');
+  const e = document.createElement('span'); e.className = 'emoji'; e.innerHTML = art(o.id);
+  const what = document.createElement('span'); what.className = 'name'; what.textContent = outcomeTitle(o);
+  const sub = document.createElement('span'); sub.className = 'sub2'; sub.textContent = o.special ? `Round ${h.number} · ${outcomeSub(o)}` : `Round ${h.number}`; what.append(sub);
+  const when = document.createElement('span'); when.className = 'when';
+  const d = new Date(h.at);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  when.textContent = d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString([], { day: 'numeric', month: 'short' })}, ${time}`;
+  row.append(e, what, when);
+  return row;
+}
+async function loadHistory(reset) {
+  if (reset) { historyBefore = undefined; $('historyList').innerHTML = ''; }
+  const btn = $('historyMore'); btn.disabled = true;
+  const r = await socket.timeout(8000).emitWithAck('greedy:history', { game: GAME, ...(historyBefore ? { before: historyBefore } : {}) }).catch(() => null);
+  btn.disabled = false;
+  if (!r?.ok) return toast('Could not load history');
+  if (!r.data.rounds.length && reset) $('historyList').append(empty('No rounds played yet'));
+  r.data.rounds.forEach((h) => $('historyList').append(historyRow(h)));
+  historyBefore = r.data.rounds.at(-1)?.roundId ?? historyBefore;
+  btn.hidden = !r.data.more;
+}
+$('historyMore').onclick = () => loadHistory(false);
+
+// One sheet, two separate views: 🏆 opens today's leaderboard, the history button opens past results.
+let tab = 'today';
+function selectTab(t) {
+  tab = t;
+  $('panelTitle').textContent = t === 'today' ? 'Today\'s winners' : 'History';
+  $('panel').setAttribute('aria-label', $('panelTitle').textContent);
+  $('todayView').hidden = t !== 'today';
+  $('historyView').hidden = t !== 'history';
+  if (t === 'today') loadToday(); else loadHistory(true);
+}
+const panelOpen = () => $('panel').classList.contains('show');
+function openPanel(t) { selectTab(t); $('panel').inert = false; $('panel').classList.add('show'); $('closePanel').focus(); }
+function closePanel() { $('panel').classList.remove('show'); $('panel').inert = true; }
+$('openTrophies').onclick = () => openPanel('today');
+// Inside the app, ✕ asks the host to close the game; a plain browser has nothing to close, so the button stays hidden.
+if (window.ReactNativeWebView) {
+  $('closeGame').hidden = false;
+  $('closeGame').onclick = () => window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'close' }));
+}
+$('openHistory').onclick = () => openPanel('history');
+$('strip').onclick = () => openPanel('history');
+$('strip').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') openPanel('history'); };
+$('closePanel').onclick = closePanel;
+
+// ---------- Sound: music + effects, synthesised with Web Audio (no files to download) ----------
+// Jungle: a soft marimba/bass/shaker loop in D minor pentatonic. Galaxy: slow bell arpeggios through an echo, over a low hum.
+// Both kept quiet because people are talking in the room.
+const sound = (() => {
+  let ctx = null, master = null, musicBus = null, echo = null, timer = null, step = 0, nextAt = 0;
+  let on = true;
+  try { on = localStorage.getItem('greedy.sound') !== 'off'; } catch {}
+  const BPM = GAME === 'galaxy' ? 76 : 96, STEP = 60 / BPM / 2; // eighth notes
+  const hz = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
+  // 4 bars × 8 steps. Chords: Dm, F, C, Am (as bass roots + arpeggio notes); null = rest.
+  const BASS = [38, 41, 36, 33];
+  const ARP = [
+    [62, 65, 69, 72, 69, 65, 69, null], [65, 69, 72, 74, 72, 69, 72, null],
+    [64, 67, 72, 76, 72, 67, 69, null], [64, 69, 72, 76, 74, 72, 69, 67],
+  ];
+  function ensure() {
+    if (ctx) return ctx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    ctx = new AC();
+    master = ctx.createGain(); master.gain.value = on ? 1 : 0; master.connect(ctx.destination);
+    musicBus = ctx.createGain(); musicBus.gain.value = 0.16; musicBus.connect(master);
+    if (GAME === 'galaxy') { // feedback echo gives the bells their space
+      const d = ctx.createDelay(1), fb = ctx.createGain(), wet = ctx.createGain();
+      d.delayTime.value = STEP * 3; fb.gain.value = 0.38; wet.gain.value = 0.5;
+      echo = ctx.createGain(); echo.connect(d); d.connect(fb).connect(d); d.connect(wet).connect(musicBus);
+    }
+    return ctx;
+  }
+  function tone(bus, type, freq, at, dur, vol, attack = 0.005) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, at);
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(vol, at + attack); g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    o.connect(g).connect(bus); o.start(at); o.stop(at + dur + 0.05);
+  }
+  function shaker(at, vol) {
+    const len = Math.floor(ctx.sampleRate * 0.05), buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = buf; bp.type = 'bandpass'; bp.frequency.value = 7000; bp.Q.value = 1.2; g.gain.value = vol;
+    src.connect(bp).connect(g).connect(musicBus); src.start(at);
+  }
+  // Galaxy: A minor pentatonic bells; bass hums on A, F, C, G.
+  const G_BASS = [33, 29, 36, 31];
+  const G_ARP = [
+    [69, null, 76, 72, null, 81, 76, null], [65, null, 72, 77, null, 81, 72, null],
+    [67, null, 72, 76, null, 79, 84, null], [67, null, 71, 74, null, 79, 76, 74],
+  ];
+  function scheduleGalaxy(at) {
+    const bar = Math.floor(step / 8) % 4, i = step % 8, n = G_ARP[bar][i];
+    if (n) { tone(musicBus, 'sine', hz(n), at, 1.1, 0.2, 0.01); tone(echo, 'sine', hz(n), at, 0.9, 0.12, 0.01); tone(musicBus, 'sine', hz(n + 19), at, 0.5, 0.025); } // bell + echo + shimmer
+    if (i === 0) tone(musicBus, 'triangle', hz(G_BASS[bar]), at, STEP * 8, 0.18, 0.4); // long soft hum
+    step++;
+  }
+  function scheduleStep(at) {
+    if (GAME === 'galaxy') return scheduleGalaxy(at);
+    const bar = Math.floor(step / 8) % 4, i = step % 8;
+    const n = ARP[bar][i];
+    if (n) { tone(musicBus, 'triangle', hz(n), at, 0.45, 0.22); tone(musicBus, 'sine', hz(n + 12), at, 0.18, 0.05); } // marimba-ish
+    if (i === 0 || i === 4) tone(musicBus, 'sine', hz(BASS[bar]), at, 0.55, 0.35, 0.02);
+    if (i % 2 === 1) shaker(at, 0.35);
+    step++;
+  }
+  function startMusic() {
+    if (!ensure() || timer) return;
+    nextAt = ctx.currentTime + 0.1;
+    timer = setInterval(() => { while (nextAt < ctx.currentTime + 0.25) { scheduleStep(nextAt); nextAt += STEP; } }, 50); // look-ahead scheduler
+  }
+  const fx = (fn) => () => { if (on && ensure() && ctx.state === 'running') fn(ctx.currentTime); };
+  return {
+    get on() { return on; },
+    start() { if (on) { ensure(); ctx?.resume(); startMusic(); } },
+    set(v) {
+      on = v; try { localStorage.setItem('greedy.sound', v ? 'on' : 'off'); } catch {}
+      if (!ensure()) return;
+      master.gain.setTargetAtTime(v ? 1 : 0, ctx.currentTime, 0.05);
+      if (v) { ctx.resume(); startMusic(); }
+    },
+    suspend() { ctx?.suspend(); },
+    resume() { if (on) ctx?.resume(); },
+    coin: fx((t) => { tone(master, 'sine', 1320, t, 0.12, 0.18); tone(master, 'sine', 1760, t + 0.06, 0.18, 0.15); }),
+    tick: fx((t) => tone(master, 'square', 950, t, 0.03, 0.035)),
+    land: fx((t) => tone(master, 'triangle', 330, t, 0.35, 0.2)),
+    win: fx((t) => [72, 76, 79, 84].forEach((n, i) => tone(master, 'triangle', hz(n), t + i * 0.09, 0.4, 0.22))),
+  };
+})();
+function renderSound() {
+  $('soundIcon').setAttribute('href', sound.on ? '#i-sound' : '#i-mute');
+  $('soundBtn').setAttribute('aria-pressed', String(sound.on));
+  $('soundBtn').setAttribute('aria-label', sound.on ? 'Sound on. Turn off' : 'Sound off. Turn on');
+}
+$('soundBtn').onclick = () => { sound.set(!sound.on); renderSound(); };
+renderSound();
+// Browsers only start audio after a touch; the first tap anywhere starts the music if sound is on.
+document.addEventListener('pointerdown', () => sound.start(), { once: true });
+let hostHidden = false; // minimized by the app
+document.addEventListener('visibilitychange', () => (document.hidden ? sound.suspend() : !hostHidden && sound.resume()));
+// The app minimizes/restores the game without unloading it: go quiet while hidden, pick up again when shown.
+window.voyaVisibility = (visible) => { hostHidden = !visible; visible ? sound.resume() : sound.suspend(); };
+// Inside the app, the header gets minimize (keeps the game running as a bubble) next to close.
+if (window.ReactNativeWebView) {
+  $('minimizeGame').hidden = false;
+  $('minimizeGame').onclick = () => window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'minimize' }));
+}
+
+// ---------- Legends beside / under the circle ----------
+function renderLegends() {
+  for (const [el, o] of [[$('sideA'), outcomes[8]], [$('sideB'), outcomes[9]]]) {
+    const words = o.blurb.toLowerCase().split(' '); // "all small animals win" → "all small" / "animals win" on two lines when beside the circle
+    el.innerHTML = `${art(o.id)}<b>${o.name}</b><span>${words.slice(0, 2).join(' ')} <br>${words.slice(2).join(' ')}</span>`;
+  }
+}
+
+// ---------- Help page (text follows the game: animals or planets) ----------
+function renderHelp() {
+  const small = items.filter((i) => i.mult === 5), big = items.filter((i) => i.mult > 5), top = items[items.length - 1];
+  const step = (n, img, title, text) => `<li class="step"><div class="step-head"><span class="num">${n}</span><h3>${title}</h3></div><p>${text}</p><img src="help/${GAME}/${img}.webp" alt="" loading="lazy" /></li>`;
+  $('helpBody').innerHTML = `
+    <p class="lead">Every round you have 30 seconds to bet on ${NOUN}s. Then the light spins around the circle and stops on the winner. If you bet on it, you win your bet × its number.</p>
+    <ol class="steps">
+      ${step(1, 'step-amount', 'Pick an amount', 'Tap <b>10</b>, <b>100</b>, <b>1K</b> or <b>10K</b>, or tap <b>Custom</b> and type any amount.')}
+      ${step(2, 'step-bet', `Tap ${NOUN}s to bet`, `Each tap puts that amount on the ${NOUN}. Bet on as many ${NOUN}s as you like while the timer runs. Your bet shows in gold on the ${NOUN} and your total in the middle.`)}
+      ${step(3, 'step-spin', 'Watch the spin', 'When time is up, betting closes and the light runs around the circle until it stops on the winner.')}
+      ${step(4, 'step-win', 'Collect your win', `If your ${NOUN} wins you get <b>bet × its number</b>, straight into your coins. The card shows what you won and the round's top winners.`)}
+    </ol>
+    <h3 class="sec">What each ${NOUN} pays</h3>
+    <div class="pays">
+      <div class="pay">${small.map((i) => art(i.id)).join('')}<span>${small.map((i) => i.name).join(', ')}</span><b>×5</b></div>
+      ${big.map((i) => `<div class="pay">${art(i.id)}<span>${i.name}</span><b>×${i.mult}</b></div>`).join('')}
+    </div>
+    <p class="note">Bigger numbers win less often. Example: 100 on ${top.name} pays ${num(100 * top.mult)} if ${top.name} wins.</p>
+    <h3 class="sec">Special rounds</h3>
+    <div class="pays">
+      <div class="pay">${art(8)}<span><b class="plain">${outcomes[8].name}</b> · ${outcomes[8].blurb.toLowerCase()}, ×5 each</span></div>
+      <div class="pay">${art(9)}<span><b class="plain">${outcomes[9].name}</b> · ${outcomes[9].blurb.toLowerCase()}, each at its own number</span></div>
+    </div>
+    <p class="note">Specials are rare, about once every few hours.</p>
+    <h3 class="sec">Good to know</h3>
+    <ul class="facts">
+      <li>A bet can't be taken back once placed.</li>
+      <li>Up to 10,00,000 coins per ${NOUN} each round.</li>
+      <li>A new round starts about every 40 seconds.</li>
+      <li><svg class="i"><use href="#i-history"/></svg> shows every past result. <svg class="i"><use href="#i-trophy"/></svg> shows today's biggest winners; it resets at midnight.</li>
+      <li>Results are random and every ${NOUN} pays back the same on average (about 98% of what is bet), so no strategy beats the game. Play for fun.</li>
+    </ul>`;
+}
+
+// ---------- Starfield for the galaxy backdrop (random, drawn once) ----------
+if (GAME === 'galaxy') {
+  const svg = $('stars'); svg.setAttribute('viewBox', '0 0 100 100');
+  let html = '';
+  for (let i = 0; i < 110; i++) {
+    const x = (Math.random() * 100).toFixed(2), y = (Math.random() * 100).toFixed(2), r = (Math.random() * 0.22 + 0.06).toFixed(2);
+    const tw = i % 6 === 0 ? ` class="tw" style="animation-delay:${(Math.random() * 3.5).toFixed(2)}s"` : '';
+    html += `<circle cx="${x}" cy="${y}" r="${r}" fill="#fff" opacity="${(Math.random() * 0.6 + 0.25).toFixed(2)}"${tw}/>`;
+  }
+  svg.innerHTML = html;
+}
+
+// ---------- Help ----------
+function openHelp() { $('helpPanel').inert = false; $('helpPanel').classList.add('show'); $('closeHelp').focus(); }
+function closeHelp() { $('helpPanel').classList.remove('show'); $('helpPanel').inert = true; }
+$('openHelp').onclick = openHelp;
+$('closeHelp').onclick = closeHelp;
+
+// ---------- Socket ----------
+const socket = io({ path: '/socket.io/', transports: ['websocket'], auth: (cb) => getToken().then((token) => cb({ token })) });
+
+socket.on('connect', async () => {
+  sound.start(); // plays right away where the host allows it (the app does); otherwise on the first tap
+  const r = await socket.timeout(8000).emitWithAck('greedy:join', { game: GAME }).catch(() => null);
+  if (!r?.ok) return toast('Could not open the game');
+  const s = r.data;
+  items = s.items; outcomes = s.outcomes; CHIPS = s.chips; me = s.me; maxBet = s.maxBet; recent = s.history;
+  buildBoard(); buildDock(); renderRecent(); renderLegends(); renderHelp(); $('balance').textContent = num(s.balance);
+  if (s.round) {
+    startRound(s.round, s.serverNow);
+    for (const b of s.myBets) myBets[b.item] = b.amount;
+    renderBets();
+  } else setCenter('·', 'Next round', 0);
+});
+socket.on('connect_error', () => { if (items.length) setCenter('·', 'Reconnecting', 0); else toast('Can\'t reach the game. Retrying…'); });
+
+socket.on('greedy:round', (r) => { if (items.length) startRound(r, r.serverNow); });
+socket.on('greedy:win', (w) => { pendingWin = w; });
+socket.on('greedy:result', async (r) => {
+  if (!items.length) return;
+  const o = outcomes[r.item];
+  await spin(o);
+  for (const id of o.wins) tiles[id].classList.add('win', ...(o.special ? ['special'] : []));
+  // Your winning bets: the badge on the animal turns green and shows what it paid.
+  for (const id of o.wins) if (myBets[id]) { const b = tiles[id].querySelector('.mine'); b.textContent = `+${fmt(myBets[id] * items[id].mult)}`; b.classList.add('won'); }
+  nextAt = new Date(r.nextAt).getTime(); phase = 'reveal';
+  if (Object.keys(myBets).some((id) => o.wins.includes(Number(id)))) sound.win(); else sound.land();
+  recent = [{ roundId: r.roundId, item: r.item }, ...recent].slice(0, 20); renderRecent();
+  const mine = pendingWin?.roundId === r.roundId ? pendingWin : null;
+  if (mine) $('balance').textContent = num(mine.balance);
+  pendingWin = null;
+  const myStake = Object.values(myBets).reduce((s, v) => s + v, 0);
+  if (panelOpen()) {
+    if (mine) toast(`${o.name}! You won +${num(mine.payout)}`);
+    if (tab === 'today') loadToday(); // keep an open sheet fresh instead of covering it
+    else $('historyList').prepend(historyRow({ roundId: r.roundId, number: r.number, item: r.item, at: new Date() }));
+  } else { const bets = { ...myBets }; setTimeout(() => showResult(r, mine, myStake, bets), 700); } // let the winning tile settle first
+});
+</script>
+</body>
+</html>

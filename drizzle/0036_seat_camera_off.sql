@@ -1,0 +1,1 @@
+ALTER TABLE "room_seats" ADD COLUMN "camera_off" boolean DEFAULT false NOT NULL;

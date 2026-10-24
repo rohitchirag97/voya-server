@@ -1,0 +1,35 @@
+# VPS: docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+# TLS is done by the host's Caddy (see Caddyfile).
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: voya
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: voya
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voya"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      DATABASE_URL: postgres://voya:${POSTGRES_PASSWORD}@postgres:5432/voya
+      UPLOADS_DIR: /app/uploads
+    ports:
+      - "127.0.0.1:3000:3000" # localhost only; the host's Caddy proxies to it
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  uploads:

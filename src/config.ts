@@ -1,0 +1,23 @@
+const need = (key: string) => {
+  const v = process.env[key];
+  if (!v) throw new Error(`Missing env ${key}`);
+  return v;
+};
+
+export const config = {
+  env: process.env.NODE_ENV ?? "development",
+  port: Number(process.env.PORT ?? 3000),
+  databaseUrl: need("DATABASE_URL"),
+  jwtSecret: need("JWT_SECRET"),
+  zegoAppId: Number(need("ZEGO_APP_ID")),
+  zegoServerSecret: need("ZEGO_SERVER_SECRET"),
+  seatGraceMs: Number(process.env.SEAT_GRACE_MS ?? 30_000),
+  signupBonusCoins: Number(process.env.SIGNUP_BONUS_COINS ?? 1000),
+  // OAuth "Web application" client ID; Google sign-in is off when unset.
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
+  uploadsDir:process.env.UPLOADS_DIR ?? "uploads",
+};
+
+if (config.zegoServerSecret.length !== 32) {
+  throw new Error("ZEGO_SERVER_SECRET must be exactly 32 characters");
+}
