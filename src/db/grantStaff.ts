@@ -1,7 +1,8 @@
 // Make someone app staff (shows the Official mark), or remove it, until the admin console exists:
 //   bun run grant <user ID or displayName> <SUPPORT|MODERATOR|ADMIN|OWNER|none>
 // On the VPS: docker compose -f docker-compose.prod.yml --env-file .env.production exec api bun run grant <user> <role>
-import { and, eq, ne, or, sql } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
+import { findUserByRef } from "../services/auth";
 import { db } from ".";
 import { staffRole, users } from "./schema";
 
@@ -11,15 +12,12 @@ if (!who || role === undefined) {
   console.error(`usage: bun run grant <user ID or displayName> <${staffRole.enumValues.join("|")}|none>`);
   process.exit(1);
 }
-// The ID shown on the profile (publicId or special ID), else the display name (unique ignoring case).
-const match = /^\d+$/.test(who)
-  ? or(eq(users.specialId, who), who.length === 10 ? eq(users.publicId, Number(who)) : undefined)
-  : eq(sql`lower(${users.displayName})`, who.toLowerCase());
-const [u] = await db.select({ id: users.id, name: users.displayName }).from(users).where(match);
-if (!u) {
+const found = await findUserByRef(who).catch(() => null);
+if (!found) {
   console.error(`no user ${who}`);
   process.exit(1);
 }
+const u = { id: found.id, name: found.displayName };
 if (role === "OWNER") {
   const [owner] = await db.select({ name: users.displayName }).from(users).where(and(eq(users.staffRole, "OWNER"), ne(users.id, u.id)));
   if (owner) {

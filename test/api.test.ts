@@ -1222,7 +1222,8 @@ describe("user ids", () => {
     expect((await api("GET", `/users/${b.id}`, a.token)).body.specialId).toBe("888");
 
     expect((await api("GET", "/users/search?q=0000000000", a.token)).body.users).toEqual([]);
-    expect((await api("GET", "/users/search?q=abc", a.token)).status).toBe(400);
+    expect((await api("GET", "/users/search?q=abc", a.token)).body.users).toEqual([]); // letters are fine (special IDs can have them)
+    expect((await api("GET", "/users/search?q=a%21b", a.token)).status).toBe(400);
     await setSpecialId(b.id, null);
     expect((await api("GET", "/users/search?q=888", a.token)).body.users).toEqual([]);
   });
@@ -1293,6 +1294,20 @@ describe("staff console and seller wallets", () => {
     expect((await set(v.id, "7777")).body.error.code).toBe("SPECIAL_ID_TAKEN");
     expect((await api("GET", "/admin/users?q=7777", adm.token)).body.users[0].userId).toBe(u.id);
     expect((await set(u.id, null)).body.specialId).toBeNull();
+
+    // letters too, any case in, stored in capitals; found by every search in any case
+    expect((await set(u.id, "vip88")).body.specialId).toBe("VIP88");
+    expect((await set(v.id, "Vip88")).body.error.code).toBe("SPECIAL_ID_TAKEN");
+    for (const bad of ["ab", "AB-12", "TOOLONGID1"]) expect((await set(v.id, bad)).body.error.code).toBe("BAD_SPECIAL_ID");
+    expect((await api("GET", "/admin/users?q=vip88", adm.token)).body.users[0].userId).toBe(u.id);
+    expect((await api("GET", "/users/search?q=Vip88", v.token)).body.users[0]).toMatchObject({ userId: u.id, specialId: "VIP88" });
+    // a special ID that spells someone else's name wins the lookup (here: appointing a sub seller by "acename")
+    const named = await signup("sidn");
+    const nick = `ace${n}x`;
+    expect((await api("PATCH", "/me/profile", named.token, { displayName: nick })).status).toBe(200);
+    expect((await set(v.id, nick)).body.specialId).toBe(nick.toUpperCase());
+    await decideCoinSeller(u.id, true);
+    expect((await api("POST", "/coin-sellers/sub-sellers", u.token, { user: nick })).body.userId).toBe(v.id);
   });
 
   test("mint, sell, sub sellers, top-ups and removal move coins exactly once", async () => {

@@ -199,12 +199,21 @@ export function assertCanParticipate(user: User) {
 }
 
 // A user by what people type: the 10-digit profile ID, a special ID, or the display name (unique ignoring case).
+// A special ID like "RAJ" can equal someone else's name "raj"; the special ID wins.
 export async function findUserByRef(ref: string) {
   const r = ref.trim();
-  const match = /^\d+$/.test(r)
-    ? or(eq(users.specialId, r), r.length === 10 ? eq(users.publicId, Number(r)) : undefined)
-    : eq(sql`lower(${users.displayName})`, r.toLowerCase());
-  const [u] = await db.select().from(users).where(match);
+  const special = r.toUpperCase();
+  const match = or(
+    eq(users.specialId, special),
+    /^\d{10}$/.test(r) ? eq(users.publicId, Number(r)) : undefined,
+    /^\d+$/.test(r) ? undefined : eq(sql`lower(${users.displayName})`, r.toLowerCase()),
+  );
+  const [u] = await db
+    .select()
+    .from(users)
+    .where(match)
+    .orderBy(sql`(${users.specialId} = ${special}) is true desc`)
+    .limit(1);
   if (!u) throw new AppError("USER_NOT_FOUND", 404, `No user ${r}`);
   return u;
 }

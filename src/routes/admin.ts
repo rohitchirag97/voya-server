@@ -17,7 +17,7 @@ admin.use("/admin/*", requireAuth, requireStaff("OWNER", "ADMIN"));
 // Search by profile ID, special ID, or the start of a display name.
 admin.get("/admin/users", async (c) => {
   const q = z.string().trim().min(1).max(40).parse(c.req.query("q"));
-  const byId = /^\d+$/.test(q) ? [eq(users.specialId, q), ...(q.length === 10 ? [eq(users.publicId, Number(q))] : [])] : [];
+  const byId = [eq(users.specialId, q.toUpperCase()), ...(/^\d{10}$/.test(q) ? [eq(users.publicId, Number(q))] : [])];
   const rows = await db
     .select({
       ...userSummary,
@@ -51,7 +51,7 @@ admin.post("/admin/users/:userId/staff-role", requireStaff("OWNER"), async (c) =
   return c.json(updated);
 });
 
-// Give a special ID (3-9 digits) or remove it (null).
+// Give a special ID (3-9 letters/digits, stored uppercase) or remove it (null).
 admin.post("/admin/users/:userId/special-id", async (c) => {
   const { specialId } = await json(c, z.object({ specialId: z.string().trim().nullable() }));
   const u = await setSpecialId(schemas.uuid.parse(c.req.param("userId")), specialId || null);

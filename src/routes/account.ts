@@ -241,14 +241,14 @@ account.patch("/me/cosmetics", async (c) => {
   return c.json({ ...publicUser(u!), ...(await decorationsOf(u!)) });
 });
 
-// Find people by their 10-digit ID or their special ID (registered before /users/:userId).
+// Find people by their 10-digit ID or their special ID, letters in any case (registered before /users/:userId).
 account.get("/users/search", async (c) => {
-  const q = z.object({ q: z.string().trim().regex(/^\d{3,10}$/, "Enter an ID number") }).parse(c.req.query()).q;
+  const q = z.object({ q: z.string().trim().regex(/^[A-Za-z0-9]{3,10}$/, "Enter an ID") }).parse(c.req.query()).q;
   rateLimit(`search:${c.get("user").id}`, 30, 60_000);
   const rows = await db
     .select({ ...userSummary, publicId: users.publicId, specialId: users.specialId })
     .from(users)
-    .where(or(q.length === 10 ? eq(users.publicId, Number(q)) : undefined, eq(users.specialId, q)));
+    .where(or(/^\d{10}$/.test(q) ? eq(users.publicId, Number(q)) : undefined, eq(users.specialId, q.toUpperCase())));
   return c.json({ users: rows });
 });
 
