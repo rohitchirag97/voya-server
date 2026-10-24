@@ -9,6 +9,7 @@ import { account } from "./routes/account";
 import { admin } from "./routes/admin";
 import { dm } from "./routes/dm";
 import { coinSellerRoutes } from "./routes/coinSellers";
+import { cpRoutes } from "./routes/cp";
 import { postRoutes } from "./routes/posts";
 import { roomRoutes } from "./routes/rooms";
 import "./socket";
@@ -40,6 +41,7 @@ app.route("/v1", postRoutes); // before roomRoutes, whose "*" auth would cover t
 app.route("/v1", roomRoutes);
 app.route("/v1", dm);
 app.route("/v1", coinSellerRoutes);
+app.route("/v1", cpRoutes);
 
 const engine = new Engine({ path: "/socket.io/" });
 io.bind(engine);

@@ -309,6 +309,13 @@
       "when": 1792827001425,
       "tag": "0043_ludo_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1792856534856,
+      "tag": "0044_cp",
+      "breakpoints": true
     }
   ]
 }

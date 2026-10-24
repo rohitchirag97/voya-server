@@ -250,6 +250,7 @@ export const directMessages = pgTable(
     recipientId: uuid("recipient_id").notNull().references(() => users.id),
     body: text("body").notNull(),
     clientMessageId: text("client_message_id"),
+    cpProposalId: uuid("cp_proposal_id").references(() => cpProposals.id), // set when the message is a CP proposal card
     createdAt: createdAt(),
   },
   (t) => [
@@ -614,5 +615,55 @@ export const livePks = pgTable(
     // A room is in at most one pending/running battle at a time (either side).
     uniqueIndex("live_pk_one_open_a").on(t.roomA).where(sql`${t.status} in ('INVITED', 'ACTIVE')`),
     uniqueIndex("live_pk_one_open_b").on(t.roomB).where(sql`${t.status} in ('INVITED', 'ACTIVE')`),
+  ],
+);
+
+// ---------- CP (relationships) ----------
+// LOVE: 1 per user; BESTIE: up to 4; SIBLING: up to 7 (labelled BROTHER or SISTER by whoever proposed).
+export const cpType = pgEnum("cp_type", ["LOVE", "BESTIE", "SIBLING"]);
+export const cpProposalStatus = pgEnum("cp_proposal_status", ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED", "CANCELLED"]);
+
+// The proposer pays up front (ledger CP_PROPOSAL); declined, expired or cancelled proposals are refunded (CP_REFUND).
+export const cpProposals = pgTable(
+  "cp_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fromId: uuid("from_id").notNull().references(() => users.id),
+    toId: uuid("to_id").notNull().references(() => users.id),
+    type: cpType("type").notNull(),
+    label: text("label"), // SIBLING only: BROTHER | SISTER
+    price: integer("price").notNull(),
+    status: cpProposalStatus("status").notNull().default("PENDING"),
+    expiresAt: ts("expires_at").notNull(),
+    respondedAt: ts("responded_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check("cp_not_self", sql`${t.fromId} <> ${t.toId}`),
+    uniqueIndex("cp_one_pending_per_pair").on(t.fromId, t.toId).where(sql`${t.status} = 'PENDING'`),
+    index("cp_proposals_pending_expiry").on(t.expiresAt).where(sql`${t.status} = 'PENDING'`),
+  ],
+);
+
+// An active relationship has endedAt null. userA < userB, so a pair of people has one canonical row.
+export const cpPairs = pgTable(
+  "cp_pairs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userA: uuid("user_a").notNull().references(() => users.id),
+    userB: uuid("user_b").notNull().references(() => users.id),
+    type: cpType("type").notNull(),
+    label: text("label"),
+    proposalId: uuid("proposal_id").notNull().references(() => cpProposals.id),
+    createdAt: createdAt(),
+    endedAt: ts("ended_at"),
+    endedBy: uuid("ended_by").references(() => users.id),
+  },
+  (t) => [
+    check("cp_pair_order", sql`${t.userA} < ${t.userB}`),
+    // Two people share at most one active relationship, of any type.
+    uniqueIndex("cp_pairs_one_active").on(t.userA, t.userB).where(sql`${t.endedAt} is null`),
+    index("cp_pairs_a").on(t.userA).where(sql`${t.endedAt} is null`),
+    index("cp_pairs_b").on(t.userB).where(sql`${t.endedAt} is null`),
   ],
 );

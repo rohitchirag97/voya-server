@@ -2408,3 +2408,116 @@ describe("home feeds", () => {
     expect((await api("GET", "/me/following/active", fan.token)).body.items.some((i: any) => i.room.roomId === music)).toBe(false);
   });
 });
+
+describe("CP relationships", () => {
+  const coins = async (token: string) => (await api("GET", "/wallet", token)).body.balance as number;
+  const fund = (id: string, balance: number) => db.execute(sql`update wallet_accounts set balance = ${balance} where user_id = ${id}`);
+  const propose = (from: { token: string }, to: { id: string }, type: string, label?: string) =>
+    api("POST", "/cp/proposals", from.token, { toUserId: to.id, type, ...(label && { label }) });
+  const rels = async (viewer: { token: string }, who: { id: string }) => (await api("GET", `/users/${who.id}`, viewer.token)).body.relationships as any[];
+
+  test("love: pay to propose, the card arrives as a DM, accepting pairs you; one Love each", async () => {
+    const [a, b, c] = [await signup("cpa"), await signup("cpb"), await signup("cpc")];
+    for (const u of [a, b, c]) await fund(u.id, 5000);
+    const sent = await propose(a, b, "LOVE");
+    expect(sent.status).toBe(201);
+    expect(sent.body.balance).toBe(5000 - 520);
+    expect(await coins(a.token)).toBe(4480);
+    // not friends, still delivered as a card in DMs
+    const dm = (await api("GET", `/dm/${a.id}`, b.token)).body.messages;
+    expect(dm[0].cp).toMatchObject({ id: sent.body.proposal.id, type: "LOVE", status: "PENDING", price: 520 });
+    expect((await propose(b, a, "BESTIE")).body.error.code).toBe("CP_PENDING"); // one open request between two people
+
+    expect((await api("POST", `/cp/proposals/${sent.body.proposal.id}/accept`, a.token)).status).toBe(404); // only the recipient answers
+    expect((await api("POST", `/cp/proposals/${sent.body.proposal.id}/accept`, b.token)).body.status).toBe("ACCEPTED");
+    expect(await rels(c, a)).toEqual([expect.objectContaining({ type: "LOVE", label: null, user: expect.objectContaining({ userId: b.id }) })]);
+    expect((await rels(c, b))[0].user.userId).toBe(a.id);
+    expect(await coins(a.token)).toBe(4480); // spent, not refunded
+
+    expect((await propose(c, a, "LOVE")).body.error).toMatchObject({ code: "CP_LIMIT", message: "They have no free Love CP slot" });
+    expect((await propose(a, c, "LOVE")).body.error).toMatchObject({ code: "CP_LIMIT", message: "You have no free Love CP slot" });
+    expect((await propose(a, b, "BESTIE")).body.error.code).toBe("CP_ALREADY_PAIRED"); // one relationship per pair of people
+  });
+
+  test("decline, cancel and expiry all refund in full", async () => {
+    const { expireProposals } = await import("../src/services/cp");
+    const [a, b] = [await signup("cpd"), await signup("cpe")];
+    await fund(a.id, 1000);
+    const p1 = (await propose(a, b, "BESTIE")).body.proposal;
+    expect(await coins(a.token)).toBe(801);
+    expect((await api("POST", `/cp/proposals/${p1.id}/decline`, b.token)).body.status).toBe("DECLINED");
+    expect(await coins(a.token)).toBe(1000);
+    expect((await api("POST", `/cp/proposals/${p1.id}/accept`, b.token)).body.error.code).toBe("CP_NOT_PENDING");
+
+    const p2 = (await propose(a, b, "SIBLING", "SISTER")).body.proposal;
+    expect(p2).toMatchObject({ label: "SISTER", price: 99 });
+    expect((await api("POST", `/cp/proposals/${p2.id}/cancel`, b.token)).status).toBe(404); // only the sender cancels
+    expect((await api("POST", `/cp/proposals/${p2.id}/cancel`, a.token)).body.status).toBe("CANCELLED");
+    expect(await coins(a.token)).toBe(1000);
+
+    const p3 = (await propose(a, b, "LOVE")).body.proposal;
+    await db.execute(sql`update cp_proposals set expires_at = now() - interval '1 minute' where id = ${p3.id}`);
+    expect(await expireProposals()).toBeGreaterThanOrEqual(1);
+    expect(await coins(a.token)).toBe(1000);
+    expect((await api("GET", `/dm/${a.id}`, b.token)).body.messages[0].cp.status).toBe("EXPIRED");
+    const ledger = (await api("GET", "/wallet/transactions", a.token)).body.entries.map((e: any) => e.entryType);
+    expect(ledger.filter((t: string) => t === "CP_REFUND")).toHaveLength(3);
+  });
+
+  test("slot limits: 4 best friends, 7 Brother/Sister (label required), and not enough coins", async () => {
+    const a = await signup("cpf");
+    await fund(a.id, 100000);
+    const friends = await Promise.all([1, 2, 3, 4, 5].map((i) => signup(`cpbf${i}`)));
+    for (const f of friends.slice(0, 4)) {
+      const p = (await propose(a, f, "BESTIE")).body.proposal;
+      expect((await api("POST", `/cp/proposals/${p.id}/accept`, f.token)).status).toBe(200);
+    }
+    expect((await propose(a, friends[4]!, "BESTIE")).body.error.code).toBe("CP_LIMIT");
+    expect((await propose(a, friends[4]!, "SIBLING")).status).toBe(400); // Brother or Sister must be chosen
+    expect((await propose(a, friends[4]!, "BESTIE", "BROTHER")).status).toBe(400);
+
+    const sibs = await Promise.all([1, 2, 3, 4, 5, 6, 7, 8].map((i) => signup(`cpsib${i}`)));
+    resetRateLimits(); // 10 requests a minute per sender
+    for (const [i, s] of sibs.slice(0, 7).entries()) {
+      const p = (await propose(a, s, "SIBLING", i % 2 ? "BROTHER" : "SISTER")).body.proposal;
+      expect((await api("POST", `/cp/proposals/${p.id}/accept`, s.token)).status).toBe(200);
+    }
+    expect((await propose(sibs[7]!, a, "SIBLING", "BROTHER")).body.error.code).toBe("CP_LIMIT");
+    expect((await rels(a, a)).map((r) => r.type)).toEqual([...Array(4).fill("BESTIE"), ...Array(7).fill("SIBLING")]);
+
+    const poor = await signup("cppoor");
+    await fund(poor.id, 98);
+    expect((await propose(poor, friends[4]!, "SIBLING", "BROTHER")).status).toBe(402);
+    expect(await coins(poor.token)).toBe(98);
+  });
+
+  test("a full slot at accept time is refused; ending a Love starts a 7-day cooldown; blocking ends the CP and refunds", async () => {
+    const [a, b, c, d] = [await signup("cpg"), await signup("cph"), await signup("cpi"), await signup("cpj")];
+    for (const u of [a, b, c, d]) await fund(u.id, 5000);
+    // b gets two Love requests; accepting one fills b's slot, so the other can't be accepted (it stays open to decline)
+    const fromA = (await propose(a, b, "LOVE")).body.proposal;
+    const fromC = (await propose(c, b, "LOVE")).body.proposal;
+    expect((await api("POST", `/cp/proposals/${fromA.id}/accept`, b.token)).status).toBe(200);
+    expect((await api("POST", `/cp/proposals/${fromC.id}/accept`, b.token)).body.error.code).toBe("CP_LIMIT");
+    expect((await api("POST", `/cp/proposals/${fromC.id}/decline`, b.token)).status).toBe(200);
+    expect(await coins(c.token)).toBe(5000);
+
+    const pairId = (await rels(a, a))[0].pairId;
+    expect((await api("DELETE", `/cp/pairs/${pairId}`, c.token)).status).toBe(404); // not theirs
+    expect((await api("DELETE", `/cp/pairs/${pairId}`, b.token)).status).toBe(200);
+    expect(await rels(a, a)).toEqual([]);
+    expect((await propose(a, d, "LOVE")).body.error.code).toBe("CP_COOLDOWN");
+    expect((await propose(d, b, "LOVE")).body.error).toMatchObject({ code: "CP_COOLDOWN", message: "They ended a Love CP less than 7 days ago" });
+    expect((await propose(a, d, "BESTIE")).status).toBe(201); // the cooldown is Love only
+
+    const p = (await propose(c, d, "SIBLING", "BROTHER")).body.proposal;
+    expect((await api("POST", `/cp/proposals/${p.id}/accept`, d.token)).status).toBe(200);
+    expect((await propose(d, c, "LOVE")).body.error.code).toBe("CP_ALREADY_PAIRED");
+    await propose(c, a, "BESTIE");
+    await api("POST", `/users/${a.id}/block`, c.token);
+    expect(await rels(c, c)).toEqual([expect.objectContaining({ type: "SIBLING", label: "BROTHER" })]); // c–d untouched
+    expect((await api("GET", `/dm/${c.id}`, a.token)).body.messages[0].cp.status).toBe("CANCELLED");
+    expect(await coins(c.token)).toBe(5000 - 99);
+    expect((await propose(a, c, "BESTIE")).body.error.code).toBe("BLOCKED");
+  });
+});

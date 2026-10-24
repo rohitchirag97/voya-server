@@ -8,6 +8,7 @@ import { io, userChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
 import { assertCanParticipate } from "../services/auth";
+import { cardsFor } from "../services/cp";
 import { userSummary } from "../services/rooms";
 
 export const dm = new Hono<Env>();
@@ -58,7 +59,11 @@ dm.get("/dm/:userId", async (c) => {
     .orderBy(desc(directMessages.id))
     .limit(q.limit + 1);
   const page = rows.slice(0, q.limit);
-  return c.json({ messages: page, nextCursor: rows.length > q.limit ? String(page.at(-1)!.id) : null });
+  const cards = await cardsFor(page.flatMap((m) => (m.cpProposalId ? [m.cpProposalId] : [])));
+  return c.json({
+    messages: page.map((m) => (m.cpProposalId ? { ...m, cp: cards.get(m.cpProposalId) ?? null } : m)),
+    nextCursor: rows.length > q.limit ? String(page.at(-1)!.id) : null,
+  });
 });
 
 // Friends only (both follow each other), and never across a block in either direction.

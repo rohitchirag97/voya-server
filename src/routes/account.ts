@@ -14,6 +14,7 @@ import { rateLimit } from "../lib/rateLimit";
 import { changePhone, linkGoogle, linkPhone, refresh, requestOtp, revokeSession, verifyCurrentPhone, verifyGoogle, verifyOtp } from "../services/auth";
 import { activeBadges, badgeCatalog } from "../services/badges";
 import { weeklyGiftStats } from "../services/gifts";
+import { onBlock, relationshipsOf } from "../services/cp";
 import { userSummary } from "../services/rooms";
 import { cosmeticMinSvip, SVIP_PERKS, svipOf, svipStatus, visibleAvatar, wearable } from "../services/svip";
 import { nameError, normalizeName } from "../lib/displayName";
@@ -319,6 +320,7 @@ async function profileOf(u: typeof users.$inferSelect, me: string) {
     svip,
     inRoom: await currentRoom(u.id), // the live room they're in right now, so visitors can join them
     week: await weeklyGiftStats(u.id), // gift contribution / charisma since Monday
+    relationships: await relationshipsOf(u.id), // active CPs (Love, Best friends, Brother/Sister)
     isMe,
     visitors: isMe ? visitorCount!.n : undefined, // private: only the owner sees visitor numbers
   };
@@ -415,7 +417,9 @@ account.delete("/users/:userId/follow", async (c) => {
 
 account.post("/users/:userId/block", async (c) => {
   const me = c.get("user").id;
-  await db.insert(blocks).values({ blockerId: me, blockedId: await target(c, me) }).onConflictDoNothing().catch(fkGuard);
+  const them = await target(c, me);
+  await db.insert(blocks).values({ blockerId: me, blockedId: them }).onConflictDoNothing().catch(fkGuard);
+  await onBlock(me, them);
   return c.json({ blocked: true });
 });
 
