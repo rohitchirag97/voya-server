@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
-import { createHash } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
+import { z } from "zod";
 import { db, isUniqueViolation } from "../db";
 import { blocks, chatMessages, roomParticipants, rooms, users, type User } from "../db/schema";
 import { io, roomChannel } from "../io";
@@ -52,10 +53,7 @@ export async function sendChat(user: User, roomId: string, input: ChatInput) {
   const body = input.body.trim();
   if (!body) throw new AppError("EMPTY_MESSAGE", 400);
   rateLimit(`chat:dup:${user.id}:${createHash("sha1").update(body).digest("hex")}`, 2, 30_000);
-
-  const [room] = await db.select({ status: rooms.status }).from(rooms).where(eq(rooms.id, roomId));
-  if (room?.status !== "LIVE") throw new AppError("ROOM_NOT_LIVE", 409);
-  await assertMember(roomId, user.id);
+  const sender = await speaker(user, roomId);
 
   // A mention counts only if the target is a current participant and their @handle is in the text.
   const ids = [...new Set(input.mentions.map((m) => m.userId))].slice(0, 10);
@@ -67,17 +65,57 @@ export async function sendChat(user: User, roomId: string, input: ChatInput) {
         .where(and(eq(roomParticipants.roomId, roomId), isNull(roomParticipants.leftAt), inArray(roomParticipants.userId, ids)))
     : [];
   const mentions = targets.filter((t) => body.includes(`@${t.displayName}`)).map((t) => t.id);
+  return post(user, roomId, sender, { body, mentions, clientMessageId: input.clientMessageId });
+}
 
+// Animated emotes: a chat message from the sender whose payload names the emote; phones play it on the sender's seat
+// (if seated) and keep the line in chat. Dice, roller and coin results are drawn here so nobody can fake them.
+export const EMOTES = ["hand", "smile", "kiss", "angry", "heart", "dice", "roller", "coin"] as const;
+export const emoteSchema = z.object({ emote: z.enum(EMOTES), clientMessageId: z.string().min(1).max(64) });
+const FACES: Record<string, string> = { hand: "✋", smile: "😊", kiss: "😘", angry: "😠", heart: "❤️" };
+
+export function drawEmote(emote: (typeof EMOTES)[number]): { body: string; result?: string } {
+  if (emote === "dice") {
+    const result = String(randomInt(1, 7));
+    return { body: `🎲 rolled ${result}`, result };
+  }
+  if (emote === "roller") {
+    const result = String(randomInt(0, 1000)).padStart(3, "0");
+    return { body: `🎰 rolled ${result}`, result };
+  }
+  if (emote === "coin") {
+    const result = randomInt(2) ? "Heads" : "Tails";
+    return { body: `🪙 ${result}`, result };
+  }
+  return { body: FACES[emote]! };
+}
+
+export async function sendEmote(user: User, roomId: string, input: z.infer<typeof emoteSchema>) {
+  assertCanParticipate(user);
+  rateLimit(`emote:${user.id}`, 3, 5_000);
+  const sender = await speaker(user, roomId);
+  const { body, result } = drawEmote(input.emote);
+  return post(user, roomId, sender, { body, mentions: [], clientMessageId: input.clientMessageId, payload: { emote: input.emote, result } });
+}
+
+// The sender as others see them, after checking they may talk here now.
+async function speaker(user: User, roomId: string): Promise<Sender> {
+  const [room] = await db.select({ status: rooms.status }).from(rooms).where(eq(rooms.id, roomId));
+  if (room?.status !== "LIVE") throw new AppError("ROOM_NOT_LIVE", 409);
+  await assertMember(roomId, user.id);
   // SVIP bubbles and frames show only while the sender still has the tier.
   const svip = await svipOf(user.id);
   const mins = await cosmeticMinSvip();
-  const sender = { ...user, svip, chatBubbleId: wearable(user.chatBubbleId, svip, mins), avatarFrameId: wearable(user.avatarFrameId, svip, mins) };
+  return { ...user, svip, chatBubbleId: wearable(user.chatBubbleId, svip, mins), avatarFrameId: wearable(user.avatarFrameId, svip, mins) };
+}
 
+// Stores the message and sends it to everyone in the room except people blocked either way.
+async function post(user: User, roomId: string, sender: Sender, values: { body: string; mentions: string[]; clientMessageId: string; payload?: Record<string, unknown> }) {
   let msg;
   try {
     [msg] = await db
       .insert(chatMessages)
-      .values({ roomId, senderUserId: user.id, body, mentions, clientMessageId: input.clientMessageId })
+      .values({ roomId, senderUserId: user.id, ...values })
       .returning();
   } catch (e) {
     if (!isUniqueViolation(e)) throw e;
@@ -85,7 +123,7 @@ export async function sendChat(user: User, roomId: string, input: ChatInput) {
     const [prior] = await db
       .select()
       .from(chatMessages)
-      .where(and(eq(chatMessages.roomId, roomId), eq(chatMessages.senderUserId, user.id), eq(chatMessages.clientMessageId, input.clientMessageId)));
+      .where(and(eq(chatMessages.roomId, roomId), eq(chatMessages.senderUserId, user.id), eq(chatMessages.clientMessageId, values.clientMessageId)));
     return toWire(prior!, sender, (await activeBadgeIds([user.id])).get(user.id));
   }
 

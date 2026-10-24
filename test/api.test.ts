@@ -15,6 +15,7 @@ import { decideCoinSeller } from "../src/services/sellers";
 import { levelInfo, levelOf, loadLevels, maxLevel, xpToReach } from "../src/lib/levels";
 import { tierFor } from "../src/services/svip";
 import * as ludo from "../src/services/ludo";
+import * as chat from "../src/services/chat";
 
 let base = "";
 let server: ReturnType<typeof serve>;
@@ -1002,6 +1003,22 @@ describe("socket chat", () => {
     expect(leaked).toBe(false);
     const hist = await api("GET", `/rooms/${roomId}/messages`, b.token);
     expect(hist.body.messages.some((m: any) => m.sender?.userId === a.id)).toBe(false);
+
+    // Emotes: anyone in the room (b is not seated yet); the server draws the dice and the line stays in chat.
+    const emoteGot = nextEvent(sh, "room:chat:new");
+    const dice = await emit(sb, "room:emote", { roomId, emote: "dice", clientMessageId: "e1" });
+    expect(dice.ok).toBe(true);
+    const de = await emoteGot;
+    expect(de.payload.emote).toBe("dice");
+    expect(["1", "2", "3", "4", "5", "6"]).toContain(de.payload.result);
+    expect(de.body).toBe(`🎲 rolled ${de.payload.result}`);
+    expect((await emit(sb, "room:emote", { roomId, emote: "dance", clientMessageId: "e2" })).ok).toBe(false);
+    const hist2 = await api("GET", `/rooms/${roomId}/messages`, host.token);
+    expect(hist2.body.messages.some((m: any) => m.payload?.emote === "dice")).toBe(true);
+    for (let i = 0; i < 200; i++) {
+      expect(chat.drawEmote("roller").result).toMatch(/^\d{3}$/);
+      expect(["Heads", "Tails"]).toContain(chat.drawEmote("coin").result!);
+    }
 
     const seatEvt = nextEvent(sh, "room:seat:state");
     expect((await emit(sb, "room:seat:claim", { roomId, seatIndex: 5 })).ok).toBe(true);

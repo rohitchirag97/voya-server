@@ -78,6 +78,7 @@ io.on("connection", (socket: Socket) => {
   });
 
   handle("room:chat:send", (user, p) => chat.sendChat(user, id(p), schemas.chat.parse(p)));
+  handle("room:emote", (user, p) => chat.sendEmote(user, id(p), chat.emoteSchema.parse(p)));
   handle("room:seat:claim", (user, p) => rooms.claimSeat(user, id(p), schemas.seatIndex.parse(p.seatIndex)));
   handle("room:seat:release", (user, p) => rooms.releaseSeat(user, id(p), schemas.seatIndex.parse(p.seatIndex)));
   handle("room:seat:accept", (user, p) => rooms.claimSeat(user, id(p), schemas.seatIndex.parse(p.seatIndex), { invited: true }));
