@@ -1,14 +1,15 @@
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { db, isUniqueViolation } from "../db";
-import { blocks, directMessages, follows, users } from "../db/schema";
+import { blocks, directMessages, follows, users, type User } from "../db/schema";
 import { json, requireAuth, schemas, type Env } from "../http";
 import { io, userChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
 import { assertCanParticipate } from "../services/auth";
 import { cardsFor } from "../services/cp";
+import { store } from "./posts";
 import { userSummary } from "../services/rooms";
 
 export const dm = new Hono<Env>();
@@ -67,13 +68,9 @@ dm.get("/dm/:userId", async (c) => {
 });
 
 // Friends only (both follow each other), and never across a block in either direction.
-dm.post("/dm/:userId", async (c) => {
-  const user = c.get("user");
+async function assertCanMessage(user: User, them: string) {
   assertCanParticipate(user);
-  const them = other(c, user.id);
-  const b = await json(c, z.object({ body: z.string().trim().min(1).max(1000), clientMessageId: z.string().min(1).max(64) }));
   rateLimit(`dm:${user.id}`, 20, 10_000);
-
   const pairs = await db
     .select({ a: follows.followerId })
     .from(follows)
@@ -84,20 +81,45 @@ dm.post("/dm/:userId", async (c) => {
     .from(blocks)
     .where(or(and(eq(blocks.blockerId, user.id), eq(blocks.blockedId, them)), and(eq(blocks.blockerId, them), eq(blocks.blockedId, user.id))));
   if (blocked) throw new AppError("BLOCKED", 403, "You can't message this person");
+}
 
+dm.post("/dm/:userId", async (c) => {
+  const user = c.get("user");
+  const them = other(c, user.id);
+  const b = await json(c, z.object({ body: z.string().trim().min(1).max(1000), clientMessageId: z.string().min(1).max(64) }));
+  await assertCanMessage(user, them);
+  return deliver(c, { senderId: user.id, recipientId: them, body: b.body, clientMessageId: b.clientMessageId });
+});
+
+// A photo (multipart: "file" JPEG/PNG, "clientMessageId"). Same rules as text; stored like post photos.
+dm.post("/dm/:userId/image", async (c) => {
+  const user = c.get("user");
+  const them = other(c, user.id);
+  const form = await c.req.formData().catch(() => null);
+  const file = form?.get("file");
+  const clientMessageId = z.string().min(1).max(64).parse(form?.get("clientMessageId"));
+  if (!(file instanceof File)) throw new AppError("FILE_REQUIRED", 400, "Choose a photo");
+  await assertCanMessage(user, them);
+  const prior = await priorMessage(user.id, clientMessageId);
+  if (prior) return c.json(prior, 200); // retry: don't store the photo twice
+  const { name } = await store(file, ["image"]);
+  return deliver(c, { senderId: user.id, recipientId: them, body: "📷 Photo", imageUrl: `/v1/uploads/${name}`, clientMessageId });
+});
+
+const priorMessage = async (senderId: string, clientMessageId: string) =>
+  (await db.select().from(directMessages).where(and(eq(directMessages.senderId, senderId), eq(directMessages.clientMessageId, clientMessageId))))[0];
+
+async function deliver(c: Context<Env>, values: typeof directMessages.$inferInsert) {
+  const { senderId: me, recipientId: them } = values;
   let msg;
   try {
-    [msg] = await db.insert(directMessages).values({ senderId: user.id, recipientId: them, body: b.body, clientMessageId: b.clientMessageId }).returning();
+    [msg] = await db.insert(directMessages).values(values).returning();
   } catch (e) {
     if (!isUniqueViolation(e)) throw e;
     // Retry of a message we already stored.
-    [msg] = await db
-      .select()
-      .from(directMessages)
-      .where(and(eq(directMessages.senderId, user.id), eq(directMessages.clientMessageId, b.clientMessageId)));
-    return c.json(msg, 200);
+    return c.json(await priorMessage(me, values.clientMessageId!), 200);
   }
   // Live delivery to both sides (the sender may have the chat open on another device).
-  io.to(userChannel(them)).to(userChannel(user.id)).emit("dm:new", msg);
+  io.to(userChannel(them)).to(userChannel(me)).emit("dm:new", msg);
   return c.json(msg, 201);
-});
+}

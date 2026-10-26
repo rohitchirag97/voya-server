@@ -573,6 +573,32 @@ describe("direct messages", () => {
     await api("POST", `/users/${a.id}/block`, b.token);
     expect((await send(a, b, "still there?", "m3")).body.error.code).toBe("BLOCKED");
   });
+
+  test("friends can send photos; strangers and non-images can't", async () => {
+    const [a, b, c] = [await signup("dmpa"), await signup("dmpb"), await signup("dmpc")];
+    await api("POST", `/users/${b.id}/follow`, a.token);
+    await api("POST", `/users/${a.id}/follow`, b.token);
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)]);
+    const sendPhoto = async (from: { token: string }, to: { id: string }, clientMessageId: string, bytes: Uint8Array = png) => {
+      const form = new FormData();
+      form.append("file", new File([bytes], "p.png", { type: "image/png" }));
+      form.append("clientMessageId", clientMessageId);
+      const res = await fetch(`${base}/v1/dm/${to.id}/image`, { method: "POST", headers: { authorization: `Bearer ${from.token}` }, body: form });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+
+    const sent = await sendPhoto(a, b, "p1");
+    const { id, imageUrl } = sent.body; // read before toMatchObject: Bun swaps matched values in place
+    expect(sent.status).toBe(201);
+    expect(sent.body.body).toBe("📷 Photo");
+    expect(imageUrl).toMatch(/^\/v1\/uploads\/.+\.png$/);
+    expect((await sendPhoto(a, b, "p1")).body.id).toBe(id); // a retry, not a second photo
+    expect((await fetch(base + imageUrl)).status).toBe(200);
+    expect((await api("GET", `/dm/${a.id}`, b.token)).body.messages[0]).toMatchObject({ id, imageUrl });
+
+    expect((await sendPhoto(a, c, "p2")).body.error.code).toBe("NOT_FRIENDS");
+    expect((await sendPhoto(a, b, "p3", new TextEncoder().encode("not an image at all"))).body.error.code).toBe("BAD_MEDIA");
+  });
 });
 
 describe("seat layouts", () => {

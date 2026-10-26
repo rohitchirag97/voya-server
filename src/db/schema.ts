@@ -251,6 +251,7 @@ export const directMessages = pgTable(
     body: text("body").notNull(),
     clientMessageId: text("client_message_id"),
     cpProposalId: uuid("cp_proposal_id").references(() => cpProposals.id), // set when the message is a CP proposal card
+    imageUrl: text("image_url"), // a photo message (body is "📷 Photo", so inbox previews and older apps still read)
     createdAt: createdAt(),
   },
   (t) => [
