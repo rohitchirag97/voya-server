@@ -2789,6 +2789,9 @@ describe("inbox lives on phones", () => {
     const sent = (await api("POST", `/dm/${b.id}`, a.token, { body: "hello phone", clientMessageId: "ph1" })).body;
     expect(await live).toMatchObject({ id: sent.id, body: "hello phone", sender: { userId: a.id, displayName: a.handle } });
 
+    // The sender's phone can fill in its own side while the recipient hasn't picked it up yet.
+    expect((await api("GET", "/dm/sent", a.token)).body.messages).toEqual([expect.objectContaining({ id: sent.id, recipient: expect.objectContaining({ userId: b.id }) })]);
+
     // Missed it live? It waits for b's phone, with who sent it.
     const pending = (await api("GET", "/dm/pending", b.token)).body.messages;
     expect(pending).toEqual([expect.objectContaining({ id: sent.id, sender: expect.objectContaining({ userId: a.id }) })]);
@@ -2808,5 +2811,26 @@ describe("inbox lives on phones", () => {
     expect(r.status).toBe(201);
     const [row] = (await db.execute(sql`select evidence from reports where id = ${r.body.reportId}`)).rows as any[];
     expect(row.evidence).toEqual([expect.objectContaining({ body: "hello phone" })]);
+  });
+});
+
+describe("online and last seen", () => {
+  test("online while the app is connected; last seen is stamped when it goes away", async () => {
+    const [a, b] = [await signup("sea"), await signup("seb")];
+    const presence = async () => (await api("POST", "/users/presence", a.token, { ids: [b.id] })).body.presence[0];
+    expect(await presence()).toMatchObject({ userId: b.id, online: false, lastSeenAt: null });
+
+    const sb = socketFor(b.token);
+    await new Promise<void>((r) => sb.once("connect", () => r()));
+    await new Promise((r) => setTimeout(r, 100));
+    expect((await presence()).online).toBe(true);
+    expect((await api("GET", `/users/${b.id}`, a.token)).body).toMatchObject({ online: true, lastSeenAt: expect.any(String) });
+
+    const before = Date.now();
+    sb.close();
+    await new Promise((r) => setTimeout(r, 200));
+    const after = await presence();
+    expect(after.online).toBe(false);
+    expect(new Date(after.lastSeenAt).getTime()).toBeGreaterThanOrEqual(before - 1000);
   });
 });

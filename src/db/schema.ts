@@ -81,6 +81,7 @@ export const users = pgTable(
     pinnedBadges: text("pinned_badges").array().notNull().default(sql`'{}'`),
     // Profile cover photos (uploads), shown as a slideshow; first is the main one. Max 6 (lib/profileOptions).
     coverUrls: text("cover_urls").array().notNull().default(sql`'{}'`),
+    lastSeenAt: ts("last_seen_at"), // when their app last connected or went away ("Last seen …"); online is live (isOnline)
     createdAt: createdAt(),
     updatedAt: ts("updated_at").notNull().defaultNow(),
   },

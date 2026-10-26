@@ -320,6 +320,8 @@ async function profileOf(u: typeof users.$inferSelect, me: string) {
     ...(await badgesWithWall(u)),
     svip,
     inRoom: await currentRoom(u.id), // the live room they're in right now, so visitors can join them
+    online: isOnline(u.id), // app open right now
+    lastSeenAt: u.lastSeenAt, // when they were last around (shown when not online)
     week: await weeklyGiftStats(u.id), // gift contribution / charisma since Monday
     relationships: await relationshipsOf(u.id), // active CPs (Love, Best friends, Brother/Sister)
     isMe,
@@ -363,6 +365,13 @@ account.get("/users/:userId/following", async (c) => {
 });
 
 // Only your own visitors: most recent visit first, with how many times they came.
+// Online now / last seen, for a list of people (inbox rows, chat header).
+account.post("/users/presence", async (c) => {
+  const { ids } = await json(c, z.object({ ids: z.array(schemas.uuid).min(1).max(100) }));
+  const rows = await db.select({ userId: users.id, lastSeenAt: users.lastSeenAt }).from(users).where(inArray(users.id, [...new Set(ids)]));
+  return c.json({ presence: rows.map((r) => ({ ...r, online: isOnline(r.userId) })) });
+});
+
 // My friends (we follow each other), for inviting them to a room.
 account.get("/me/friends", async (c) => {
   const me = c.get("user").id;

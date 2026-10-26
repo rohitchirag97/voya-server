@@ -2,7 +2,10 @@ import type { Socket } from "socket.io";
 import { config } from "./config";
 import type { User } from "./db/schema";
 import { schemas } from "./http";
-import { io, roomChannel, userChannel } from "./io";
+import { io, isOnline, roomChannel, userChannel } from "./io";
+import { eq } from "drizzle-orm";
+import { db } from "./db";
+import { users } from "./db/schema";
 import { toSafeError } from "./lib/errors";
 import { authenticate, loadUser } from "./services/auth";
 import * as chat from "./services/chat";
@@ -15,6 +18,9 @@ import * as rooms from "./services/rooms";
 // shortcut: grace timers live in memory, so a restart forgets them; add a stale-session reconciler job before scaling out.
 const graceTimers = new Map<string, Timer>();
 const graceKey = (roomId: string, userId: string) => `${roomId}:${userId}`;
+
+// "Last seen": stamped when someone's app connects and when it goes away. Fire-and-forget.
+const seen = (userId: string) => void db.update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, userId)).catch(toSafeError);
 
 function cancelGrace(roomId: string, userId: string) {
   clearTimeout(graceTimers.get(graceKey(roomId, userId)));
@@ -57,6 +63,7 @@ io.use(async (socket, next) => {
 io.on("connection", (socket: Socket) => {
   const userId: string = socket.data.userId;
   socket.join(userChannel(userId));
+  seen(userId);
 
   // Every mutation acks { ok, data } or { ok:false, error }; without an ack the error goes out as room:error.
   const handle = (event: string, fn: (user: User, payload: any) => Promise<unknown>) =>
@@ -133,6 +140,11 @@ io.on("connection", (socket: Socket) => {
   socket.on("room:typing", (p) => {
     const roomId = typeof p?.roomId === "string" ? p.roomId : "";
     if (inRoom(roomId) && chat.typingAllowed(userId)) socket.to(roomChannel(roomId)).emit("room:typing", { roomId, userId });
+  });
+
+  // Their last connection closed: that's when they were last seen.
+  socket.on("disconnect", () => {
+    if (!isOnline(userId)) seen(userId);
   });
 
   socket.on("disconnecting", (reason) => {

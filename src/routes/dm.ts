@@ -57,6 +57,23 @@ dm.get("/dm/pending", async (c) => {
   });
 });
 
+// Messages I sent that the server still holds (their recipients haven't picked them up yet), with who each went to.
+// Lets a phone fill in its own side of chats once (e.g. after the switch to on-phone chats). Nothing is deleted:
+// the recipients still need them.
+dm.get("/dm/sent", async (c) => {
+  const me = c.get("user").id;
+  const rows = await db.select().from(directMessages).where(eq(directMessages.senderId, me)).orderBy(directMessages.id).limit(2000);
+  const ids = [...new Set(rows.map((m) => m.recipientId))];
+  const [people, cards] = await Promise.all([
+    ids.length ? db.select(userSummary).from(users).where(inArray(users.id, ids)) : [],
+    cardsFor(rows.flatMap((m) => (m.cpProposalId ? [m.cpProposalId] : []))),
+  ]);
+  const byId = new Map(people.map((p) => [p.userId, p]));
+  return c.json({
+    messages: rows.map((m) => ({ ...m, recipient: byId.get(m.recipientId) ?? null, ...(m.cpProposalId ? { cp: cards.get(m.cpProposalId) ?? null } : {}) })),
+  });
+});
+
 // This phone has saved these: the server forgets them.
 dm.post("/dm/ack", async (c) => {
   const { ids } = await json(c, z.object({ ids: z.array(z.number().int().positive()).min(1).max(500) }));
