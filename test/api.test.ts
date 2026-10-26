@@ -2055,14 +2055,17 @@ describe("charisma counter", () => {
     expect((await live).charisma.totals).toEqual({ [host.id]: 20 });
     expect((await api("GET", `/rooms/${roomId}`, fan.token)).body.charisma.totals).toEqual({ [host.id]: 20 });
 
-    // Starting again restarts from zero; stopping turns it off.
+    // Starting again (Reset) restarts from zero for everyone; stopping turns it off.
+    const reset = nextEvent(sf, "room:charisma");
     expect((await api("POST", `/rooms/${roomId}/charisma`, host.token, { on: true })).body.charisma.totals).toEqual({});
+    expect((await reset).charisma.totals).toEqual({});
     const stopped = nextEvent(sf, "room:charisma");
     expect((await api("POST", `/rooms/${roomId}/charisma`, host.token, { on: false })).body.charisma).toBeNull();
     expect((await stopped).charisma).toBeNull();
     expect((await api("GET", `/rooms/${roomId}`, fan.token)).body.charisma).toBeNull();
     const msgs = (await api("GET", `/rooms/${roomId}/messages?limit=10`, fan.token)).body.messages.map((m: any) => m.body);
     expect(msgs.some((b: string) => b.endsWith("stopped the charisma counter"))).toBe(true);
+    expect(msgs.some((b: string) => b.endsWith("reset the charisma counter to 0"))).toBe(true);
   });
 });
 

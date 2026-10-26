@@ -25,7 +25,12 @@
 <div id="idle"><div class="logo"></div><b id="idleTitle">Video mode</b><span id="idleText">Waiting for the host to pick a video</span></div>
 <script>
   const DRIFT = 2; // seconds off before we jump back in sync
-  let player = null, ready = false, state = null, loadedId = null;
+  let player = null, ready = false, state = null, loadedId = null, failedId = null;
+  // ?check=<id>: the app's pre-play test (muted, hidden): does YouTube let this video play here? Answers once.
+  const check = new URLSearchParams(location.search).get('check');
+  let checked = false;
+  const answer = (ok, code) => { if (!checked) { checked = true; tell({ type: 'check', ok, code }); } };
+  const failText = (code) => code === 101 || code === 150 ? 'Its owner only allows it on YouTube. Pick another one.' : 'It was removed or is private. Pick another one.';
   const tell = (msg) => window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(msg));
   const idle = (title, text) => {
     document.getElementById('idle').style.display = title ? 'flex' : 'none';
@@ -34,8 +39,9 @@
   const positionNow = (s) => s.position + (s.playing ? Math.max(0, Date.now() - Date.parse(s.at)) / 1000 : 0);
 
   function apply() {
-    if (!ready || !state) return;
+    if (!ready || !state || check) return;
     if (!state.videoId) { if (loadedId) player.stopVideo(); loadedId = null; idle('Video mode', 'Waiting for the host to pick a video'); return; }
+    if (state.videoId === failedId) return; // keep "can't play" up until another video is picked
     idle(null);
     const at = positionNow(state);
     if (state.videoId !== loadedId) {
@@ -58,9 +64,19 @@
       width: '100%', height: '100%',
       playerVars: { controls: 0, disablekb: 1, playsinline: 1, rel: 0, modestbranding: 1, fs: 0, iv_load_policy: 3, origin: location.origin },
       events: {
-        onReady: () => { ready = true; tell({ type: 'ready' }); apply(); },
+        onReady: () => {
+          ready = true;
+          if (check) { player.mute(); player.loadVideoById(check); return; }
+          tell({ type: 'ready' });
+          apply();
+        },
+        onStateChange: (e) => { if (check && e.data === YT.PlayerState.PLAYING) { answer(true); player.stopVideo(); } },
         // 101/150: the owner doesn't allow playing it outside YouTube; 100: removed or private.
-        onError: (e) => idle("Can't play this video", e.data === 101 || e.data === 150 ? 'Its owner only allows it on YouTube. Pick another one.' : 'It was removed or is private. Pick another one.'),
+        onError: (e) => {
+          if (check) return answer(false, e.data);
+          failedId = loadedId;
+          idle("Can't play this video", failText(e.data));
+        },
       },
     });
   };

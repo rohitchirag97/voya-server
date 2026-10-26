@@ -168,19 +168,21 @@ async function charismaState(roomId: string, startedAt: Date | null) {
   return { startedAt, totals: Object.fromEntries(rows.map((r) => [r.userId, r.coins])) as Record<string, number> };
 }
 
-// Owner and admins switch it on (from zero) or off; everyone in the room sees the change and a chat notice.
+// Owner and admins switch it on (from zero) or off; on while already on resets it to zero. Everyone in the room sees
+// the change and a chat notice.
 export async function setCharisma(actor: User, roomId: string, on: boolean) {
-  const startedAt = await db.transaction(async (tx) => {
+  const { startedAt, reset } = await db.transaction(async (tx) => {
     const room = await lockRoom(tx, roomId);
     await assertAdmin(tx, room, actor.id);
     const next = on ? new Date() : null;
     await tx.update(rooms).set({ charismaStartedAt: next }).where(eq(rooms.id, roomId));
     await bumpVersion(tx, roomId);
-    return next;
+    return { startedAt: next, reset: on && !!room.charismaStartedAt };
   });
   const charisma = await charismaState(roomId, startedAt);
   emitToRoom(roomId, "room:charisma", { roomId, charisma });
-  await systemMessage(roomId, on ? `${actor.displayName} started the charisma counter` : `${actor.displayName} stopped the charisma counter`, { kind: "CHARISMA", userId: actor.id });
+  const did = reset ? "reset the charisma counter to 0" : on ? "started the charisma counter" : "stopped the charisma counter";
+  await systemMessage(roomId, `${actor.displayName} ${did}`, { kind: "CHARISMA", userId: actor.id });
   return { charisma };
 }
 
