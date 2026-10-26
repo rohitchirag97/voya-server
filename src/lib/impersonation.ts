@@ -7,7 +7,10 @@ const LOOKALIKE: Record<string, string> = Object.fromEntries(
   [..."ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡʏᴢ"]
     .map((c, i) => [c, "abcdefghijklmnopqrstuvwyz"[i]!])
     .concat([..."аеорсухіѕ"].map((c, i) => [c, "aeopcyxis"[i]!]))
-    .concat([..."νοαγυιτκρ"].map((c, i) => [c, "voayuitkp"[i]!])),
+    .concat([..."νοαγυιτκρ"].map((c, i) => [c, "voayuitkp"[i]!]))
+    // Barred/slashed O's and theta; lambda, delta or ∀ for A; ʌ or ∇ for V; ¥ for Y (after lowercasing: Ɵ→ɵ, Θ→θ, Ø→ø,
+    // Λ→λ, Δ→δ; math-bold letters like 𝝯 𝝝 𝝙 fold to ∇ Θ Δ first).
+    .concat([..."ɵθøσօλδ∀ʌ∇¥"].map((c, i) => [c, "oooooaaavvy"[i]!])),
 );
 const fold = (s: string) =>
   s
@@ -31,4 +34,6 @@ const BIO_WORDS = ["official", "staff", "verified", "adminteam", "supportteam", 
 const FAKE_MARK = /[✅☑✔✓\u{1F6E1}\u{1F530}\u{1F396}\u{1F3C5}]/u;
 
 export const reservedName = (name: string) => NAME_WORDS.some((w) => fold(name).includes(w));
+// The app's name in any spelling (fancy fonts, look-alikes, digit swaps): used to clean up existing names.
+export const mentionsVoya = (name: string) => fold(name).includes("voya");
 export const impersonatingBio = (bio: string) => FAKE_MARK.test(bio) || BIO_WORDS.some((w) => fold(bio).includes(w));
