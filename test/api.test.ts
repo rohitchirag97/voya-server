@@ -477,7 +477,12 @@ describe("levels and recharge", () => {
     await Bun.sleep(100);
     // One inbox notice from the Recharge Notification account (support staff), none for the replay.
     const notices = (await api("GET", "/dm/pending", u.token)).body.messages;
-    expect(notices).toEqual([expect.objectContaining({ body: expect.stringContaining("60 coins added"), sender: expect.objectContaining({ displayName: "Recharge Notification", staffRole: "SUPPORT" }) })]);
+    expect(notices).toEqual([
+      expect.objectContaining({
+        notice: { kind: "RECHARGE", status: "SUCCESS", coins: 60, balance: before + 60, txnId: expect.stringMatching(/^TXN\d+$/), paidRupees: 99 },
+        sender: expect.objectContaining({ displayName: "Recharge Notification", staffRole: "SUPPORT" }),
+      }),
+    ]);
     expect((await api("GET", "/wallet", u.token)).body.balance).toBe(before + 60);
     expect((await buy("coins_300", "r1")).body.error.code).toBe("IDEMPOTENCY_CONFLICT");
     expect((await buy("nope", "r9")).body.error.code).toBe("INVALID_PACKAGE");
@@ -1436,7 +1441,9 @@ describe("staff console and seller wallets", () => {
     expect(sold.body).toMatchObject({ balance: 700, to: { userId: buyer.id } });
     expect(await coins(buyer.token)).toBe(before + 300);
     await Bun.sleep(100);
-    expect((await api("GET", "/dm/pending", buyer.token)).body.messages.map((m: any) => m.body)).toContain(`${seller.handle} sent you 300 coins. Your balance is now ${before + 300} coins.`);
+    const got = (await api("GET", "/dm/pending", buyer.token)).body.messages.at(-1);
+    expect(got.notice).toMatchObject({ kind: "SELLER", status: "SUCCESS", coins: 300, balance: before + 300 });
+    expect(got.body).not.toContain(seller.handle); // the seller stays anonymous
     const mine = await coins(seller.token);
     expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: String(sid), amount: 100, idempotencyKey: key() })).body.balance).toBe(600);
     expect(await coins(seller.token)).toBe(mine + 100);

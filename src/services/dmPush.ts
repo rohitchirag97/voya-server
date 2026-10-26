@@ -1,6 +1,6 @@
 import { and, eq, inArray, lt } from "drizzle-orm";
 import { db } from "../db";
-import { directMessages, users } from "../db/schema";
+import { directMessages, users, type CoinNotice } from "../db/schema";
 import { io, userChannel } from "../io";
 
 // Inbox messages live on phones, not here: the server only holds each one until the recipient's phone has it
@@ -47,9 +47,14 @@ export async function rechargeBot() {
   return bot!;
 }
 
-// Inbox message from the Recharge Notification account (bypasses the friends-only rule; replies are refused by it).
-export async function notifyCoins(userId: string, body: string) {
+const STATUS_TEXT = { SUCCESS: "successful", PENDING: "pending", FAILED: "failed" } as const;
+
+// Receipt card from the Recharge Notification account (bypasses the friends-only rule; replies are refused by it).
+// The body is the plain-text version for push notifications and older apps; it never names the seller.
+export async function notifyCoins(userId: string, notice: CoinNotice) {
   const bot = await rechargeBot();
-  const [msg] = await db.insert(directMessages).values({ senderId: bot.id, recipientId: userId, body }).returning();
+  const what = notice.kind === "RECHARGE" ? "Recharge" : "Coin top-up";
+  const body = `${what} ${STATUS_TEXT[notice.status]}: ${notice.coins} coins · ${notice.txnId}`;
+  const [msg] = await db.insert(directMessages).values({ senderId: bot.id, recipientId: userId, body, notice }).returning();
   pushDm(msg!, bot);
 }

@@ -50,7 +50,10 @@ export async function recharge(user: User, packageId: string, key: string | unde
         .set({ balance: sql`${walletAccounts.balance} + ${pkg.coins}`, version: sql`${walletAccounts.version} + 1` })
         .where(eq(walletAccounts.userId, user.id))
         .returning();
-      await tx.insert(walletLedger).values({ userId: user.id, entryType: "RECHARGE", amount: pkg.coins, referenceType: "RECHARGE", referenceId: r!.id });
+      const [entry] = await tx
+        .insert(walletLedger)
+        .values({ userId: user.id, entryType: "RECHARGE", amount: pkg.coins, referenceType: "RECHARGE", referenceId: r!.id })
+        .returning({ id: walletLedger.id });
       const earned = Math.floor(pkg.pricePaise / 100);
       const [u] = await tx
         .update(users)
@@ -58,10 +61,11 @@ export async function recharge(user: User, packageId: string, key: string | unde
         .where(eq(users.id, user.id))
         .returning({ xp: users.xp });
       const level = levelInfo(u!.xp);
-      return { recharge: r!, balance: w!.balance, level, leveledUp: level.level > levelOf(u!.xp - earned), replayed: false };
+      return { recharge: r!, balance: w!.balance, level, leveledUp: level.level > levelOf(u!.xp - earned), replayed: false, txnId: `TXN${entry!.id}` };
     });
     announceRecharge(user, Math.floor(pkg.pricePaise / 100), result.level.level, result.leveledUp).catch(toSafeError);
-    notifyCoins(user.id, `Recharge successful: ${pkg.coins} coins added. Your balance is now ${result.balance} coins.`).catch(toSafeError);
+    const paidRupees = Math.floor(pkg.pricePaise / 100);
+    notifyCoins(user.id, { kind: "RECHARGE", status: "SUCCESS", coins: pkg.coins, balance: result.balance, txnId: result.txnId, paidRupees }).catch(toSafeError);
     return result;
   } catch (e) {
     // Same key sent twice at once: the loser returns the winner's result.

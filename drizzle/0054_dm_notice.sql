@@ -1,0 +1,1 @@
+ALTER TABLE "direct_messages" ADD COLUMN "notice" jsonb;

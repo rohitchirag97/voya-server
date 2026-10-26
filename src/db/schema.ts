@@ -246,6 +246,16 @@ export const chatMessages = pgTable(
 );
 
 // 1:1 messages between friends (mutual follows).
+// Coin receipt shown in the inbox. txnId is the wallet ledger entry ("TXN<id>"), so support can find it.
+export type CoinNotice = {
+  kind: "RECHARGE" | "SELLER";
+  status: "SUCCESS" | "PENDING" | "FAILED";
+  coins: number;
+  balance: number | null; // wallet after it, when it succeeded
+  txnId: string;
+  paidRupees?: number; // in-app purchases only
+};
+
 export const directMessages = pgTable(
   "direct_messages",
   {
@@ -257,6 +267,7 @@ export const directMessages = pgTable(
     cpProposalId: uuid("cp_proposal_id").references(() => cpProposals.id), // set when the message is a CP proposal card
     imageUrl: text("image_url"), // a photo message (body is "📷 Photo", so inbox previews and older apps still read)
     roomId: uuid("room_id").references(() => rooms.id), // a room invite sent while you were offline: shows a Join button
+    notice: jsonb("notice").$type<CoinNotice>(), // a coin receipt from the Recharge Notification account: shows as a card
     createdAt: createdAt(),
   },
   (t) => [
