@@ -9,6 +9,7 @@ import { account } from "./routes/account";
 import { admin } from "./routes/admin";
 import { dm } from "./routes/dm";
 import { coinSellerRoutes } from "./routes/coinSellers";
+import { links } from "./routes/links";
 import { cpRoutes } from "./routes/cp";
 import { postRoutes } from "./routes/posts";
 import { roomRoutes } from "./routes/rooms";
@@ -32,6 +33,7 @@ app.onError((e, c) => {
 app.notFound((c) => c.json({ error: { code: "NOT_FOUND", message: "Not found", requestId: c.get("requestId") } }, 404));
 
 app.get("/health", (c) => c.json({ ok: true }));
+app.route("/", links); // shareable room links (/r/:roomId) and the install page (/download)
 // HTML5 mini-games, opened in a WebView over the room. The socket client comes from the installed socket.io, so versions always match.
 app.get("/games/socket.io.min.js", () => new Response(Bun.file(`${import.meta.dir}/../node_modules/socket.io/client-dist/socket.io.min.js`)));
 app.use("/games/*", serveStatic({ root: `${import.meta.dir}/../public` }));

@@ -17,6 +17,8 @@ export const config = {
   // OAuth "Web application" client ID; Google sign-in is off when unset.
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
   uploadsDir:process.env.UPLOADS_DIR ?? "uploads",
+  // Where shared room links send people without the app: the Play Store page once published; empty = our /download page.
+  appStoreUrl: process.env.APP_STORE_URL ?? "",
 };
 
 if (config.zegoServerSecret.length !== 32) {

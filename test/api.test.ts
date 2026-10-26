@@ -2834,3 +2834,19 @@ describe("online and last seen", () => {
     expect(new Date(after.lastSeenAt).getTime()).toBeGreaterThanOrEqual(before - 1000);
   });
 });
+
+describe("shareable room links", () => {
+  test("/r/<room> has a preview card and opens the app; unknown rooms and the install page", async () => {
+    const { roomId } = await liveRoom();
+    const res = await fetch(`${base}/r/${roomId}`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('<meta property="og:title" content="Evening Chai">');
+    expect(html).toContain(`intent://room/${roomId}#Intent;scheme=voyalive;package=com.partylive`);
+    expect(html).toContain(encodeURIComponent(`${base}/download`)); // no Play Store link set: our install page
+
+    expect((await fetch(`${base}/r/00000000-0000-4000-8000-000000000000`)).status).toBe(404);
+    expect((await fetch(`${base}/r/not-a-room`)).status).toBe(404);
+    expect((await fetch(`${base}/download`)).status).toBe(200);
+  });
+});
