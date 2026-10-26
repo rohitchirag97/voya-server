@@ -26,8 +26,8 @@ app.use(async (c, next) => {
 });
 
 app.onError((e, c) => {
-  const { status, code, message } = toSafeError(e);
-  return c.json({ error: { code, message, requestId: c.get("requestId") } }, status);
+  const { status, code, message, data } = toSafeError(e);
+  return c.json({ error: { code, message, ...(data && { data }), requestId: c.get("requestId") } }, status);
 });
 
 app.notFound((c) => c.json({ error: { code: "NOT_FOUND", message: "Not found", requestId: c.get("requestId") } }, 404));

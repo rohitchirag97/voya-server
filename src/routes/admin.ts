@@ -1,8 +1,9 @@
-import { eq, ilike, or, sql } from "drizzle-orm";
+import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { db } from "../db";
-import { coinSellers, staffRole, users, walletAccounts } from "../db/schema";
+import { coinSellers, staffRole, users, userSessions, walletAccounts } from "../db/schema";
+import { io, userChannel } from "../io";
 import { json, requireAuth, requireStaff, schemas, type Env } from "../http";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
@@ -24,6 +25,8 @@ admin.get("/admin/users", async (c) => {
       publicId: users.publicId,
       specialId: users.specialId,
       status: users.status,
+      bannedUntil: users.bannedUntil,
+      banReason: users.banReason,
       coins: walletAccounts.balance,
       seller: { status: coinSellers.status, balance: coinSellers.balance, parentId: coinSellers.parentId },
     })
@@ -49,6 +52,36 @@ admin.post("/admin/users/:userId/staff-role", requireStaff("OWNER"), async (c) =
     return u;
   });
   return c.json(updated);
+});
+
+// Ban for a while or for good, with a reason the person sees when they try to sign in. Signs them out everywhere and
+// drops their live connections at once. Staff can't be banned here (change their role first); nobody bans themselves.
+const BAN_LENGTHS = { "24h": 86_400_000, "3d": 3 * 86_400_000, "7d": 7 * 86_400_000, "1m": 30 * 86_400_000, "1y": 365 * 86_400_000, life: null } as const;
+admin.post("/admin/users/:userId/ban", async (c) => {
+  const me = c.get("user");
+  const targetId = schemas.uuid.parse(c.req.param("userId"));
+  const { duration, reason } = await json(c, z.object({ duration: z.enum(Object.keys(BAN_LENGTHS) as [keyof typeof BAN_LENGTHS]), reason: z.string().trim().min(3).max(300) }));
+  if (targetId === me.id) throw new AppError("CANNOT_BAN_SELF", 400, "You can't ban yourself");
+  const [target] = await db.select({ staffRole: users.staffRole }).from(users).where(eq(users.id, targetId));
+  if (!target) throw new AppError("USER_NOT_FOUND", 404);
+  if (target.staffRole) throw new AppError("CANNOT_BAN_STAFF", 400, "Remove their staff role before banning them");
+  const ms = BAN_LENGTHS[duration];
+  const bannedUntil = ms === null ? null : new Date(Date.now() + ms);
+  await db.update(users).set({ status: "BANNED", bannedUntil, banReason: reason, updatedAt: new Date() }).where(eq(users.id, targetId));
+  await db.update(userSessions).set({ revokedAt: new Date() }).where(and(eq(userSessions.userId, targetId), isNull(userSessions.revokedAt)));
+  io.in(userChannel(targetId)).disconnectSockets(true); // out of rooms right away
+  return c.json({ userId: targetId, status: "BANNED", bannedUntil, banReason: reason });
+});
+
+admin.post("/admin/users/:userId/unban", async (c) => {
+  const targetId = schemas.uuid.parse(c.req.param("userId"));
+  const [u] = await db
+    .update(users)
+    .set({ status: "ACTIVE", bannedUntil: null, banReason: null, updatedAt: new Date() })
+    .where(eq(users.id, targetId))
+    .returning({ userId: users.id, status: users.status });
+  if (!u) throw new AppError("USER_NOT_FOUND", 404);
+  return c.json(u);
 });
 
 // Give a special ID (3-9 letters/digits, stored uppercase) or remove it (null).

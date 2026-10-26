@@ -31,7 +31,7 @@ function cancelGrace(roomId: string, userId: string) {
 // leaving) ends with a clean close, so that person is gone and their seat frees at once; a timeout or transport error
 // is usually bad network (tunnel, lift), so they get 30s to come back and keep their seat. Anyone let go who comes
 // back (e.g. after switching networks) rejoins and is announced again.
-const closedOnPurpose = (reason: string) => reason === "transport close" || reason === "client namespace disconnect";
+const closedOnPurpose = (reason: string) => reason === "transport close" || reason === "client namespace disconnect" || reason === "server namespace disconnect";
 
 async function onDropped(roomId: string, userId: string, socketId: string, reason: string) {
   const others = (await io.in(roomChannel(roomId)).fetchSockets()).some((s) => s.data.userId === userId && s.id !== socketId);

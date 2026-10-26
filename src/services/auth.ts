@@ -131,7 +131,7 @@ async function signIn(id: Identity) {
     });
     return created;
   });
-  if (user.status === "BANNED") throw new AppError("ACCOUNT_BANNED", 403);
+  await assertNotBanned(user);
   return { user, ...(await createSession(user.id)) };
 }
 
@@ -182,8 +182,23 @@ export async function authenticate(token: string | undefined): Promise<{ user: U
     .innerJoin(users, eq(users.id, userSessions.userId))
     .where(eq(userSessions.id, sid));
   if (!row || row.revokedAt) throw new AppError("UNAUTHORIZED", 401);
-  if (row.user.status === "BANNED") throw new AppError("ACCOUNT_BANNED", 403);
+  await assertNotBanned(row.user);
   return { user: row.user, sessionId: sid };
+}
+
+// Banned: refused, with when it ends (null = lifetime) and why. A ban whose time is up lifts itself here.
+export async function assertNotBanned(user: User) {
+  if (user.status !== "BANNED") return;
+  if (user.bannedUntil && user.bannedUntil <= new Date()) {
+    await db.update(users).set({ status: "ACTIVE", bannedUntil: null, banReason: null, updatedAt: new Date() }).where(eq(users.id, user.id));
+    Object.assign(user, { status: "ACTIVE", bannedUntil: null, banReason: null });
+    return;
+  }
+  const until = user.bannedUntil?.toISOString() ?? null;
+  throw new AppError("ACCOUNT_BANNED", 403, until ? `Your account is banned until ${until}` : "Your account is banned permanently", {
+    until,
+    reason: user.banReason,
+  });
 }
 
 export async function loadUser(userId: string) {

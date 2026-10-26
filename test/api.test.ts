@@ -2850,3 +2850,48 @@ describe("shareable room links", () => {
     expect((await fetch(`${base}/download`)).status).toBe(200);
   });
 });
+
+describe("bans", () => {
+  test("staff ban for a time or for good, with a reason; the person is shut out and sees until when; it lifts itself", async () => {
+    const [mod, bad, other] = [await signup("banmod"), await signup("banbad"), await signup("banother")];
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${mod.id}`);
+
+    expect((await api("POST", `/admin/users/${bad.id}/ban`, other.token, { duration: "24h", reason: "spam" })).status).toBe(403); // not staff
+    expect((await api("POST", `/admin/users/${mod.id}/ban`, mod.token, { duration: "24h", reason: "self" })).body.error.code).toBe("CANNOT_BAN_SELF");
+
+    const before = Date.now();
+    const banned = await api("POST", `/admin/users/${bad.id}/ban`, mod.token, { duration: "24h", reason: "Spamming in rooms" });
+    expect(banned.body).toMatchObject({ status: "BANNED", banReason: "Spamming in rooms" });
+    const until = new Date(banned.body.bannedUntil).getTime();
+    expect(until - before).toBeGreaterThan(23.9 * 3600_000);
+
+    // Shut out at once (their session is revoked), and signing in again says why and until when.
+    expect((await api("GET", "/me", bad.token)).status).toBe(401);
+    const phone = (await db.execute(sql`select phone from users where id = ${bad.id}`)).rows[0] as { phone: string };
+    const { body: otp } = await api("POST", "/auth/otp/request", undefined, { phone: phone.phone });
+    const login = await api("POST", "/auth/otp/verify", undefined, { phone: phone.phone, code: otp.devCode });
+    expect(login.status).toBe(403);
+    expect(login.body.error).toMatchObject({ code: "ACCOUNT_BANNED", data: { reason: "Spamming in rooms", until: banned.body.bannedUntil } });
+
+    // Admins see it when looking them up.
+    const found = (await api("GET", `/admin/users?q=${bad.handle}`, mod.token)).body.users[0];
+    expect(found).toMatchObject({ status: "BANNED", banReason: "Spamming in rooms" });
+
+    // Time's up: the ban lifts by itself on their next sign-in.
+    await db.execute(sql`update users set banned_until = now() - interval '1 minute' where id = ${bad.id}`);
+    const { body: otp2 } = await api("POST", "/auth/otp/request", undefined, { phone: phone.phone });
+    const back = await api("POST", "/auth/otp/verify", undefined, { phone: phone.phone, code: otp2.devCode });
+    expect(back.status).toBe(200);
+    expect((await api("GET", `/admin/users?q=${bad.handle}`, mod.token)).body.users[0]).toMatchObject({ status: "ACTIVE", bannedUntil: null });
+
+    // Lifetime: no end date. Unban lets them straight back in.
+    const life = await api("POST", `/admin/users/${other.id}/ban`, mod.token, { duration: "life", reason: "Harassment" });
+    expect(life.body).toMatchObject({ bannedUntil: null });
+    expect((await api("POST", `/admin/users/${other.id}/unban`, mod.token)).body.status).toBe("ACTIVE");
+
+    // Staff can't be banned (remove their role first).
+    const mod2 = await signup("banmod2");
+    await db.execute(sql`update users set staff_role = 'MODERATOR' where id = ${mod2.id}`);
+    expect((await api("POST", `/admin/users/${mod2.id}/ban`, mod.token, { duration: "7d", reason: "testing" })).body.error.code).toBe("CANNOT_BAN_STAFF");
+  });
+});

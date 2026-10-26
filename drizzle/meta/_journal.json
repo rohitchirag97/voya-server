@@ -372,6 +372,13 @@
       "when": 1793011980580,
       "tag": "0052_backfill_last_seen",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1793015396375,
+      "tag": "0053_user_bans",
+      "breakpoints": true
     }
   ]
 }
