@@ -3,6 +3,7 @@ import { db } from ".";
 import { SAMPLE_BADGES } from "./badgesSeed";
 import { SAMPLE_COSMETICS } from "./cosmeticsSeed";
 import { SVIP_COSMETICS } from "./svipCosmeticsSeed";
+import { MORE_GIFTS } from "./giftsMore";
 import { ANIMATED_GIFTS } from "./giftsSeed";
 import { DEFAULT_THRESHOLDS, loadLevels } from "../lib/levels";
 import { badges, cosmetics, giftCatalog, levelThresholds } from "./schema";
@@ -22,6 +23,7 @@ export async function migrateAndSeed() {
   await db.insert(cosmetics).values(SVIP_COSMETICS).onConflictDoNothing();
   await db.insert(badges).values(SAMPLE_BADGES).onConflictDoNothing();
   await db.insert(giftCatalog).values(ANIMATED_GIFTS).onConflictDoNothing();
+  await db.insert(giftCatalog).values(MORE_GIFTS).onConflictDoNothing();
   // Seed level thresholds once; later edits in the table are kept.
   await db
     .insert(levelThresholds)

@@ -2547,3 +2547,59 @@ describe("CP relationships", () => {
     expect((await propose(a, c, "BESTIE")).body.error.code).toBe("BLOCKED");
   });
 });
+
+describe("CP levels", () => {
+  test("the curve: level 1 at 0, each level costs more than the last, max 50", async () => {
+    const { cpLevel, cpPointsFor, CP_MAX_LEVEL } = await import("../src/lib/cpLevels");
+    expect(cpLevel(0)).toMatchObject({ level: 1, current: 0, next: 150 });
+    expect(cpLevel(149).level).toBe(1);
+    expect(cpLevel(150).level).toBe(2);
+    for (let n = 2; n < CP_MAX_LEVEL; n++) expect(cpPointsFor(n + 1) - cpPointsFor(n)).toBeGreaterThan(cpPointsFor(n) - cpPointsFor(n - 1));
+    expect(cpLevel(10_000_000)).toMatchObject({ level: CP_MAX_LEVEL, next: null });
+  });
+
+  test("partners earn points from gifts, inbox messages (capped daily) and time together in a room", async () => {
+    const { awardTogether } = await import("../src/services/cp");
+    const { host, roomId } = await liveRoom();
+    const fan = await joined(roomId, "cplvfan");
+    await db.execute(sql`update wallet_accounts set balance = 10000 where user_id in (${host.id}, ${fan.id})`);
+    const p = (await api("POST", "/cp/proposals", fan.token, { toUserId: host.id, type: "LOVE" })).body.proposal;
+    expect((await api("POST", `/cp/proposals/${p.id}/accept`, host.token)).status).toBe(200);
+    const level = async () => (await api("GET", `/users/${host.id}`, fan.token)).body.relationships[0].level;
+    expect(await level()).toMatchObject({ level: 1, points: 0 });
+
+    // Gifts: 1 point per coin, either way.
+    const gift = (giftId: string, quantity: number) =>
+      api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: host.id, giftId, quantity }, { "Idempotency-Key": crypto.randomUUID() });
+    expect((await gift("chai", 2)).status).toBe(200); // 20 coins
+    expect((await level()).points).toBe(20);
+
+    // Messages: 3 each, at most 60 a day.
+    await api("POST", `/users/${host.id}/follow`, fan.token);
+    await api("POST", `/users/${fan.id}/follow`, host.token);
+    for (let i = 0; i < 25; i++) {
+      if (i % 15 === 0) resetRateLimits();
+      expect((await api("POST", `/dm/${host.id}`, fan.token, { body: `hi ${i}`, clientMessageId: `cpm${i}` })).status).toBe(201);
+    }
+    expect((await level()).points).toBe(20 + 60);
+
+    // Together in the same live room: 1 a minute (2 when both are seated), at most 240 a day.
+    expect(await awardTogether()).toBeGreaterThanOrEqual(1);
+    expect((await level()).points).toBe(81);
+    await db.execute(sql`update cp_points_daily set points = 239 where source = 'TOGETHER' and pair_id = (select id from cp_pairs where proposal_id = ${p.id})`);
+    await awardTogether();
+    await awardTogether();
+    expect((await level()).points).toBe(82); // only 1 more fit under the cap
+
+    // The inbox shows the CP and its level next to the conversation.
+    const convo = (await api("GET", "/dm", fan.token)).body.conversations.find((c: any) => c.user.userId === host.id);
+    expect(convo.cp).toMatchObject({ type: "LOVE", level: { level: 1, points: 82 } });
+    expect((await api("GET", `/dm/${host.id}`, fan.token)).body.cp).toMatchObject({ type: "LOVE", level: { level: 1, points: 82 } }); // the chat header
+
+    // Strangers earn nothing: a gift to someone you're not paired with leaves your CP alone.
+    const other = await joined(roomId, "cplvother");
+    await db.execute(sql`update wallet_accounts set balance = 1000 where user_id = ${other.id}`);
+    expect((await api("POST", `/rooms/${roomId}/gifts`, other.token, { recipientUserId: host.id, giftId: "star", quantity: 1 }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
+    expect((await level()).points).toBe(82);
+  });
+});

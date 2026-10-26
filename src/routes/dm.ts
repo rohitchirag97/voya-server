@@ -8,7 +8,7 @@ import { io, userChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
 import { assertCanParticipate } from "../services/auth";
-import { cardsFor } from "../services/cp";
+import { awardDm, cardsFor, relationshipsOf } from "../services/cp";
 import { store } from "./posts";
 import { userSummary } from "../services/rooms";
 
@@ -27,13 +27,19 @@ dm.get("/dm", async (c) => {
     ) t order by peer, id desc`);
   const ids = latest.rows.map((r) => Number(r.id));
   if (!ids.length) return c.json({ conversations: [] });
-  const [msgs, people] = await Promise.all([
+  const [msgs, people, cps] = await Promise.all([
     db.select().from(directMessages).where(inArray(directMessages.id, ids)).orderBy(desc(directMessages.id)),
     db.select(userSummary).from(users).where(inArray(users.id, latest.rows.map((r) => r.peer))),
+    relationshipsOf(me),
   ]);
   const byId = new Map(people.map((u) => [u.userId, u]));
+  // CP with this person, if any: type, how long, and its level.
+  const cpWith = new Map(cps.map((r) => [r.user.userId, { type: r.type, label: r.label, since: r.since, level: r.level }]));
   return c.json({
-    conversations: msgs.map((m) => ({ user: byId.get(m.senderId === me ? m.recipientId : m.senderId)!, lastMessage: m })),
+    conversations: msgs.map((m) => {
+      const peer = m.senderId === me ? m.recipientId : m.senderId;
+      return { user: byId.get(peer)!, lastMessage: m, cp: cpWith.get(peer) ?? null };
+    }),
   });
 });
 
@@ -60,10 +66,12 @@ dm.get("/dm/:userId", async (c) => {
     .orderBy(desc(directMessages.id))
     .limit(q.limit + 1);
   const page = rows.slice(0, q.limit);
-  const cards = await cardsFor(page.flatMap((m) => (m.cpProposalId ? [m.cpProposalId] : [])));
+  const [cards, cps] = await Promise.all([cardsFor(page.flatMap((m) => (m.cpProposalId ? [m.cpProposalId] : []))), relationshipsOf(me)]);
+  const cp = cps.find((r) => r.user.userId === them);
   return c.json({
     messages: page.map((m) => (m.cpProposalId ? { ...m, cp: cards.get(m.cpProposalId) ?? null } : m)),
     nextCursor: rows.length > q.limit ? String(page.at(-1)!.id) : null,
+    cp: cp ? { type: cp.type, label: cp.label, since: cp.since, level: cp.level } : null, // your CP with them, for the chat header
   });
 });
 
@@ -121,5 +129,6 @@ async function deliver(c: Context<Env>, values: typeof directMessages.$inferInse
   }
   // Live delivery to both sides (the sender may have the chat open on another device).
   io.to(userChannel(them)).to(userChannel(me)).emit("dm:new", msg);
+  await awardDm(me, them).catch(() => {}); // CP level points; never fails the message
   return c.json(msg, 201);
 }

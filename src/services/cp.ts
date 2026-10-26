@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db, type Tx } from "../db";
-import { blocks, cpPairs, cpProposals, directMessages, users, walletAccounts, walletLedger, type User } from "../db/schema";
+import { blocks, cpPairs, cpPointsDaily, cpProposals, directMessages, roomParticipants, rooms, roomSeats, users, walletAccounts, walletLedger, type User } from "../db/schema";
+import { CP_POINTS, cpLevel } from "../lib/cpLevels";
 import { io, userChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
@@ -177,8 +178,80 @@ export async function expireProposals() {
   return due.length;
 }
 
-export function runCpExpiryLoop(ms = 60_000) {
-  return setInterval(() => expireProposals().catch((e) => console.error(JSON.stringify({ level: "error", msg: "cp-expiry-failed", err: String(e) }))), ms);
+// Every minute: refund expired requests and award time-together points.
+export function runCpLoop(ms = 60_000) {
+  const log = (msg: string) => (e: unknown) => console.error(JSON.stringify({ level: "error", msg, err: String(e) }));
+  return setInterval(() => {
+    expireProposals().catch(log("cp-expiry-failed"));
+    awardTogether().catch(log("cp-together-failed"));
+  }, ms);
+}
+
+// ---------- CP level points ----------
+
+const indiaToday = sql`(now() at time zone 'Asia/Kolkata')::date`;
+
+async function activePairId(a: string, b: string) {
+  if (a === b) return null;
+  const [x, y] = pairOf(a, b);
+  const [p] = await db
+    .select({ id: cpPairs.id })
+    .from(cpPairs)
+    .where(and(eq(cpPairs.userA, x), eq(cpPairs.userB, y), isNull(cpPairs.endedAt)));
+  return p?.id ?? null;
+}
+
+const addPoints = (pairId: string, points: number) =>
+  db.update(cpPairs).set({ intimacy: sql`${cpPairs.intimacy} + ${points}` }).where(eq(cpPairs.id, pairId));
+
+// Adds up to `points`, but never past today's `cap` for this source. Returns what was actually added.
+async function addCapped(pairId: string, source: string, points: number, cap: number) {
+  const { rows } = await db.execute<{ gained: number }>(sql`
+    with old as (
+      select points from ${cpPointsDaily} where pair_id = ${pairId} and day = ${indiaToday} and source = ${source}
+    ), up as (
+      insert into ${cpPointsDaily} (pair_id, day, source, points) values (${pairId}, ${indiaToday}, ${source}, least(${points}::int, ${cap}::int))
+      on conflict (pair_id, day, source) do update set points = least(${cpPointsDaily}.points + ${points}::int, ${cap}::int)
+      returning points
+    )
+    select ((select points from up) - coalesce((select points from old), 0))::int as gained`);
+  const gained = Number(rows[0]?.gained ?? 0);
+  if (gained > 0) await addPoints(pairId, gained);
+  return gained;
+}
+
+// A gift between CP partners: 1 point per coin, uncapped (it's paid for).
+export async function awardGift(senderId: string, recipientId: string, coins: number) {
+  const pair = await activePairId(senderId, recipientId);
+  if (pair && coins > 0) await addPoints(pair, coins * CP_POINTS.giftPerCoin);
+}
+
+// An inbox message between CP partners.
+export async function awardDm(a: string, b: string) {
+  const pair = await activePairId(a, b);
+  if (pair) await addCapped(pair, "DM", CP_POINTS.dm.each, CP_POINTS.dm.dailyCap);
+}
+
+// One minute's worth for every active pair currently in the same live room (more if both are on seats).
+export async function awardTogether() {
+  const { rows } = await db.execute<{ pair_id: string; seated: boolean }>(sql`
+    with present as (
+      select p.room_id, p.user_id,
+        exists(select 1 from ${roomSeats} s where s.room_id = p.room_id and s.occupant_user_id = p.user_id) as seated
+      from ${roomParticipants} p join ${rooms} r on r.id = p.room_id
+      where p.left_at is null and p.presence = 'CONNECTED' and r.status = 'LIVE'
+    )
+    select c.id as pair_id, bool_or(a.seated and b.seated) as seated
+    from ${cpPairs} c
+    join present a on a.user_id = c.user_a
+    join present b on b.user_id = c.user_b and b.room_id = a.room_id
+    where c.ended_at is null
+    group by c.id`);
+  for (const r of rows) {
+    const { present, seated, dailyCap } = CP_POINTS.together;
+    await addCapped(r.pair_id, "TOGETHER", r.seated ? seated : present, dailyCap);
+  }
+  return rows.length;
 }
 
 // Either person can end it, any time. A Love CP ending starts both people's 7-day cooldown.
@@ -219,11 +292,12 @@ export async function onBlock(a: string, b: string) {
 export async function relationshipsOf(userId: string) {
   const partner = sql`case when ${cpPairs.userA} = ${userId} then ${cpPairs.userB} else ${cpPairs.userA} end`;
   return db
-    .select({ pairId: cpPairs.id, type: cpPairs.type, label: cpPairs.label, since: cpPairs.createdAt, user: userSummary })
+    .select({ pairId: cpPairs.id, type: cpPairs.type, label: cpPairs.label, since: cpPairs.createdAt, intimacy: cpPairs.intimacy, user: userSummary })
     .from(cpPairs)
     .innerJoin(users, eq(users.id, partner))
     .where(and(involves(userId), isNull(cpPairs.endedAt)))
-    .orderBy(asc(cpPairs.createdAt));
+    .orderBy(asc(cpPairs.createdAt))
+    .then((rows) => rows.map(({ intimacy, ...r }) => ({ ...r, level: cpLevel(intimacy) })));
 }
 
 // Cards for DM messages that carry a proposal.

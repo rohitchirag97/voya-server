@@ -7,6 +7,7 @@ import { rateLimit } from "../lib/rateLimit";
 import { assertCanParticipate } from "./auth";
 import { refreshCharisma, refreshPk, systemMessage, userSummary } from "./rooms";
 import { refreshLivePk } from "./live";
+import { awardGift } from "./cp";
 
 export type GiftInput = { recipientUserId: string; giftId: string; quantity: number };
 type GiftTx = typeof giftTransactions.$inferSelect;
@@ -142,6 +143,7 @@ export async function sendGiftToAllSeated(sender: User, roomId: string, input: G
   await refreshCharisma(roomId).catch(() => {}); // a stale counter must never fail the gift
   await refreshPk(roomId).catch(() => {});
   await refreshLivePk(roomId).catch(() => {});
+  for (const t of result.transactions) await awardGift(sender.id, t.recipientId, t.coinsDebited).catch(() => {});
   return { transactions: result.transactions, balance: result.balance, replayed: false };
 }
 
@@ -228,6 +230,7 @@ export async function sendGift(sender: User, roomId: string, input: GiftInput, i
   await refreshCharisma(roomId).catch(() => {}); // a stale counter must never fail the gift
   await refreshPk(roomId).catch(() => {});
   await refreshLivePk(roomId).catch(() => {});
+  await awardGift(sender.id, t.recipientId, t.coinsDebited).catch(() => {}); // CP level points; never fails the gift
   return { transaction: t, balance: result.balance, replayed: false };
 }
 

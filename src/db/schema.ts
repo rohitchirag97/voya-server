@@ -656,6 +656,7 @@ export const cpPairs = pgTable(
     type: cpType("type").notNull(),
     label: text("label"),
     proposalId: uuid("proposal_id").notNull().references(() => cpProposals.id),
+    intimacy: integer("intimacy").notNull().default(0), // CP level points (see lib/cpLevels.ts)
     createdAt: createdAt(),
     endedAt: ts("ended_at"),
     endedBy: uuid("ended_by").references(() => users.id),
@@ -667,4 +668,16 @@ export const cpPairs = pgTable(
     index("cp_pairs_a").on(t.userA).where(sql`${t.endedAt} is null`),
     index("cp_pairs_b").on(t.userB).where(sql`${t.endedAt} is null`),
   ],
+);
+
+// Capped CP point sources (messages, time together) per pair per India day, so the caps hold.
+export const cpPointsDaily = pgTable(
+  "cp_points_daily",
+  {
+    pairId: uuid("pair_id").notNull().references(() => cpPairs.id),
+    day: date("day").notNull(),
+    source: text("source").notNull(),
+    points: integer("points").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.pairId, t.day, t.source] })],
 );
