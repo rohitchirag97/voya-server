@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, inArray, isNull, lt, ne, or, sql } from "dri
 import { Hono } from "hono";
 import { z } from "zod";
 import { db, isUniqueViolation, pgCode } from "../db";
-import { blocks, cosmetics, follows, posts, profileLikes, profileVisits, reports, roomParticipants, rooms, users } from "../db/schema";
+import { blocks, cosmetics, directMessages, follows, posts, profileLikes, profileVisits, reports, roomParticipants, rooms, users } from "../db/schema";
 import { json, requireAuth, schemas, type Env } from "../http";
 import { io, isOnline, userChannel } from "../io";
 import { AppError } from "../lib/errors";
@@ -377,6 +377,20 @@ account.get("/me/friends", async (c) => {
   return c.json({ friends: friends.map((f) => ({ ...f, online: isOnline(f.userId) })).sort((a, b) => Number(b.online) - Number(a.online)) });
 });
 
+// Who liked my profile, newest first, with when. Only the owner sees it.
+account.get("/me/likes", async (c) => {
+  const me = c.get("user").id;
+  const q = pageQuery.parse(c.req.query());
+  const rows = await db
+    .select({ ...personCols(me), at: profileLikes.createdAt })
+    .from(profileLikes)
+    .innerJoin(users, eq(users.id, profileLikes.likerId))
+    .where(and(eq(profileLikes.likedId, me), q.cursor ? lt(profileLikes.createdAt, new Date(q.cursor)) : undefined))
+    .orderBy(desc(profileLikes.createdAt))
+    .limit(q.limit + 1);
+  return c.json(page(rows, q.limit));
+});
+
 account.get("/me/visitors", async (c) => {
   const me = c.get("user").id;
   const q = pageQuery.parse(c.req.query());
@@ -411,12 +425,33 @@ account.post("/users/:userId/follow", async (c) => {
 // Like someone's profile (heart on the profile page). Idempotent both ways; returns the new count.
 const likesOf = async (id: string) => (await db.select({ n: count() }).from(profileLikes).where(eq(profileLikes.likedId, id)))[0]!.n;
 account.post("/users/:userId/like", async (c) => {
-  const me = c.get("user").id;
+  const user = c.get("user");
+  const me = user.id;
   const likedId = await target(c, me);
   rateLimit(`profileLike:${me}`, 30, 60_000);
-  await db.insert(profileLikes).values({ likerId: me, likedId }).onConflictDoNothing().catch(fkGuard);
+  const added = await db.insert(profileLikes).values({ likerId: me, likedId }).onConflictDoNothing().returning().catch(fkGuard);
+  if (added.length) await tellLiked(user, likedId).catch(() => {}); // a heads-up never fails the like
   return c.json({ likes: await likesOf(likedId), likedByMe: true });
 });
+
+// A new like lands in the liked person's inbox as a message from the liker (so it shows, counts as unread and
+// notifies like any message). Not across a block, and at most once a day per pair, so unlike/like can't spam.
+const LIKED_BODY = "❤️ liked your profile";
+async function tellLiked(user: { id: string; displayName: string | null }, likedId: string) {
+  const [blocked] = await db
+    .select({ a: blocks.blockerId })
+    .from(blocks)
+    .where(or(and(eq(blocks.blockerId, user.id), eq(blocks.blockedId, likedId)), and(eq(blocks.blockerId, likedId), eq(blocks.blockedId, user.id))));
+  if (blocked) return;
+  const [recent] = await db
+    .select({ id: directMessages.id })
+    .from(directMessages)
+    .where(and(eq(directMessages.senderId, user.id), eq(directMessages.recipientId, likedId), eq(directMessages.body, LIKED_BODY), sql`${directMessages.createdAt} > now() - interval '1 day'`))
+    .limit(1);
+  if (recent) return;
+  const [msg] = await db.insert(directMessages).values({ senderId: user.id, recipientId: likedId, body: LIKED_BODY }).returning();
+  io.to(userChannel(likedId)).to(userChannel(user.id)).emit("dm:new", { ...msg, senderName: user.displayName });
+}
 account.delete("/users/:userId/like", async (c) => {
   const me = c.get("user").id;
   const likedId = await target(c, me);

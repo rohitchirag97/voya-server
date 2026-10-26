@@ -25,12 +25,22 @@ async function blockedWith(userId: string) {
 
 type Sender = Pick<User, "id" | "displayName" | "avatarUrl" | "xp" | "chatBubbleId" | "avatarFrameId" | "staffRole"> & { svip: number | null };
 // Badges and bubbles travel as ids; the app caches their artwork from /badges and /cosmetics.
-const toWire = (m: typeof chatMessages.$inferSelect, sender: Sender | null, badges: string[] = []) => ({
+// userId -> display name for everyone mentioned in these messages, so a mention stays tappable for people who've
+// since left the room or gone offline (the app can't look them up among who's here).
+async function mentionNamesFor(rows: { mentions: string[] }[]) {
+  const ids = [...new Set(rows.flatMap((m) => m.mentions))];
+  if (!ids.length) return new Map<string, string>();
+  const people = await db.select({ id: users.id, name: users.displayName }).from(users).where(inArray(users.id, ids));
+  return new Map(people.flatMap((p) => (p.name ? [[p.id, p.name] as const] : [])));
+}
+
+const toWire = (m: typeof chatMessages.$inferSelect, sender: Sender | null, badges: string[] = [], names = new Map<string, string>()) => ({
   messageId: String(m.id),
   roomId: m.roomId,
   type: m.type,
   body: m.body,
   mentions: m.mentions,
+  mentionNames: Object.fromEntries(m.mentions.flatMap((id) => (names.has(id) ? [[id, names.get(id)!]] : []))) as Record<string, string>,
   payload: m.payload,
   clientMessageId: m.clientMessageId,
   sender: sender && {
@@ -124,10 +134,10 @@ async function post(user: User, roomId: string, sender: Sender, values: { body: 
       .select()
       .from(chatMessages)
       .where(and(eq(chatMessages.roomId, roomId), eq(chatMessages.senderUserId, user.id), eq(chatMessages.clientMessageId, values.clientMessageId)));
-    return toWire(prior!, sender, (await activeBadgeIds([user.id])).get(user.id));
+    return toWire(prior!, sender, (await activeBadgeIds([user.id])).get(user.id), await mentionNamesFor([prior!]));
   }
 
-  const wire = toWire(msg!, sender, (await activeBadgeIds([user.id])).get(user.id));
+  const wire = toWire(msg!, sender, (await activeBadgeIds([user.id])).get(user.id), await mentionNamesFor([msg!]));
   const hidden = await blockedWith(user.id);
   for (const s of await io.in(roomChannel(roomId)).fetchSockets()) {
     if (!hidden.has(s.data.userId)) s.emit("room:chat:new", wire);
@@ -162,9 +172,10 @@ export async function history(viewer: User, roomId: string, cursor: number | und
     .limit(limit + 1);
   const page = rows.slice(0, limit);
   const badgeMap = await activeBadgeIds([...new Set(page.map((r) => r.sender?.id).filter((x): x is string => !!x))]);
+  const names = await mentionNamesFor(page.map((r) => r.m));
   const mins = await cosmeticMinSvip();
   return {
-    messages: page.map((r) => toWire(r.m, r.sender?.id ? { ...r.sender, chatBubbleId: wearable(r.sender.chatBubbleId, r.sender.svip ?? 0, mins), avatarFrameId: wearable(r.sender.avatarFrameId, r.sender.svip ?? 0, mins) } : null, r.sender?.id ? badgeMap.get(r.sender.id) : [])),
+    messages: page.map((r) => toWire(r.m, r.sender?.id ? { ...r.sender, chatBubbleId: wearable(r.sender.chatBubbleId, r.sender.svip ?? 0, mins), avatarFrameId: wearable(r.sender.avatarFrameId, r.sender.svip ?? 0, mins) } : null, r.sender?.id ? badgeMap.get(r.sender.id) : [], names)),
     nextCursor: rows.length > limit ? String(page.at(-1)!.m.id) : null,
   };
 }

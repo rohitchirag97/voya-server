@@ -2699,3 +2699,47 @@ describe("room invites", () => {
     expect(await said(guest.token)).toEqual([]);
   });
 });
+
+describe("profile likes", () => {
+  test("a new like messages the liked person once a day; they can see who liked them and when", async () => {
+    const [a, b, c] = [await signup("lka"), await signup("lkb"), await signup("lkc")];
+    const sb = socketFor(b.token);
+    await new Promise<void>((r) => sb.once("connect", () => r()));
+    const got = nextEvent(sb, "dm:new");
+    expect((await api("POST", `/users/${b.id}/like`, a.token)).body).toEqual({ likes: 1, likedByMe: true });
+    expect(await got).toMatchObject({ senderId: a.id, recipientId: b.id, body: "❤️ liked your profile", senderName: a.handle });
+    expect((await api("GET", "/dm/unread", b.token)).body.count).toBe(1);
+
+    // Unlike and like again: no second message the same day.
+    await api("DELETE", `/users/${b.id}/like`, a.token);
+    await api("POST", `/users/${b.id}/like`, a.token);
+    await api("POST", `/users/${b.id}/like`, c.token);
+    const likedMsgs = (await api("GET", `/dm/${a.id}`, b.token)).body.messages.filter((m: any) => m.body === "❤️ liked your profile");
+    expect(likedMsgs).toHaveLength(1);
+
+    const likes = (await api("GET", "/me/likes", b.token)).body.people;
+    expect(likes.map((p: any) => p.userId)).toEqual([c.id, a.id]); // newest first
+    expect(likes[0].at).toEqual(expect.any(String));
+
+    // Blocked: the like still counts, but no message.
+    const d = await signup("lkd");
+    await api("POST", `/users/${d.id}/block`, b.token);
+    await api("POST", `/users/${b.id}/like`, d.token);
+    expect((await api("GET", `/dm/${d.id}`, b.token)).body.messages).toEqual([]);
+  });
+});
+
+describe("chat mentions", () => {
+  test("messages carry the mentioned people's names, so mentions still work after they leave", async () => {
+    const { host, roomId } = await liveRoom();
+    const guest = await joined(roomId, "mentioned");
+    const sh = socketFor(host.token);
+    await emit(sh, "room:join", { roomId });
+    const sent = await emit(sh, "room:chat:send", { roomId, body: `hi @${guest.handle}`, mentions: [{ userId: guest.id }], clientMessageId: "mn1" });
+    expect(sent.data).toMatchObject({ mentions: [guest.id], mentionNames: { [guest.id]: guest.handle } });
+
+    await api("POST", `/rooms/${roomId}/leave`, guest.token); // gone from the room
+    const msg = (await api("GET", `/rooms/${roomId}/messages`, host.token)).body.messages.find((m: any) => m.clientMessageId === "mn1");
+    expect(msg).toMatchObject({ mentions: [guest.id], mentionNames: { [guest.id]: guest.handle } });
+  });
+});
