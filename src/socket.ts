@@ -21,7 +21,13 @@ function cancelGrace(roomId: string, userId: string) {
   graceTimers.delete(graceKey(roomId, userId));
 }
 
-async function onDropped(roomId: string, userId: string, socketId: string) {
+// Why the connection ended, from socket.io: the app closing its connection (swiped away, killed, or the room screen
+// leaving) ends with a clean close, so that person is gone and their seat frees at once; a timeout or transport error
+// is usually bad network (tunnel, lift), so they get 30s to come back and keep their seat. Anyone let go who comes
+// back (e.g. after switching networks) rejoins and is announced again.
+const closedOnPurpose = (reason: string) => reason === "transport close" || reason === "client namespace disconnect";
+
+async function onDropped(roomId: string, userId: string, socketId: string, reason: string) {
   const others = (await io.in(roomChannel(roomId)).fetchSockets()).some((s) => s.data.userId === userId && s.id !== socketId);
   if (others) return;
   await rooms.setPresence(roomId, userId, "DISCONNECTED");
@@ -35,7 +41,7 @@ async function onDropped(roomId: string, userId: string, socketId: string) {
       } catch (e) {
         toSafeError(e);
       }
-    }, config.seatGraceMs),
+    }, closedOnPurpose(reason) ? Math.min(config.seatQuickGraceMs, config.seatGraceMs) : config.seatGraceMs),
   );
 }
 
@@ -73,7 +79,8 @@ io.on("connection", (socket: Socket) => {
     await rooms.assertMember(roomId, user.id); // REST /join first; this only attaches the realtime channel
     socket.join(roomChannel(roomId));
     cancelGrace(roomId, user.id);
-    await rooms.setPresence(roomId, user.id, "CONNECTED");
+    // Back after a dropped connection (bad network, switching networks): announce them again.
+    if (await rooms.setPresence(roomId, user.id, "CONNECTED")) await rooms.announceEntry(roomId, user);
     return rooms.getSnapshot(roomId);
   });
 
@@ -128,9 +135,9 @@ io.on("connection", (socket: Socket) => {
     if (inRoom(roomId) && chat.typingAllowed(userId)) socket.to(roomChannel(roomId)).emit("room:typing", { roomId, userId });
   });
 
-  socket.on("disconnecting", () => {
+  socket.on("disconnecting", (reason) => {
     for (const ch of socket.rooms) {
-      if (ch.startsWith("room:")) onDropped(ch.slice(5), userId, socket.id).catch(toSafeError);
+      if (ch.startsWith("room:")) onDropped(ch.slice(5), userId, socket.id, reason).catch(toSafeError);
     }
   });
 });

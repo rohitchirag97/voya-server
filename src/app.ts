@@ -43,14 +43,16 @@ app.route("/v1", dm);
 app.route("/v1", coinSellerRoutes);
 app.route("/v1", cpRoutes);
 
-const engine = new Engine({ path: "/socket.io/" });
+// Heartbeat every 10s, dead after 8s more without a reply: a phone that silently lost its connection is noticed in
+// ~18s (the defaults took up to 45s), so its seat is freed sooner.
+const engine = new Engine({ path: "/socket.io/", pingInterval: 10_000, pingTimeout: 8_000 });
 io.bind(engine);
 
 export function serve(port: number) {
   const { websocket } = engine.handler();
   return Bun.serve({
     port,
-    idleTimeout: 30, // must exceed the engine's 25s pingInterval
+    idleTimeout: 30, // must exceed the engine's 10s pingInterval
     websocket,
     fetch(req, server) {
       if (new URL(req.url).pathname === "/socket.io/") return engine.handleRequest(req, server);

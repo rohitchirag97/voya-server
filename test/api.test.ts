@@ -1095,6 +1095,33 @@ describe("socket chat", () => {
     expect(snap.seats[0].occupant).toBeNull(); // the owner's seat was freed
   });
 
+  test("closing the app frees the seat at once (no grace); a dropped connection that comes back is announced again", async () => {
+    const { host, roomId } = await liveRoom();
+    const a = await joined(roomId, "closer");
+    await api("POST", `/rooms/${roomId}/seats/3/claim`, a.token);
+    const sh = socketFor(host.token);
+    await emit(sh, "room:join", { roomId });
+    const sa = socketFor(a.token);
+    await emit(sa, "room:join", { roomId });
+
+    const left = nextEvent(sh, "room:participant:left");
+    const t = Date.now();
+    sa.close(); // a clean close: what the server sees when the app is swiped away
+    expect((await left).userId).toBe(a.id);
+    expect(Date.now() - t).toBeLessThan(250); // well under even the test grace (300ms)
+    expect((await api("GET", `/rooms/${roomId}`, host.token)).body.seats[3].occupant).toBeNull();
+
+    // Someone whose connection dropped (still in the room, marked away) and then reattaches gets the "joined" line again.
+    const b = await joined(roomId, "comeback");
+    await db.execute(sql`update room_participants set presence = 'DISCONNECTED' where room_id = ${roomId} and user_id = ${b.id} and left_at is null`);
+    const sb = socketFor(b.token);
+    await emit(sb, "room:join", { roomId });
+    const joins = (await api("GET", `/rooms/${roomId}/messages`, host.token)).body.messages.filter((m: any) => m.payload?.kind === "JOIN" && m.payload.userId === b.id);
+    expect(joins).toHaveLength(2); // entering, then coming back
+    await emit(sb, "room:join", { roomId }); // attaching again while connected is not a comeback
+    expect((await api("GET", `/rooms/${roomId}/messages`, host.token)).body.messages.filter((m: any) => m.payload?.kind === "JOIN" && m.payload.userId === b.id)).toHaveLength(2);
+  });
+
   test("rooms are permanent: one per owner, never end, open to anyone, admins kept", async () => {
     const owner = await signup("perm");
     const created = await api("POST", "/rooms", owner.token, { title: "Forever Chai", seatCount: 10 });

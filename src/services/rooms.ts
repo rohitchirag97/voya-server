@@ -629,12 +629,18 @@ export async function joinRoom(user: User, roomId: string, password?: string) {
       role: "AUDIENCE",
       at: new Date(),
     });
-    // "X joined" notices can be switched off in the room's settings; SVIP2+ entrances are always announced (and animated in the app).
-    const grand = svip >= SVIP_PERKS.entrance;
-    if (grand || (await getRoom(roomId)).showEntry)
-      await systemMessage(roomId, grand ? `SVIP${svip} ${user.displayName} entered the room` : `${user.displayName} joined`, { kind: "JOIN", userId: user.id, svip });
+    await announceEntry(roomId, user, svip);
   }
   return { room: await getSnapshot(roomId), zego: await zegoCredentials(roomId, user.id) };
+}
+
+// The "X joined" notice: on entering, and again when someone comes back after their connection dropped.
+// It can be switched off in the room's settings; SVIP2+ entrances are always announced (and animated in the app).
+export async function announceEntry(roomId: string, user: User, svip?: number) {
+  const tier = svip ?? (await svipOf(user.id));
+  const grand = tier >= SVIP_PERKS.entrance;
+  if (grand || (await getRoom(roomId)).showEntry)
+    await systemMessage(roomId, grand ? `SVIP${tier} ${user.displayName} entered the room` : `${user.displayName} joined`, { kind: "JOIN", userId: user.id, svip: tier });
 }
 
 // Frees the user's seat inside an open transaction. Returns the freed seat index, if any.
@@ -1015,6 +1021,7 @@ export async function unkick(actor: User, roomId: string, targetUserId: string) 
 }
 
 // Presence: socket dropped / reconnected. Only affects UI state; grace timers decide release.
+// Resolves true when it actually changed (e.g. a dropped participant is back).
 export async function setPresence(roomId: string, userId: string, presence: "CONNECTED" | "DISCONNECTED") {
   const roomVersion = await db.transaction(async (tx) => {
     await lockRoom(tx, roomId);
@@ -1033,6 +1040,7 @@ export async function setPresence(roomId: string, userId: string, presence: "CON
     return p ? bumpVersion(tx, roomId) : null;
   });
   if (roomVersion !== null && (await seatOf(roomId, userId))) await broadcastSeats(roomId, roomVersion);
+  return roomVersion !== null;
 }
 
 export async function eligibleRecipients(user: User, roomId: string) {
