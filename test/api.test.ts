@@ -2741,5 +2741,11 @@ describe("chat mentions", () => {
     await api("POST", `/rooms/${roomId}/leave`, guest.token); // gone from the room
     const msg = (await api("GET", `/rooms/${roomId}/messages`, host.token)).body.messages.find((m: any) => m.clientMessageId === "mn1");
     expect(msg).toMatchObject({ mentions: [guest.id], mentionNames: { [guest.id]: guest.handle } });
+
+    // Tagging someone who isn't in the room (left / offline) still makes a tappable mention; the @name must be in the text.
+    const again = await emit(sh, "room:chat:send", { roomId, body: `miss you @${guest.handle}`, mentions: [{ userId: guest.id }], clientMessageId: "mn2" });
+    expect(again.data).toMatchObject({ mentions: [guest.id], mentionNames: { [guest.id]: guest.handle } });
+    const noName = await emit(sh, "room:chat:send", { roomId, body: "no tag here", mentions: [{ userId: guest.id }], clientMessageId: "mn3" });
+    expect(noName.data.mentions).toEqual([]);
   });
 });

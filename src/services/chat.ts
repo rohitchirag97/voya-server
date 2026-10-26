@@ -65,15 +65,10 @@ export async function sendChat(user: User, roomId: string, input: ChatInput) {
   rateLimit(`chat:dup:${user.id}:${createHash("sha1").update(body).digest("hex")}`, 2, 30_000);
   const sender = await speaker(user, roomId);
 
-  // A mention counts only if the target is a current participant and their @handle is in the text.
+  // A mention counts if that person exists and their @handle is in the text. They needn't be in the room now (someone
+  // who just left, or is offline), so everyone can still tap the name for their profile.
   const ids = [...new Set(input.mentions.map((m) => m.userId))].slice(0, 10);
-  const targets = ids.length
-    ? await db
-        .select({ id: users.id, displayName: users.displayName })
-        .from(roomParticipants)
-        .innerJoin(users, eq(users.id, roomParticipants.userId))
-        .where(and(eq(roomParticipants.roomId, roomId), isNull(roomParticipants.leftAt), inArray(roomParticipants.userId, ids)))
-    : [];
+  const targets = ids.length ? await db.select({ id: users.id, displayName: users.displayName }).from(users).where(inArray(users.id, ids)) : [];
   const mentions = targets.filter((t) => body.includes(`@${t.displayName}`)).map((t) => t.id);
   return post(user, roomId, sender, { body, mentions, clientMessageId: input.clientMessageId });
 }
