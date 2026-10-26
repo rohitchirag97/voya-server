@@ -15,6 +15,7 @@ import { changePhone, linkGoogle, linkPhone, refresh, requestOtp, revokeSession,
 import { activeBadges, badgeCatalog } from "../services/badges";
 import { weeklyGiftStats } from "../services/gifts";
 import { onBlock, relationshipsOf } from "../services/cp";
+import { pushDm } from "../services/dmPush";
 import { userSummary } from "../services/rooms";
 import { cosmeticMinSvip, SVIP_PERKS, svipOf, svipStatus, visibleAvatar, wearable } from "../services/svip";
 import { nameError, normalizeName } from "../lib/displayName";
@@ -437,20 +438,21 @@ account.post("/users/:userId/like", async (c) => {
 // A new like lands in the liked person's inbox as a message from the liker (so it shows, counts as unread and
 // notifies like any message). Not across a block, and at most once a day per pair, so unlike/like can't spam.
 const LIKED_BODY = "❤️ liked your profile";
-async function tellLiked(user: { id: string; displayName: string | null }, likedId: string) {
+async function tellLiked(user: { id: string; displayName: string | null; avatarUrl: string | null }, likedId: string) {
   const [blocked] = await db
     .select({ a: blocks.blockerId })
     .from(blocks)
     .where(or(and(eq(blocks.blockerId, user.id), eq(blocks.blockedId, likedId)), and(eq(blocks.blockerId, likedId), eq(blocks.blockedId, user.id))));
   if (blocked) return;
-  const [recent] = await db
-    .select({ id: directMessages.id })
-    .from(directMessages)
-    .where(and(eq(directMessages.senderId, user.id), eq(directMessages.recipientId, likedId), eq(directMessages.body, LIKED_BODY), sql`${directMessages.createdAt} > now() - interval '1 day'`))
-    .limit(1);
-  if (recent) return;
+  // Once a day per pair. shortcut: kept in memory (messages are deleted once delivered, so they can't be checked);
+  // a server restart allows one more.
+  try {
+    rateLimit(`likeMsg:${user.id}:${likedId}`, 1, 86_400_000);
+  } catch {
+    return;
+  }
   const [msg] = await db.insert(directMessages).values({ senderId: user.id, recipientId: likedId, body: LIKED_BODY }).returning();
-  io.to(userChannel(likedId)).to(userChannel(user.id)).emit("dm:new", { ...msg, senderName: user.displayName });
+  pushDm(msg!, user);
 }
 account.delete("/users/:userId/like", async (c) => {
   const me = c.get("user").id;
@@ -489,6 +491,11 @@ account.post("/reports", async (c) => {
       targetId: z.string().min(1).max(64),
       reason: z.string().min(1).max(64),
       details: z.string().max(1000).optional(),
+      // Reported inbox messages, from the reporter's phone (chats aren't kept on the server; only these are).
+      evidence: z
+        .array(z.object({ senderId: z.string().max(64), body: z.string().max(1000), imageUrl: z.string().max(300).nullish(), createdAt: z.string().max(40) }))
+        .max(50)
+        .optional(),
     }),
   );
   const [r] = await db.insert(reports).values({ reporterId: me, ...b }).returning({ id: reports.id });

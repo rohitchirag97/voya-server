@@ -2,13 +2,19 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { json, requireAuth, schemas, type Env } from "../http";
 import { CP_POINTS } from "../lib/cpLevels";
-import { cancel, CP_TYPES, endPair, propose, PROPOSAL_TTL_MS, respond, SIBLING_LABELS } from "../services/cp";
+import { cancel, cardsFor, CP_TYPES, endPair, propose, PROPOSAL_TTL_MS, respond, SIBLING_LABELS } from "../services/cp";
 
 export const cpRoutes = new Hono<Env>();
 cpRoutes.use("/cp/*", requireAuth);
 
 // Types, slot limits and prices, so the app never hardcodes them.
 cpRoutes.get("/cp/options", (c) => c.json({ types: CP_TYPES, siblingLabels: SIBLING_LABELS, proposalTtlMs: PROPOSAL_TTL_MS, points: CP_POINTS }));
+
+// Current status of CP request cards the phone has saved (accepted, declined, expired…).
+cpRoutes.post("/cp/cards", async (c) => {
+  const { ids } = await json(c, z.object({ ids: z.array(schemas.uuid).min(1).max(100) }));
+  return c.json({ cards: [...(await cardsFor(ids)).values()] });
+});
 
 cpRoutes.post("/cp/proposals", async (c) => {
   const b = await json(c, z.object({ toUserId: schemas.uuid, type: z.enum(["LOVE", "BESTIE", "SIBLING"]), label: z.enum(SIBLING_LABELS).optional() }));

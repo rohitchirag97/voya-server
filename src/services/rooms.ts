@@ -10,6 +10,7 @@ import { generateToken04, roomPrivilege } from "../lib/zegoToken";
 import { assertCanParticipate } from "./auth";
 import { assertNotSvipProtected, avatarSql, frameSql, SVIP_PERKS, svipOf, svipSql } from "./svip";
 import { cancelOpenPks, pkActive } from "./live";
+import { pushDm } from "./dmPush";
 
 const ZEGO_TOKEN_TTL_S = 3600;
 type Room = typeof rooms.$inferSelect;
@@ -1096,7 +1097,7 @@ export async function inviteFriends(user: User, roomId: string, userIds: string[
       .insert(directMessages)
       .values({ senderId: user.id, recipientId: f.id, body: `📣 Join me in "${room.title}"`, roomId })
       .returning();
-    io.to(userChannel(f.id)).to(userChannel(user.id)).emit("dm:new", { ...msg, senderName: user.displayName });
+    pushDm(msg!, user);
     notified++;
   }
   return { invited, notified };

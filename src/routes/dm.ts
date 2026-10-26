@@ -9,6 +9,7 @@ import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
 import { assertCanParticipate } from "../services/auth";
 import { awardDm, cardsFor, relationshipsOf } from "../services/cp";
+import { ackDms, pushDm } from "../services/dmPush";
 import { store } from "./posts";
 import { userSummary } from "../services/rooms";
 
@@ -33,6 +34,34 @@ const markRead = (me: string, them: string) =>
     insert into ${dmReads} (user_id, peer_id, last_read_id)
     select ${me}, ${them}, coalesce(max(id), 0) from ${directMessages} where sender_id = ${them} and recipient_id = ${me}
     on conflict (user_id, peer_id) do update set last_read_id = greatest(${dmReads}.last_read_id, excluded.last_read_id)`);
+
+// ---------- chats live on phones ----------
+// Messages waiting for this phone (it was offline, or missed the live event), oldest first, with each sender and any
+// CP card. The phone saves them and acks; acked messages are deleted here.
+dm.get("/dm/pending", async (c) => {
+  const me = c.get("user").id;
+  const rows = await db.select().from(directMessages).where(eq(directMessages.recipientId, me)).orderBy(directMessages.id).limit(500);
+  const senderIds = [...new Set(rows.map((m) => m.senderId))];
+  const [people, cards] = await Promise.all([
+    senderIds.length ? db.select(userSummary).from(users).where(inArray(users.id, senderIds)) : [],
+    cardsFor(rows.flatMap((m) => (m.cpProposalId ? [m.cpProposalId] : []))),
+  ]);
+  const byId = new Map(people.map((p) => [p.userId, p]));
+  return c.json({
+    messages: rows.map((m) => ({
+      ...m,
+      sender: byId.get(m.senderId) ?? null,
+      senderName: byId.get(m.senderId)?.displayName ?? null,
+      ...(m.cpProposalId ? { cp: cards.get(m.cpProposalId) ?? null } : {}),
+    })),
+  });
+});
+
+// This phone has saved these: the server forgets them.
+dm.post("/dm/ack", async (c) => {
+  const { ids } = await json(c, z.object({ ids: z.array(z.number().int().positive()).min(1).max(500) }));
+  return c.json({ deleted: await ackDms(c.get("user").id, ids) });
+});
 
 // Total unread, for the badge on the Messages button (room bar, tabs).
 dm.get("/dm/unread", async (c) => {
@@ -160,7 +189,7 @@ async function deliver(c: Context<Env>, values: typeof directMessages.$inferInse
     return c.json(await priorMessage(me, values.clientMessageId!), 200);
   }
   // Live delivery to both sides (the sender may have the chat open on another device).
-  io.to(userChannel(them)).to(userChannel(me)).emit("dm:new", { ...msg, senderName: c.get("user").displayName });
+  pushDm(msg!, c.get("user"));
   await awardDm(me, them).catch(() => {}); // CP level points; never fails the message
   return c.json(msg, 201);
 }

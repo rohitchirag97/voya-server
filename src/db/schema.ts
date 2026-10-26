@@ -355,6 +355,7 @@ export const reports = pgTable("reports", {
   targetId: text("target_id").notNull(),
   reason: text("reason").notNull(),
   details: text("details"),
+  evidence: jsonb("evidence"), // reported inbox messages (copied from the reporter's phone); the only chats kept
   status: text("status").notNull().default("OPEN"),
   resolvedBy: uuid("resolved_by"),
   resolution: text("resolution"),

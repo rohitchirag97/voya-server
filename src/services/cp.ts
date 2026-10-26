@@ -8,6 +8,7 @@ import { rateLimit } from "../lib/rateLimit";
 import { assertCanParticipate } from "./auth";
 import { userSummary } from "./rooms";
 import { announceToAllRooms } from "./svip";
+import { pushDm } from "./dmPush";
 
 export type CpType = (typeof cpProposals.$inferSelect)["type"];
 export const CP_TYPES = {
@@ -103,7 +104,7 @@ export async function propose(user: User, input: { toUserId: string; type: CpTyp
     const [msg] = await tx.insert(directMessages).values({ senderId: user.id, recipientId: them.id, body, cpProposalId: p!.id }).returning();
     return { proposal: p!, msg: msg!, balance: wallet.balance };
   });
-  io.to(userChannel(them.id)).to(userChannel(user.id)).emit("dm:new", { ...result.msg, cp: cardOf(result.proposal), senderName: user.displayName });
+  pushDm(result.msg, user, { cp: cardOf(result.proposal) });
   return { proposal: cardOf(result.proposal), balance: result.balance };
 }
 

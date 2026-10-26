@@ -2,9 +2,12 @@
 
 // Fancy fonts back to plain letters (𝓐𝓭𝓶𝓲𝓷, ⓐⓓⓜⓘⓝ, ＡＤＭＩＮ), lowercase, drop separators, fold look-alikes
 // (adm1n, 0fficial, supp0rt, 5taff, offlcial) onto one spelling.
-// Small caps and Cyrillic look-alikes that NFKD leaves alone.
+// Small caps, Cyrillic and Greek look-alikes that NFKD leaves alone.
 const LOOKALIKE: Record<string, string> = Object.fromEntries(
-  [..."ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡʏᴢ"].map((c, i) => [c, "abcdefghijklmnopqrstuvwyz"[i]!]).concat([..."аеорсухіѕ"].map((c, i) => [c, "aeopcyxis"[i]!])),
+  [..."ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡʏᴢ"]
+    .map((c, i) => [c, "abcdefghijklmnopqrstuvwyz"[i]!])
+    .concat([..."аеорсухіѕ"].map((c, i) => [c, "aeopcyxis"[i]!]))
+    .concat([..."νοαγυιτκρ"].map((c, i) => [c, "voayuitkp"[i]!])),
 );
 const fold = (s: string) =>
   s
@@ -20,7 +23,8 @@ const fold = (s: string) =>
     .replace(/7/g, "t")
     .replace(/8/g, "b");
 
-const NAME_WORDS = ["admin", "official", "support", "moderator", "staff", "voyalive", "helpdesk", "customercare", "system", "verified"].map(fold);
+// "voya" covers VoyaLive and any variant; only staff may use the app's name.
+const NAME_WORDS = ["admin", "official", "support", "moderator", "staff", "voya", "helpdesk", "customercare", "system", "verified"].map(fold);
 // Bios may mention admins ("room admin") but not claim to be the app's staff.
 const BIO_WORDS = ["official", "staff", "verified", "adminteam", "supportteam", "voyaliveteam", "customercare", "helpdesk"].map(fold);
 // Emoji and symbols that copy the Official mark.

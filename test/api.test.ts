@@ -221,7 +221,7 @@ describe("display names", () => {
 describe("staff and impersonation", () => {
   test("reserved names and fake-official bios are blocked for regular users, allowed for staff", async () => {
     const a = await signup("imp");
-    for (const displayName of ["Admin", "voyalive_help", "Adm1n_raj", "0fficial", "supp0rt", "5taff.x", "offlcial", "𝓐𝓭𝓶𝓲𝓷", "ᴀᴅᴍɪɴ", "Ⓢⓣⓐⓕⓕ", "аdmin"])
+    for (const displayName of ["Admin", "voyalive_help", "Adm1n_raj", "0fficial", "supp0rt", "5taff.x", "offlcial", "𝓐𝓭𝓶𝓲𝓷", "ᴀᴅᴍɪɴ", "Ⓢⓣⓐⓕⓕ", "аdmin", "voya", "Riya_Voya", "𝓥𝓸𝔂𝓪 girl", "ᴠᴏʏᴀ", "V0ya", "νoya", "ＶＯＹＡ"])
       expect((await api("PATCH", "/me/profile", a.token, { displayName })).body.error.code).toBe("RESERVED_NAME");
     for (const bio of ["Official VoyaLive account", "✅ verified seller", "VoyaLive Support Team", "staff here"])
       expect((await api("PATCH", "/me/profile", a.token, { bio })).body.error.code).toBe("IMPERSONATION");
@@ -2775,5 +2775,38 @@ describe("room background photo and owner info", () => {
     const snap = (await api("GET", `/rooms/${roomId}`, guest.token)).body;
     expect(snap.owner).toMatchObject({ userId: host.id, displayName: host.handle, publicId: expect.any(Number) });
     expect(snap.createdAt).toEqual(expect.any(String));
+  });
+});
+
+describe("inbox lives on phones", () => {
+  test("the server holds a message only until the recipient's phone acks it; reports keep the reported messages", async () => {
+    const [a, b] = [await signup("pha"), await signup("phb")];
+    await api("POST", `/users/${b.id}/follow`, a.token);
+    await api("POST", `/users/${a.id}/follow`, b.token);
+    const sb = socketFor(b.token);
+    await new Promise<void>((r) => sb.once("connect", () => r()));
+    const live = nextEvent(sb, "dm:new");
+    const sent = (await api("POST", `/dm/${b.id}`, a.token, { body: "hello phone", clientMessageId: "ph1" })).body;
+    expect(await live).toMatchObject({ id: sent.id, body: "hello phone", sender: { userId: a.id, displayName: a.handle } });
+
+    // Missed it live? It waits for b's phone, with who sent it.
+    const pending = (await api("GET", "/dm/pending", b.token)).body.messages;
+    expect(pending).toEqual([expect.objectContaining({ id: sent.id, sender: expect.objectContaining({ userId: a.id }) })]);
+    // Only the recipient can ack; then it's gone from the server.
+    expect((await api("POST", "/dm/ack", a.token, { ids: [sent.id] })).body.deleted).toBe(0);
+    expect((await api("POST", "/dm/ack", b.token, { ids: [sent.id] })).body.deleted).toBe(1);
+    expect((await api("GET", "/dm/pending", b.token)).body.messages).toEqual([]);
+    expect((await db.execute(sql`select count(*)::int as n from direct_messages where id = ${sent.id}`)).rows[0]).toEqual({ n: 0 });
+
+    // Reporting from the chat: the reported messages (from the phone) are the only copy kept.
+    const r = await api("POST", "/reports", b.token, {
+      targetType: "USER",
+      targetId: a.id,
+      reason: "harassment",
+      evidence: [{ senderId: a.id, body: "hello phone", createdAt: new Date().toISOString() }],
+    });
+    expect(r.status).toBe(201);
+    const [row] = (await db.execute(sql`select evidence from reports where id = ${r.body.reportId}`)).rows as any[];
+    expect(row.evidence).toEqual([expect.objectContaining({ body: "hello phone" })]);
   });
 });
