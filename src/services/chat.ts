@@ -70,9 +70,9 @@ export async function sendChat(user: User, roomId: string, input: ChatInput) {
 
 // Animated emotes: a chat message from the sender whose payload names the emote; phones play it on the sender's seat
 // (if seated) and keep the line in chat. Dice, roller and coin results are drawn here so nobody can fake them.
-export const EMOTES = ["hand", "smile", "kiss", "angry", "heart", "dice", "roller", "coin"] as const;
+export const EMOTES = ["hand", "smile", "kiss", "angry", "heart", "laugh", "cry", "dice", "roller", "coin"] as const;
 export const emoteSchema = z.object({ emote: z.enum(EMOTES), clientMessageId: z.string().min(1).max(64) });
-const FACES: Record<string, string> = { hand: "✋", smile: "😊", kiss: "😘", angry: "😠", heart: "❤️" };
+const FACES: Record<string, string> = { hand: "✋", smile: "😊", kiss: "😘", angry: "😠", heart: "❤️", laugh: "😂", cry: "😭" };
 
 export function drawEmote(emote: (typeof EMOTES)[number]): { body: string; result?: string } {
   if (emote === "dice") {
