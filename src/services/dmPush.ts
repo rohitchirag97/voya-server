@@ -1,6 +1,6 @@
 import { and, eq, inArray, lt } from "drizzle-orm";
 import { db } from "../db";
-import { directMessages } from "../db/schema";
+import { directMessages, users } from "../db/schema";
 import { io, userChannel } from "../io";
 
 // Inbox messages live on phones, not here: the server only holds each one until the recipient's phone has it
@@ -35,4 +35,21 @@ export async function purgeUndelivered() {
     .where(lt(directMessages.createdAt, new Date(Date.now() - DM_HOLD_DAYS * 86_400_000)))
     .returning({ id: directMessages.id });
   return gone.length;
+}
+
+// System sender for coin notices, shown as Support staff. Its phone fails the E.164 check (+ then 0), so no OTP can ever be
+// requested for it, and it has no Google account: nobody can sign in as it. Created on first use; migrate seeds it to
+// reserve the name.
+const RECHARGE_BOT_PHONE = "+0000000000";
+export async function rechargeBot() {
+  await db.insert(users).values({ phone: RECHARGE_BOT_PHONE, displayName: "Recharge Notification", staffRole: "SUPPORT" }).onConflictDoNothing();
+  const [bot] = await db.select().from(users).where(eq(users.phone, RECHARGE_BOT_PHONE));
+  return bot!;
+}
+
+// Inbox message from the Recharge Notification account (bypasses the friends-only rule; replies are refused by it).
+export async function notifyCoins(userId: string, body: string) {
+  const bot = await rechargeBot();
+  const [msg] = await db.insert(directMessages).values({ senderId: bot.id, recipientId: userId, body }).returning();
+  pushDm(msg!, bot);
 }

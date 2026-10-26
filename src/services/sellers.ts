@@ -1,8 +1,9 @@
 import { aliasedTable, and, desc, eq, gte, sql } from "drizzle-orm";
 import { db, isUniqueViolation, type Tx } from "../db";
 import { coinSellers, sellerLedger, users, walletAccounts, walletLedger, type User } from "../db/schema";
-import { AppError } from "../lib/errors";
+import { AppError, toSafeError } from "../lib/errors";
 import { grantBadge, revokeBadge } from "./badges";
+import { notifyCoins } from "./dmPush";
 import { userSummary } from "./rooms";
 
 // Seller wallets. Coins enter only through mint (staff); they leave to a user's main wallet (sale) or down to a sub seller.
@@ -52,8 +53,8 @@ export const mint = (actor: User, sellerId: string, amount: number, key: string)
   });
 
 // Seller wallet -> any user's main wallet, the seller's own included.
-export const sell = (seller: User, to: User, amount: number, key: string) =>
-  once(async (tx) => {
+export async function sell(seller: User, to: User, amount: number, key: string) {
+  const { toBalance, ...result } = await once(async (tx) => {
     const [entry] = await tx
       .insert(sellerLedger)
       .values({ sellerId: seller.id, kind: "SALE", amount: -amount, counterpartyId: to.id, actorId: seller.id, idempotencyKey: key })
@@ -66,8 +67,11 @@ export const sell = (seller: User, to: User, amount: number, key: string) =>
       .returning();
     if (!w) throw new AppError("USER_NOT_FOUND", 404, "That user has no wallet");
     await tx.insert(walletLedger).values({ userId: to.id, entryType: "SELLER_PURCHASE", amount, referenceType: "SELLER_LEDGER", referenceId: String(entry!.id) });
-    return { balance, to: { userId: to.id, displayName: to.displayName, publicId: to.publicId } };
+    return { balance, toBalance: w.balance, to: { userId: to.id, displayName: to.displayName, publicId: to.publicId } };
   });
+  notifyCoins(to.id, `${seller.displayName ?? "A coin seller"} sent you ${amount} coins. Your balance is now ${toBalance} coins.`).catch(toSafeError);
+  return result;
+}
 
 async function mySub(tx: Tx, parentId: string, subId: string) {
   const [s] = await tx

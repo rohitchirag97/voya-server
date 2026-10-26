@@ -474,6 +474,10 @@ describe("levels and recharge", () => {
     expect(r1.body).toMatchObject({ balance: before + 60, leveledUp: true, level: { level: 1, xp: 99 } });
     // Retry: no second credit.
     expect((await buy("coins_60", "r1")).body.replayed).toBe(true);
+    await Bun.sleep(100);
+    // One inbox notice from the Recharge Notification account (support staff), none for the replay.
+    const notices = (await api("GET", "/dm/pending", u.token)).body.messages;
+    expect(notices).toEqual([expect.objectContaining({ body: expect.stringContaining("60 coins added"), sender: expect.objectContaining({ displayName: "Recharge Notification", staffRole: "SUPPORT" }) })]);
     expect((await api("GET", "/wallet", u.token)).body.balance).toBe(before + 60);
     expect((await buy("coins_300", "r1")).body.error.code).toBe("IDEMPOTENCY_CONFLICT");
     expect((await buy("nope", "r9")).body.error.code).toBe("INVALID_PACKAGE");
@@ -1431,6 +1435,8 @@ describe("staff console and seller wallets", () => {
     const sold = await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: buyer.handle, amount: 300, idempotencyKey: key() });
     expect(sold.body).toMatchObject({ balance: 700, to: { userId: buyer.id } });
     expect(await coins(buyer.token)).toBe(before + 300);
+    await Bun.sleep(100);
+    expect((await api("GET", "/dm/pending", buyer.token)).body.messages.map((m: any) => m.body)).toContain(`${seller.handle} sent you 300 coins. Your balance is now ${before + 300} coins.`);
     const mine = await coins(seller.token);
     expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: String(sid), amount: 100, idempotencyKey: key() })).body.balance).toBe(600);
     expect(await coins(seller.token)).toBe(mine + 100);
@@ -2865,8 +2871,10 @@ describe("bans", () => {
     const until = new Date(banned.body.bannedUntil).getTime();
     expect(until - before).toBeGreaterThan(23.9 * 3600_000);
 
-    // Shut out at once (their session is revoked), and signing in again says why and until when.
-    expect((await api("GET", "/me", bad.token)).status).toBe(401);
+    // Shut out at once: every request says why and until when (an open app is also told live, then disconnected).
+    const shut = await api("GET", "/me", bad.token);
+    expect(shut.status).toBe(403);
+    expect(shut.body.error).toMatchObject({ code: "ACCOUNT_BANNED", data: { reason: "Spamming in rooms", until: banned.body.bannedUntil } });
     const phone = (await db.execute(sql`select phone from users where id = ${bad.id}`)).rows[0] as { phone: string };
     const { body: otp } = await api("POST", "/auth/otp/request", undefined, { phone: phone.phone });
     const login = await api("POST", "/auth/otp/verify", undefined, { phone: phone.phone, code: otp.devCode });
@@ -2884,9 +2892,13 @@ describe("bans", () => {
     expect(back.status).toBe(200);
     expect((await api("GET", `/admin/users?q=${bad.handle}`, mod.token)).body.users[0]).toMatchObject({ status: "ACTIVE", bannedUntil: null });
 
-    // Lifetime: no end date. Unban lets them straight back in.
+    // Lifetime: no end date. An open app is told live (then disconnected). Unban lets them straight back in.
+    const so = socketFor(other.token);
+    await new Promise<void>((r) => so.once("connect", () => r()));
+    const told = nextEvent(so, "account:banned");
     const life = await api("POST", `/admin/users/${other.id}/ban`, mod.token, { duration: "life", reason: "Harassment" });
     expect(life.body).toMatchObject({ bannedUntil: null });
+    expect(await told).toEqual({ until: null, reason: "Harassment" });
     expect((await api("POST", `/admin/users/${other.id}/unban`, mod.token)).body.status).toBe("ACTIVE");
 
     // Staff can't be banned (remove their role first).

@@ -5,6 +5,7 @@ import { recharges, users, walletAccounts, walletLedger, type User } from "../db
 import { AppError, toSafeError } from "../lib/errors";
 import { levelInfo, levelOf } from "../lib/levels";
 import { rateLimit } from "../lib/rateLimit";
+import { notifyCoins } from "./dmPush";
 import { announceToAllRooms, monthRupeesOf, tierFor } from "./svip";
 
 // Coin packages (price in paise). Each ₹1 paid also earns 1 level point (XP).
@@ -60,6 +61,7 @@ export async function recharge(user: User, packageId: string, key: string | unde
       return { recharge: r!, balance: w!.balance, level, leveledUp: level.level > levelOf(u!.xp - earned), replayed: false };
     });
     announceRecharge(user, Math.floor(pkg.pricePaise / 100), result.level.level, result.leveledUp).catch(toSafeError);
+    notifyCoins(user.id, `Recharge successful: ${pkg.coins} coins added. Your balance is now ${result.balance} coins.`).catch(toSafeError);
     return result;
   } catch (e) {
     // Same key sent twice at once: the loser returns the winner's result.

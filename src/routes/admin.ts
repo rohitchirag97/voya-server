@@ -1,8 +1,8 @@
-import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { eq, ilike, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { db } from "../db";
-import { coinSellers, staffRole, users, userSessions, walletAccounts } from "../db/schema";
+import { coinSellers, staffRole, users, walletAccounts } from "../db/schema";
 import { io, userChannel } from "../io";
 import { json, requireAuth, requireStaff, schemas, type Env } from "../http";
 import { AppError } from "../lib/errors";
@@ -54,8 +54,10 @@ admin.post("/admin/users/:userId/staff-role", requireStaff("OWNER"), async (c) =
   return c.json(updated);
 });
 
-// Ban for a while or for good, with a reason the person sees when they try to sign in. Signs them out everywhere and
-// drops their live connections at once. Staff can't be banned here (change their role first); nobody bans themselves.
+// Ban for a while or for good, with a reason. An open app is told at once (it signs out and shows until when) and its
+// live connections drop; every later request is refused with the same details (see assertNotBanned), so a phone
+// that was offline finds out on its next request. Sessions are kept, so when the ban ends they're simply back.
+// Staff can't be banned here (change their role first); nobody bans themselves.
 const BAN_LENGTHS = { "24h": 86_400_000, "3d": 3 * 86_400_000, "7d": 7 * 86_400_000, "1m": 30 * 86_400_000, "1y": 365 * 86_400_000, life: null } as const;
 admin.post("/admin/users/:userId/ban", async (c) => {
   const me = c.get("user");
@@ -68,8 +70,8 @@ admin.post("/admin/users/:userId/ban", async (c) => {
   const ms = BAN_LENGTHS[duration];
   const bannedUntil = ms === null ? null : new Date(Date.now() + ms);
   await db.update(users).set({ status: "BANNED", bannedUntil, banReason: reason, updatedAt: new Date() }).where(eq(users.id, targetId));
-  await db.update(userSessions).set({ revokedAt: new Date() }).where(and(eq(userSessions.userId, targetId), isNull(userSessions.revokedAt)));
-  io.in(userChannel(targetId)).disconnectSockets(true); // out of rooms right away
+  io.to(userChannel(targetId)).emit("account:banned", { until: bannedUntil?.toISOString() ?? null, reason });
+  setTimeout(() => io.in(userChannel(targetId)).disconnectSockets(true), 500); // after the notice lands; frees their seat at once
   return c.json({ userId: targetId, status: "BANNED", bannedUntil, banReason: reason });
 });
 

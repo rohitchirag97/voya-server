@@ -6,6 +6,7 @@ import { SVIP_COSMETICS } from "./svipCosmeticsSeed";
 import { MORE_GIFTS } from "./giftsMore";
 import { ANIMATED_GIFTS } from "./giftsSeed";
 import { DEFAULT_THRESHOLDS, loadLevels } from "../lib/levels";
+import { rechargeBot } from "../services/dmPush";
 import { badges, cosmetics, giftCatalog, levelThresholds } from "./schema";
 
 export async function migrateAndSeed() {
@@ -30,6 +31,7 @@ export async function migrateAndSeed() {
     .values(DEFAULT_THRESHOLDS.map((xpRequired, i) => ({ level: i + 1, xpRequired })))
     .onConflictDoNothing();
   await loadLevels();
+  await rechargeBot(); // reserves the "Recharge Notification" name before any user can take it
 }
 
 if (import.meta.main) {

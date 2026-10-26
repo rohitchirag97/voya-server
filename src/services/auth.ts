@@ -160,6 +160,8 @@ export async function refresh(refreshToken: string) {
     .from(userSessions)
     .where(and(eq(userSessions.refreshTokenHash, sha256(refreshToken)), isNull(userSessions.revokedAt), gt(userSessions.expiresAt, new Date())));
   if (!s) throw new AppError("UNAUTHORIZED", 401);
+  const [u] = await db.select().from(users).where(eq(users.id, s.userId));
+  if (u) await assertNotBanned(u); // a banned phone learns why (and until when) here, not just "signed out"
   return issueTokens(s.id, s.userId); // rotates the refresh token
 }
 
