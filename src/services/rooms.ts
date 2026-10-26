@@ -51,7 +51,7 @@ export async function getSnapshot(roomId: string) {
   const room = await getRoom(roomId);
   const pkLive = !!room.pk && new Date(room.pk.endsAt) > new Date();
   if (room.pk && !pkLive) await finishPk(room.id, room.pk.startedAt); // overdue (missed timer)
-  const [seats, participants, admins] = await Promise.all([
+  const [seats, participants, admins, [owner]] = await Promise.all([
     getSeats(roomId),
     db
       .select({ ...userSummary, role: roomParticipants.role, presence: roomParticipants.presence })
@@ -59,6 +59,8 @@ export async function getSnapshot(roomId: string) {
       .innerJoin(users, eq(users.id, roomParticipants.userId))
       .where(and(eq(roomParticipants.roomId, roomId), isNull(roomParticipants.leftAt))),
     db.select({ userId: roomAdmins.userId }).from(roomAdmins).where(eq(roomAdmins.roomId, roomId)),
+    // Whose room this is, even when they aren't in it (the side panel shows it).
+    db.select({ ...userSummary, publicId: users.publicId, specialId: users.specialId }).from(users).where(eq(users.id, room.hostUserId)),
   ]);
   return {
     roomId: room.id,
@@ -78,6 +80,9 @@ export async function getSnapshot(roomId: string) {
     charisma: await charismaState(room.id, room.charismaStartedAt),
     pk: pkLive ? await pkState(room.id, room.pk) : null,
     background: room.background,
+    backgroundUrl: room.backgroundUrl, // custom photo backdrop, if set (wins over `background`)
+    owner: owner ?? null,
+    createdAt: room.createdAt,
     showEntry: room.showEntry,
     giftAnimations: room.giftAnimations,
     privacy: room.privacy, // never the password
@@ -95,6 +100,7 @@ export type RoomSettings = {
   title?: string;
   coverUrl?: string;
   background?: (typeof ROOM_BACKGROUNDS)[number];
+  backgroundUrl?: string | null;
   showEntry?: boolean;
   giftAnimations?: boolean;
   privacy?: RoomPrivacy;
@@ -119,6 +125,7 @@ export async function updateSettings(actor: User, roomId: string, settings: Room
     if (privacy === "LOCKED" && !passwordHash && !room.passwordHash) throw new AppError("PASSWORD_NEEDED", 400, "Set a 4-digit password to lock the room");
     const set = {
       ...patch,
+      ...(patch.background && { backgroundUrl: null }), // picking a preset replaces a custom photo
       ...(passwordHash && { passwordHash }),
       ...(patch.privacy && patch.privacy !== "LOCKED" && { passwordHash: null }), // the old password doesn't carry over
     };

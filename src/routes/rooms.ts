@@ -72,6 +72,17 @@ roomRoutes.post("/rooms/:roomId/cover", async (c) => {
   return c.json(await rooms.updateSettings(c.get("user"), id, { coverUrl: `/v1/uploads/${name}` }));
 });
 
+// Custom room background: a JPEG/PNG (multipart "file"). Owner and admins only; picking a preset afterwards replaces it.
+roomRoutes.post("/rooms/:roomId/background", async (c) => {
+  const id = roomId(c);
+  await rooms.assertRoomAdmin(id, c.get("user").id); // before storing anything
+  const form = await c.req.formData().catch(() => null);
+  const file = form?.get("file");
+  if (!(file instanceof File)) throw new AppError("FILE_REQUIRED", 400, "Choose a photo");
+  const { name } = await store(file, ["image"]);
+  return c.json(await rooms.updateSettings(c.get("user"), id, { backgroundUrl: `/v1/uploads/${name}` }));
+});
+
 // Charisma counter on (from zero) / off. Owner and admins only.
 roomRoutes.post("/rooms/:roomId/charisma", async (c) => {
   const { on } = await json(c, z.object({ on: z.boolean() }));

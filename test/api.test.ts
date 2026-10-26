@@ -2749,3 +2749,31 @@ describe("chat mentions", () => {
     expect(noName.data.mentions).toEqual([]);
   });
 });
+
+describe("room background photo and owner info", () => {
+  test("owner sets a photo backdrop (others can't); a preset replaces it; the room shows its owner", async () => {
+    const { host, roomId } = await liveRoom();
+    const guest = await joined(roomId, "bgguest");
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)]);
+    const upload = async (token: string) => {
+      const form = new FormData();
+      form.append("file", new File([png], "bg.png", { type: "image/png" }));
+      const res = await fetch(`${base}/v1/rooms/${roomId}/background`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: form });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+
+    expect((await upload(guest.token)).body.error.code).toBe("NOT_ROOM_ADMIN");
+    const set = await upload(host.token);
+    expect(set.status).toBe(200);
+    const url = set.body.backgroundUrl;
+    expect(url).toMatch(/^\/v1\/uploads\/.+\.png$/);
+    expect((await api("GET", `/rooms/${roomId}`, guest.token)).body.backgroundUrl).toBe(url);
+
+    const preset = await api("PATCH", `/rooms/${roomId}/settings`, host.token, { background: "ocean" });
+    expect(preset.body).toMatchObject({ background: "ocean", backgroundUrl: null });
+
+    const snap = (await api("GET", `/rooms/${roomId}`, guest.token)).body;
+    expect(snap.owner).toMatchObject({ userId: host.id, displayName: host.handle, publicId: expect.any(Number) });
+    expect(snap.createdAt).toEqual(expect.any(String));
+  });
+});

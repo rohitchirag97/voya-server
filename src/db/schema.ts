@@ -136,6 +136,7 @@ export const rooms = pgTable(
     passwordHash: text("password_hash"),
     // Room settings (owner/admins): backdrop preset, "X joined" notices, full-screen gift effects + banners.
     background: text("background").notNull().default("night"),
+    backgroundUrl: text("background_url"), // a custom photo backdrop (wins over the preset); null = use the preset
     showEntry: boolean("show_entry").notNull().default(true),
     giftAnimations: boolean("gift_animations").notNull().default(true),
     // AUDIO: the permanent party room. LIVE: a video live stream (seat 0 = host camera, 1-3 = co-hosts), ended when the host stops.
