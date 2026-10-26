@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { config } from "../config";
 import { db, isUniqueViolation, type Tx } from "../db";
-import { chatMessages, follows, giftTransactions, levelThresholds, roomAdmins, roomKicks, roomParticipants, rooms, roomSeats, users, type User } from "../db/schema";
+import { blocks, chatMessages, follows, giftTransactions, levelThresholds, roomAdmins, roomKicks, roomParticipants, rooms, roomSeats, users, type User } from "../db/schema";
 import { emitToRoom, io, roomChannel, userChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { SEAT_LAYOUTS, seatPositions, type SeatCount } from "../lib/layout";
@@ -1038,4 +1038,36 @@ export async function setPresence(roomId: string, userId: string, presence: "CON
 export async function eligibleRecipients(user: User, roomId: string) {
   await assertMember(roomId, user.id);
   return (await getSeats(roomId)).filter((s) => s.occupant);
+}
+
+// Invite friends (mutual follows, no block either way) to the room you're in. Each gets a live "room:invite" on
+// whatever screen they're on; it's a heads-up only, so joining still follows the room's normal rules.
+export async function inviteFriends(user: User, roomId: string, userIds: string[]) {
+  assertCanParticipate(user);
+  rateLimit(`invite:${user.id}`, 30, 60_000);
+  const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId));
+  if (room?.status !== "LIVE") throw new AppError("ROOM_NOT_LIVE", 409);
+  await assertMember(roomId, user.id);
+  const ids = [...new Set(userIds)].filter((id) => id !== user.id);
+  if (!ids.length) return { invited: 0 };
+  const friends = await db
+    .select({ id: follows.followedId })
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerId, user.id),
+        inArray(follows.followedId, ids),
+        sql`exists (select 1 from ${follows} f2 where f2.follower_id = ${follows.followedId} and f2.followed_id = ${user.id})`,
+        sql`not exists (select 1 from ${blocks} b where (b.blocker_id = ${user.id} and b.blocked_id = ${follows.followedId}) or (b.blocker_id = ${follows.followedId} and b.blocked_id = ${user.id}))`,
+      ),
+    );
+  const invite = {
+    roomId,
+    title: room.title,
+    coverUrl: room.coverUrl,
+    kind: room.kind,
+    from: { userId: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl },
+  };
+  for (const f of friends) io.to(userChannel(f.id)).emit("room:invite", invite);
+  return { invited: friends.length };
 }

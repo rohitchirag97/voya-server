@@ -8,7 +8,7 @@ export const CP_POINTS = {
   together: { present: 1, seated: 2, dailyCap: 240 }, // per minute in the same live room; more when both are on seats
 } as const;
 
-export const CP_MAX_LEVEL = 50;
+export const CP_MAX_LEVEL = 15; // the top CP level
 // Points needed to reach level n (level 1 at 0). Exponent > 1, so every level costs more than the one before.
 export const cpPointsFor = (level: number) => (level <= 1 ? 0 : Math.round((150 * (level - 1) ** 2.1) / 10) * 10);
 

@@ -38,6 +38,10 @@ roomRoutes.post("/rooms/:roomId/join", async (c) => {
   return c.json(await rooms.joinRoom(c.get("user"), roomId(c), password));
 });
 roomRoutes.post("/rooms/:roomId/leave", async (c) => c.json(await rooms.leaveRoom(c.get("user"), roomId(c))));
+roomRoutes.post("/rooms/:roomId/invite", async (c) => {
+  const { userIds } = await json(c, z.object({ userIds: z.array(schemas.uuid).min(1).max(50) }));
+  return c.json(await rooms.inviteFriends(c.get("user"), roomId(c), userIds));
+});
 
 roomRoutes.post("/rooms/:roomId/seat-count", async (c) => {
   const { seatCount } = await json(c, schemas.createRoom.pick({ seatCount: true }));

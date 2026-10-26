@@ -362,6 +362,20 @@ account.get("/users/:userId/following", async (c) => {
 });
 
 // Only your own visitors: most recent visit first, with how many times they came.
+// My friends (we follow each other), for inviting them to a room.
+account.get("/me/friends", async (c) => {
+  const me = c.get("user").id;
+  const friends = await db
+    .select(userSummary)
+    .from(users)
+    .where(
+      sql`${users.id} in (select a.followed_id from ${follows} a join ${follows} b on b.follower_id = a.followed_id and b.followed_id = a.follower_id where a.follower_id = ${me})`,
+    )
+    .orderBy(asc(users.displayName))
+    .limit(500);
+  return c.json({ friends });
+});
+
 account.get("/me/visitors", async (c) => {
   const me = c.get("user").id;
   const q = pageQuery.parse(c.req.query());

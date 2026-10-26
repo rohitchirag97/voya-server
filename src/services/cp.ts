@@ -103,7 +103,7 @@ export async function propose(user: User, input: { toUserId: string; type: CpTyp
     const [msg] = await tx.insert(directMessages).values({ senderId: user.id, recipientId: them.id, body, cpProposalId: p!.id }).returning();
     return { proposal: p!, msg: msg!, balance: wallet.balance };
   });
-  io.to(userChannel(them.id)).to(userChannel(user.id)).emit("dm:new", { ...result.msg, cp: cardOf(result.proposal) });
+  io.to(userChannel(them.id)).to(userChannel(user.id)).emit("dm:new", { ...result.msg, cp: cardOf(result.proposal), senderName: user.displayName });
   return { proposal: cardOf(result.proposal), balance: result.balance };
 }
 

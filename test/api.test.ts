@@ -596,6 +596,20 @@ describe("direct messages", () => {
     expect((await fetch(base + imageUrl)).status).toBe(200);
     expect((await api("GET", `/dm/${a.id}`, b.token)).body.messages[0]).toMatchObject({ id, imageUrl });
 
+    // Unread: b opened the chat above (the history check), so only messages after that are unread.
+    const unread = async (u: { token: string }) => (await api("GET", "/dm/unread", u.token)).body.count;
+    await api("POST", `/dm/${b.id}`, a.token, { body: "and another", clientMessageId: "u1" });
+    await api("POST", `/dm/${b.id}`, a.token, { body: "and one more", clientMessageId: "u1b" });
+    expect(await unread(b)).toBe(2);
+    expect((await api("GET", "/dm", b.token)).body.conversations[0].unread).toBe(2);
+    expect(await unread(a)).toBe(0); // your own messages are never unread
+    await api("GET", `/dm/${a.id}`, b.token);
+    expect(await unread(b)).toBe(0);
+    await api("POST", `/dm/${b.id}`, a.token, { body: "while you're here", clientMessageId: "u2" });
+    expect(await unread(b)).toBe(1);
+    await api("POST", `/dm/${a.id}/read`, b.token);
+    expect(await unread(b)).toBe(0);
+
     expect((await sendPhoto(a, c, "p2")).body.error.code).toBe("NOT_FRIENDS");
     expect((await sendPhoto(a, b, "p3", new TextEncoder().encode("not an image at all"))).body.error.code).toBe("BAD_MEDIA");
   });
@@ -2601,5 +2615,33 @@ describe("CP levels", () => {
     await db.execute(sql`update wallet_accounts set balance = 1000 where user_id = ${other.id}`);
     expect((await api("POST", `/rooms/${roomId}/gifts`, other.token, { recipientUserId: host.id, giftId: "star", quantity: 1 }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
     expect((await level()).points).toBe(82);
+  });
+});
+
+describe("room invites", () => {
+  test("friends in the room can invite friends; strangers and outsiders can't", async () => {
+    const { host, roomId } = await liveRoom();
+    const friend = await signup("invfriend");
+    const stranger = await signup("invstranger");
+    await api("POST", `/users/${friend.id}/follow`, host.token);
+    await api("POST", `/users/${host.id}/follow`, friend.token);
+    await api("POST", `/users/${stranger.id}/follow`, host.token); // one-way: not a friend
+
+    expect((await api("GET", "/me/friends", host.token)).body.friends.map((f: any) => f.userId)).toEqual([friend.id]);
+
+    const sf = socketFor(friend.token);
+    const ss = socketFor(stranger.token);
+    await Promise.all([sf, ss].map((s) => new Promise<void>((r) => s.once("connect", () => r()))));
+    let strangerGot = false;
+    ss.on("room:invite", () => (strangerGot = true));
+    const got = nextEvent(sf, "room:invite");
+    const r = await api("POST", `/rooms/${roomId}/invite`, host.token, { userIds: [friend.id, stranger.id] });
+    expect(r.body).toEqual({ invited: 1 });
+    expect(await got).toMatchObject({ roomId, title: "Evening Chai", from: { userId: host.id } });
+    await new Promise((res) => setTimeout(res, 100));
+    expect(strangerGot).toBe(false);
+
+    // Only people in the room can invite to it.
+    expect((await api("POST", `/rooms/${roomId}/invite`, stranger.token, { userIds: [host.id] })).body.error.code).toBe("NOT_IN_ROOM");
   });
 });

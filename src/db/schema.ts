@@ -256,6 +256,7 @@ export const directMessages = pgTable(
   },
   (t) => [
     index("direct_messages_pair").on(t.senderId, t.recipientId, t.id),
+    index("direct_messages_inbox").on(t.recipientId, t.id), // unread counts
     uniqueIndex("direct_messages_client_id").on(t.senderId, t.clientMessageId),
   ],
 );
@@ -680,4 +681,15 @@ export const cpPointsDaily = pgTable(
     points: integer("points").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.pairId, t.day, t.source] })],
+);
+
+// The newest message from `peerId` that `userId` has seen; anything after it is unread.
+export const dmReads = pgTable(
+  "dm_reads",
+  {
+    userId: uuid("user_id").notNull().references(() => users.id),
+    peerId: uuid("peer_id").notNull().references(() => users.id),
+    lastReadId: bigint("last_read_id", { mode: "number" }).notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.peerId] })],
 );
