@@ -91,6 +91,7 @@ export async function getSnapshot(roomId: string) {
     pinned: room.pinSlot !== null,
     official: room.official,
     ludo: room.ludo !== null, // Ludo mode: seats in one row, board below (the board page follows the game itself)
+    video: room.video, // Video mode (null = off): what's playing and where, for the shared player
   };
 }
 

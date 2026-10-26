@@ -49,6 +49,9 @@ export const cosmetics = pgTable("cosmetics", {
   createdAt: createdAt(),
 });
 
+// Video mode playback. Now = position + (playing ? seconds since `at` : 0). videoId null = mode on, nothing picked yet.
+export type VideoState = { videoId: string | null; title: string | null; position: number; playing: boolean; at: string };
+
 export const users = pgTable(
   "users",
   {
@@ -133,6 +136,8 @@ export const rooms = pgTable(
     pk: jsonb("pk").$type<{ a: string; b: string; startedAt: string; endsAt: string }>(),
     // Ludo mode (null = off): the lobby or running game, see lib/ludo.ts. Seats show in one row with the board below.
     ludo: jsonb("ludo").$type<LudoState>(),
+    // Video mode (null = off): the shared YouTube player under the seat row, see services/video.ts.
+    video: jsonb("video").$type<VideoState>(),
     // PUBLIC: listed, anyone joins. LOCKED: listed with a lock; joining needs the 4-digit password (hashed here).
     // PRIVATE: hidden from lists and profiles; only the owner and room admins can enter.
     privacy: roomPrivacy("privacy").notNull().default("PUBLIC"),

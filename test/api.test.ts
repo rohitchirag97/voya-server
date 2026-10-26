@@ -1444,6 +1444,10 @@ describe("staff console and seller wallets", () => {
     const got = (await api("GET", "/dm/pending", buyer.token)).body.messages.at(-1);
     expect(got.notice).toMatchObject({ kind: "SELLER", status: "SUCCESS", coins: 300, balance: before + 300 });
     expect(got.body).not.toContain(seller.handle); // the seller stays anonymous
+    expect((await api("GET", "/me", buyer.token)).body.level.xp).toBe(389); // 300 coins at the ₹6,499 / 5,000 coins rate
+    // ...and counts toward SVIP like an app recharge.
+    const { rows: svipRows } = await db.execute<{ paise: number }>(sql`select sum(price_paise)::int as paise from recharges where user_id = ${buyer.id}`);
+    expect(svipRows[0]!.paise).toBe(38994);
     const mine = await coins(seller.token);
     expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: String(sid), amount: 100, idempotencyKey: key() })).body.balance).toBe(600);
     expect(await coins(seller.token)).toBe(mine + 100);
@@ -1471,6 +1475,52 @@ describe("staff console and seller wallets", () => {
     await api("POST", `/admin/coin-sellers/${seller.id}/decision`, adm.token, { approve: false });
     expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: buyer.handle, amount: 1, idempotencyKey: key() })).body.error.code).toBe("NOT_A_SELLER");
     expect((await api("GET", "/admin/coin-sellers?status=REJECTED", adm.token)).body.sellers.find((s: any) => s.userId === seller.id).balance).toBe(550);
+  });
+});
+
+describe("video mode", () => {
+  test("owner/admins switch it on, pick a YouTube video and pause/resume; everyone gets it; not with Ludo", async () => {
+    // YouTube's title lookup, stubbed: "privateVid1" is unavailable, anything else is a public video.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any, init?: any) => {
+      const url = String(input);
+      if (!url.startsWith("https://www.youtube.com/oembed")) return realFetch(input, init);
+      return url.includes("privateVid1") ? new Response("", { status: 401 }) : Response.json({ title: "Chai Songs" });
+    }) as typeof fetch;
+    try {
+      const { host, roomId } = await liveRoom();
+      const b = await joined(roomId, "vb");
+      const sb = socketFor(b.token);
+      await nextEvent(sb, "connect");
+      await emit(sb, "room:join", { roomId });
+
+      expect((await api("POST", `/rooms/${roomId}/video`, b.token, { on: true })).status).toBe(403);
+      expect((await api("PUT", `/rooms/${roomId}/video`, host.token, { videoId: "dQw4w9WgXcQ" })).body.error.code).toBe("VIDEO_OFF");
+      const on = nextEvent(sb, "room:video");
+      expect((await api("POST", `/rooms/${roomId}/video`, host.token, { on: true })).body.video).toMatchObject({ videoId: null, playing: false });
+      expect((await on).video).toMatchObject({ videoId: null });
+      expect((await api("POST", `/rooms/${roomId}/ludo`, host.token, { on: true })).body.error.code).toBe("VIDEO_ON");
+
+      // pick: an 11-character YouTube id only, and it must be playable
+      expect((await api("PUT", `/rooms/${roomId}/video`, host.token, { videoId: "https://evil.example/x" })).status).toBe(400);
+      expect((await api("PUT", `/rooms/${roomId}/video`, host.token, { videoId: "privateVid1" })).body.error.code).toBe("VIDEO_NOT_FOUND");
+      expect((await api("PUT", `/rooms/${roomId}/video`, b.token, { videoId: "dQw4w9WgXcQ" })).status).toBe(403);
+      const picked = nextEvent(sb, "room:video");
+      expect((await api("PUT", `/rooms/${roomId}/video`, host.token, { videoId: "dQw4w9WgXcQ" })).status).toBe(200);
+      expect((await picked).video).toMatchObject({ videoId: "dQw4w9WgXcQ", title: "Chai Songs", position: 0, playing: true });
+
+      // pause where it is; late joiners get it in the snapshot
+      const paused = (await api("POST", `/rooms/${roomId}/video/playback`, host.token, { playing: false, position: 42.5 })).body.video;
+      expect(paused).toMatchObject({ videoId: "dQw4w9WgXcQ", playing: false, position: 42.5 });
+      const c = await joined(roomId, "vc");
+      const sc = socketFor(c.token);
+      await nextEvent(sc, "connect");
+      expect((await emit(sc, "room:join", { roomId })).data.video).toMatchObject({ playing: false, position: 42.5 });
+
+      expect((await api("POST", `/rooms/${roomId}/video`, host.token, { on: false })).body.video).toBeNull();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });
 

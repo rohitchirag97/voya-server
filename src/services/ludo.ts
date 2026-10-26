@@ -70,7 +70,9 @@ async function person(userId: string) {
 
 export async function setMode(actor: User, roomId: string, on: boolean) {
   await assertRoomAdmin(roomId, actor.id);
-  if ((await getRoom(roomId)).kind === "LIVE") throw new AppError("LUDO_NOT_IN_LIVE", 400, "Ludo is for audio rooms");
+  const room = await getRoom(roomId);
+  if (room.kind === "LIVE") throw new AppError("LUDO_NOT_IN_LIVE", 400, "Ludo is for audio rooms");
+  if (on && room.video) throw new AppError("VIDEO_ON", 409, "Turn off Video mode first");
   const changed = await serial(roomId, async () => {
     const cur = await load(roomId);
     if (!!cur === on) return false;

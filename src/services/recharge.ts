@@ -17,6 +17,10 @@ export const PACKAGES = [
   { id: "coins_5000", coins: 5000, pricePaise: 6_49_900 },
 ] as const;
 
+// Coins bought from a seller count as a recharge worth the best-value package's price per coin: same level points and SVIP.
+const BEST = PACKAGES[PACKAGES.length - 1]!;
+export const sellerPricePaise = (coins: number) => Math.round((coins * BEST.pricePaise) / BEST.coins);
+
 const balanceOf = async (userId: string) =>
   (await db.select({ b: walletAccounts.balance }).from(walletAccounts).where(eq(walletAccounts.userId, userId)))[0]?.b ?? 0;
 
@@ -32,7 +36,8 @@ async function replay(userId: string, key: string, packageId: string) {
 // Google Play / payment-provider receipt here instead, and keep this path off in production.
 export async function recharge(user: User, packageId: string, key: string | undefined) {
   if (config.env === "production") throw new AppError("PAYMENTS_NOT_CONFIGURED", 503, "Recharge isn't available yet");
-  if (!key || key.length > 128) throw new AppError("IDEMPOTENCY_KEY_REQUIRED", 400);
+  // "seller:" keys are reserved for seller sales recorded as recharges (services/sellers sell).
+  if (!key || key.length > 128 || key.startsWith("seller:")) throw new AppError("IDEMPOTENCY_KEY_REQUIRED", 400);
   const pkg = PACKAGES.find((p) => p.id === packageId);
   if (!pkg) throw new AppError("INVALID_PACKAGE", 400);
   const prior = await replay(user.id, key, packageId);
@@ -77,8 +82,8 @@ export async function recharge(user: User, packageId: string, key: string | unde
   }
 }
 
-// Tell every open room about a level-up and an SVIP tier-up this recharge caused.
-async function announceRecharge(user: User, rupees: number, level: number, leveledUp: boolean) {
+// Tell every open room about a level-up and an SVIP tier-up this recharge (app or seller) caused.
+export async function announceRecharge(user: User, rupees: number, level: number, leveledUp: boolean) {
   if (leveledUp) announceToAllRooms(user, { kind: "LEVEL_UP", level });
   const month = await monthRupeesOf(user.id);
   const tier = tierFor(month);

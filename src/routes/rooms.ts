@@ -6,6 +6,7 @@ import * as gifts from "../services/gifts";
 import * as recharge from "../services/recharge";
 import * as live from "../services/live";
 import * as ludo from "../services/ludo";
+import * as video from "../services/video";
 import * as rooms from "../services/rooms";
 import { AppError } from "../lib/errors";
 import { store } from "./posts";
@@ -93,6 +94,20 @@ roomRoutes.post("/rooms/:roomId/charisma", async (c) => {
 roomRoutes.post("/rooms/:roomId/ludo", async (c) => {
   const { on } = await json(c, z.object({ on: z.boolean() }));
   return c.json(await ludo.setMode(c.get("user"), roomId(c), on));
+});
+
+// Video mode on / off, the video everyone watches (a YouTube id), and pause/resume/jump. Owner and admins only.
+roomRoutes.post("/rooms/:roomId/video", async (c) => {
+  const { on } = await json(c, z.object({ on: z.boolean() }));
+  return c.json(await video.setMode(c.get("user"), roomId(c), on));
+});
+roomRoutes.put("/rooms/:roomId/video", async (c) => {
+  const { videoId } = await json(c, z.object({ videoId: z.string().regex(video.VIDEO_ID) }));
+  return c.json(await video.play(c.get("user"), roomId(c), videoId));
+});
+roomRoutes.post("/rooms/:roomId/video/playback", async (c) => {
+  const b = await json(c, z.object({ playing: z.boolean(), position: z.number().min(0).max(86_400).optional() }));
+  return c.json(await video.control(c.get("user"), roomId(c), b.playing, b.position));
 });
 
 // PK 1v1 between two seated people (owner and admins); DELETE cancels it.

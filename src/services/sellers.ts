@@ -1,9 +1,11 @@
 import { aliasedTable, and, desc, eq, gte, sql } from "drizzle-orm";
 import { db, isUniqueViolation, type Tx } from "../db";
-import { coinSellers, sellerLedger, users, walletAccounts, walletLedger, type User } from "../db/schema";
+import { coinSellers, recharges, sellerLedger, users, walletAccounts, walletLedger, type User } from "../db/schema";
 import { AppError, toSafeError } from "../lib/errors";
+import { levelOf } from "../lib/levels";
 import { grantBadge, revokeBadge } from "./badges";
 import { notifyCoins } from "./dmPush";
+import { announceRecharge, sellerPricePaise } from "./recharge";
 import { userSummary } from "./rooms";
 
 // Seller wallets. Coins enter only through mint (staff); they leave to a user's main wallet (sale) or down to a sub seller.
@@ -52,9 +54,9 @@ export const mint = (actor: User, sellerId: string, amount: number, key: string)
     return { balance: row.balance };
   });
 
-// Seller wallet -> any user's main wallet, the seller's own included.
+// Seller wallet -> any user's main wallet, the seller's own included. Same perks as an app recharge (level points, SVIP).
 export async function sell(seller: User, to: User, amount: number, key: string) {
-  const { toBalance, txnId, ...result } = await once(async (tx) => {
+  const { toBalance, txnId, xp, rupees, ...result } = await once(async (tx) => {
     const [entry] = await tx
       .insert(sellerLedger)
       .values({ sellerId: seller.id, kind: "SALE", amount: -amount, counterpartyId: to.id, actorId: seller.id, idempotencyKey: key })
@@ -70,8 +72,14 @@ export async function sell(seller: User, to: User, amount: number, key: string) 
       .insert(walletLedger)
       .values({ userId: to.id, entryType: "SELLER_PURCHASE", amount, referenceType: "SELLER_LEDGER", referenceId: String(entry!.id) })
       .returning({ id: walletLedger.id });
-    return { balance, toBalance: w.balance, txnId: `TXN${received!.id}`, to: { userId: to.id, displayName: to.displayName, publicId: to.publicId } };
+    // Counts as a recharge for the buyer (SVIP is this month's recharges), and earns level points the same way.
+    const pricePaise = sellerPricePaise(amount);
+    await tx.insert(recharges).values({ userId: to.id, packageId: "seller", coins: amount, pricePaise, provider: "SELLER", idempotencyKey: `seller:${entry!.id}` });
+    const rupees = Math.floor(pricePaise / 100);
+    const [u] = await tx.update(users).set({ xp: sql`${users.xp} + ${rupees}` }).where(eq(users.id, to.id)).returning({ xp: users.xp });
+    return { balance, toBalance: w.balance, xp: u!.xp, rupees, txnId: `TXN${received!.id}`, to: { userId: to.id, displayName: to.displayName, publicId: to.publicId } };
   });
+  announceRecharge(to, rupees, levelOf(xp), levelOf(xp) > levelOf(xp - rupees)).catch(toSafeError);
   notifyCoins(to.id, { kind: "SELLER", status: "SUCCESS", coins: amount, balance: toBalance, txnId }).catch(toSafeError);
   return result;
 }

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Video</title>
+<style>
+  /* The shared player for a room in Video mode (app: room/VideoPlayer.tsx). The app hands it the room's playback state
+     through window.voyaVideo(state); everyone's player follows it. Nobody controls this player directly: the owner/admins
+     pause, resume and pick videos from the app, so taps never reach YouTube (the shield below). */
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: system-ui, -apple-system, Roboto, sans-serif; }
+  #player, #shield, #idle { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  #shield { z-index: 2; }
+  #idle { z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #fff; text-align: center; padding: 16px; box-sizing: border-box;
+    background: radial-gradient(circle at 50% 40%, #3a1f6e 0%, #0b0716 75%); }
+  #idle b { font-size: 16px; }
+  #idle span { font-size: 13px; color: #c9bff0; }
+  .logo { width: 54px; height: 38px; border-radius: 11px; background: #ff0033; position: relative; box-shadow: 0 4px 18px rgba(255,0,51,.45); }
+  .logo::after { content: ""; position: absolute; left: 22px; top: 11px; border-left: 14px solid #fff; border-top: 8px solid transparent; border-bottom: 8px solid transparent; }
+</style>
+</head>
+<body>
+<div id="player"></div>
+<div id="shield"></div>
+<div id="idle"><div class="logo"></div><b id="idleTitle">Video mode</b><span id="idleText">Waiting for the host to pick a video</span></div>
+<script>
+  const DRIFT = 2; // seconds off before we jump back in sync
+  let player = null, ready = false, state = null, loadedId = null;
+  const tell = (msg) => window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(msg));
+  const idle = (title, text) => {
+    document.getElementById('idle').style.display = title ? 'flex' : 'none';
+    if (title) { document.getElementById('idleTitle').textContent = title; document.getElementById('idleText').textContent = text; }
+  };
+  const positionNow = (s) => s.position + (s.playing ? Math.max(0, Date.now() - Date.parse(s.at)) / 1000 : 0);
+
+  function apply() {
+    if (!ready || !state) return;
+    if (!state.videoId) { if (loadedId) player.stopVideo(); loadedId = null; idle('Video mode', 'Waiting for the host to pick a video'); return; }
+    idle(null);
+    const at = positionNow(state);
+    if (state.videoId !== loadedId) {
+      loadedId = state.videoId;
+      (state.playing ? player.loadVideoById : player.cueVideoById).call(player, { videoId: state.videoId, startSeconds: at });
+      return;
+    }
+    if (Math.abs(player.getCurrentTime() - at) > DRIFT) player.seekTo(at, true);
+    const ps = player.getPlayerState();
+    if (state.playing && ps !== YT.PlayerState.PLAYING && ps !== YT.PlayerState.BUFFERING && ps !== YT.PlayerState.ENDED) player.playVideo();
+    if (!state.playing && ps === YT.PlayerState.PLAYING) player.pauseVideo();
+  }
+
+  // Called by the app with the room's playback state (null = nothing yet).
+  window.voyaVideo = (s) => { state = s; apply(); };
+  setInterval(apply, 4000); // catch up after buffering or a slow phone
+
+  window.onYouTubeIframeAPIReady = () => {
+    player = new YT.Player('player', {
+      width: '100%', height: '100%',
+      playerVars: { controls: 0, disablekb: 1, playsinline: 1, rel: 0, modestbranding: 1, fs: 0, iv_load_policy: 3, origin: location.origin },
+      events: {
+        onReady: () => { ready = true; tell({ type: 'ready' }); apply(); },
+        // 101/150: the owner doesn't allow playing it outside YouTube; 100: removed or private.
+        onError: (e) => idle("Can't play this video", e.data === 101 || e.data === 150 ? 'Its owner only allows it on YouTube. Pick another one.' : 'It was removed or is private. Pick another one.'),
+      },
+    });
+  };
+</script>
+<script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
