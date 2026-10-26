@@ -96,6 +96,15 @@ roomRoutes.post("/rooms/:roomId/ludo", async (c) => {
   return c.json(await ludo.setMode(c.get("user"), roomId(c), on));
 });
 
+// A photo in room chat (multipart: "file" JPEG/PNG, "clientMessageId"). Above Lv 10 only.
+roomRoutes.post("/rooms/:roomId/chat/image", async (c) => {
+  const form = await c.req.formData().catch(() => null);
+  const file = form?.get("file");
+  const clientMessageId = z.string().min(1).max(64).parse(form?.get("clientMessageId"));
+  if (!(file instanceof File)) throw new AppError("FILE_REQUIRED", 400, "Choose a photo");
+  return c.json(await chat.sendChatImage(c.get("user"), roomId(c), clientMessageId, file));
+});
+
 // Video mode on / off, the video everyone watches (a YouTube id), and pause/resume/jump. Owner and admins only.
 roomRoutes.post("/rooms/:roomId/video", async (c) => {
   const { on } = await json(c, z.object({ on: z.boolean() }));

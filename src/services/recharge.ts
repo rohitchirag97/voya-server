@@ -82,9 +82,9 @@ export async function recharge(user: User, packageId: string, key: string | unde
   }
 }
 
-// Tell every open room about a level-up and an SVIP tier-up this recharge (app or seller) caused.
+// Tell every open room about this recharge (app or seller) and any SVIP tier-up it caused.
 export async function announceRecharge(user: User, rupees: number, level: number, leveledUp: boolean) {
-  if (leveledUp) announceToAllRooms(user, { kind: "LEVEL_UP", level });
+  announceToAllRooms(user, { kind: "RECHARGE", level, leveledUp });
   const month = await monthRupeesOf(user.id);
   const tier = tierFor(month);
   if (tier > tierFor(month - rupees)) announceToAllRooms(user, { kind: "SVIP_UP", tier });

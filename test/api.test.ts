@@ -304,13 +304,14 @@ describe("svip", () => {
     expect(got).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "SVIP_UP", tier: 1, userId: u.id, displayName: u.handle }),
-        expect.objectContaining({ kind: "LEVEL_UP", userId: u.id }),
+        expect.objectContaining({ kind: "RECHARGE", leveledUp: true, userId: u.id }),
       ]),
     );
     got.length = 0;
     expect((await api("POST", "/wallet/recharge", u.token, { packageId: "coins_60" }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
     await Bun.sleep(300);
     expect(got.filter((a) => a.kind === "SVIP_UP")).toEqual([]); // still SVIP1: no repeat
+    expect(got).toEqual([expect.objectContaining({ kind: "RECHARGE", userId: u.id })]); // every recharge is announced
   });
 
   test("SVIP3+ visit invisibly; SVIP5+ can't be moderated by lower tiers; SVIP2+ entrances are announced", async () => {
@@ -1475,6 +1476,35 @@ describe("staff console and seller wallets", () => {
     await api("POST", `/admin/coin-sellers/${seller.id}/decision`, adm.token, { approve: false });
     expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: buyer.handle, amount: 1, idempotencyKey: key() })).body.error.code).toBe("NOT_A_SELLER");
     expect((await api("GET", "/admin/coin-sellers?status=REJECTED", adm.token)).body.sellers.find((s: any) => s.userId === seller.id).balance).toBe(550);
+  });
+});
+
+describe("room chat photos", () => {
+  test("above Lv 10 only; everyone in the room gets it; a retry stores it once", async () => {
+    const { host, roomId } = await liveRoom();
+    const b = await joined(roomId, "pb");
+    const sb = socketFor(b.token);
+    await nextEvent(sb, "connect");
+    await emit(sb, "room:join", { roomId });
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)]);
+    const send = async (token: string, clientMessageId: string) => {
+      const form = new FormData();
+      form.append("file", new File([png], "p.png", { type: "image/png" }));
+      form.append("clientMessageId", clientMessageId);
+      const res = await fetch(`${base}/v1/rooms/${roomId}/chat/image`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: form });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+
+    expect((await send(host.token, "p1")).body.error.code).toBe("LEVEL_TOO_LOW"); // Lv 0
+    await db.execute(sql`update users set xp = ${xpToReach(10)} where id = ${host.id}`); // exactly Lv 10: not yet
+    expect((await send(host.token, "p0")).body.error.code).toBe("LEVEL_TOO_LOW");
+    await db.execute(sql`update users set xp = ${xpToReach(11)} where id = ${host.id}`);
+    const seen = nextEvent(sb, "room:chat:new");
+    const sent = await send(host.token, "p2");
+    expect(sent.status).toBe(200);
+    expect(sent.body.payload.imageUrl).toMatch(/^\/v1\/uploads\/.+\.png$/);
+    expect((await seen).payload.imageUrl).toBe(sent.body.payload.imageUrl);
+    expect((await send(host.token, "p2")).body).toMatchObject({ messageId: sent.body.messageId, payload: { imageUrl: sent.body.payload.imageUrl } }); // retry
   });
 });
 

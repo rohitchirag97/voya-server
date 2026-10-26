@@ -99,8 +99,9 @@ export async function cosmeticMinSvip() {
 // An equipped item only shows while its owner still has the tier for it.
 export const wearable = (id: string | null, svip: number, mins: Map<string, number>) => (id && (mins.get(id) ?? 0) <= svip ? id : null);
 
-// Shown in every open room: SVIP tier-ups and level-ups from a recharge. Fire-and-forget: never affects the recharge.
-export type Announcement = { kind: "SVIP_UP"; tier: number } | { kind: "LEVEL_UP"; level: number } | { kind: "CP_LOVE"; partnerId: string; partnerName: string };
+// Shown in every open room: every recharge (app or seller; their level, never the coins) and SVIP tier-ups.
+// Fire-and-forget: never affects the recharge.
+export type Announcement = { kind: "SVIP_UP"; tier: number } | { kind: "RECHARGE"; level: number; leveledUp: boolean } | { kind: "CP_LOVE"; partnerId: string; partnerName: string };
 export function announceToAllRooms(user: { id: string; displayName: string | null; avatarUrl: string | null }, a: Announcement) {
   try {
     io.emit("app:announce", { ...a, userId: user.id, displayName: user.displayName ?? "Someone", avatarUrl: user.avatarUrl, at: new Date() });

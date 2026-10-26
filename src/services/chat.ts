@@ -7,6 +7,7 @@ import { emitToRoom, io, roomChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
 import { levelOf } from "../lib/levels";
+import { store } from "../routes/posts";
 import { assertCanParticipate } from "./auth";
 import { activeBadgeIds } from "./badges";
 import { assertMember, assertRoomAdmin, getActiveParticipant, systemMessage } from "./rooms";
@@ -71,6 +72,22 @@ export async function sendChat(user: User, roomId: string, input: ChatInput) {
   const targets = ids.length ? await db.select({ id: users.id, displayName: users.displayName }).from(users).where(inArray(users.id, ids)) : [];
   const mentions = targets.filter((t) => body.includes(`@${t.displayName}`)).map((t) => t.id);
   return post(user, roomId, sender, { body, mentions, clientMessageId: input.clientMessageId });
+}
+
+// Photos in room chat, for users above Lv 10 (the app shows the button from then on). A chat message whose payload holds
+// the photo; stored like post photos. Checks come before the upload is saved, and a retry doesn't save it twice.
+export const CHAT_IMAGE_MIN_LEVEL = 11;
+export async function sendChatImage(user: User, roomId: string, clientMessageId: string, file: File) {
+  assertCanParticipate(user);
+  if (levelOf(user.xp) < CHAT_IMAGE_MIN_LEVEL) throw new AppError("LEVEL_TOO_LOW", 403, `Photos in room chat unlock at Lv ${CHAT_IMAGE_MIN_LEVEL}`);
+  rateLimit(`chatimg:${user.id}`, 3, 30_000);
+  const sender = await speaker(user, roomId);
+  const [prior] = await db
+    .select({ id: chatMessages.id })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.roomId, roomId), eq(chatMessages.senderUserId, user.id), eq(chatMessages.clientMessageId, clientMessageId)));
+  const imageUrl = prior ? null : `/v1/uploads/${(await store(file, ["image"])).name}`;
+  return post(user, roomId, sender, { body: "📷 Photo", mentions: [], clientMessageId, payload: { imageUrl } });
 }
 
 // Animated emotes: a chat message from the sender whose payload names the emote; phones play it on the sender's seat
