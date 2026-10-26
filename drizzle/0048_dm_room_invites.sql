@@ -1,0 +1,2 @@
+ALTER TABLE "direct_messages" ADD COLUMN "room_id" uuid;--> statement-breakpoint
+ALTER TABLE "direct_messages" ADD CONSTRAINT "direct_messages_room_id_rooms_id_fk" FOREIGN KEY ("room_id") REFERENCES "public"."rooms"("id") ON DELETE no action ON UPDATE no action;

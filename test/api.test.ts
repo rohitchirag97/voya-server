@@ -2636,12 +2636,39 @@ describe("room invites", () => {
     ss.on("room:invite", () => (strangerGot = true));
     const got = nextEvent(sf, "room:invite");
     const r = await api("POST", `/rooms/${roomId}/invite`, host.token, { userIds: [friend.id, stranger.id] });
-    expect(r.body).toEqual({ invited: 1 });
+    expect(r.body).toEqual({ invited: 1, notified: 0 });
     expect(await got).toMatchObject({ roomId, title: "Evening Chai", from: { userId: host.id } });
     await new Promise((res) => setTimeout(res, 100));
     expect(strangerGot).toBe(false);
 
+    // A friend who isn't online gets the invite as a message with the room attached (a Join button in the app).
+    const away = await signup("invaway");
+    await api("POST", `/users/${away.id}/follow`, host.token);
+    await api("POST", `/users/${host.id}/follow`, away.token);
+    const friends = (await api("GET", "/me/friends", host.token)).body.friends;
+    expect(friends.map((f: any) => [f.userId, f.online])).toEqual([[friend.id, true], [away.id, false]]); // online first
+    expect((await api("POST", `/rooms/${roomId}/invite`, host.token, { userIds: [away.id] })).body).toEqual({ invited: 0, notified: 1 });
+    expect((await api("GET", `/dm/${host.id}`, away.token)).body.messages[0]).toMatchObject({ roomId, body: '📣 Join me in "Evening Chai"' });
+
     // Only people in the room can invite to it.
     expect((await api("POST", `/rooms/${roomId}/invite`, stranger.token, { userIds: [host.id] })).body.error.code).toBe("NOT_IN_ROOM");
+  });
+
+  test("the owner can clear the chat for everyone; other people can't", async () => {
+    const { host, roomId } = await liveRoom();
+    const guest = await joined(roomId, "clrguest");
+    const sh = socketFor(host.token);
+    await new Promise<void>((r) => sh.once("connect", () => r()));
+    await emit(sh, "room:join", { roomId });
+    await emit(sh, "room:chat:send", { roomId, body: "hello all", mentions: [], clientMessageId: "c1" });
+    const said = async (token: string) => (await api("GET", `/rooms/${roomId}/messages`, token)).body.messages.filter((m: any) => m.type === "USER");
+    expect(await said(host.token)).toHaveLength(1);
+
+    expect((await api("POST", `/rooms/${roomId}/chat/clear`, guest.token)).body.error.code).toBe("NOT_ROOM_ADMIN");
+    const cleared = nextEvent(sh, "room:chat:cleared");
+    expect((await api("POST", `/rooms/${roomId}/chat/clear`, host.token)).status).toBe(200);
+    expect(await cleared).toMatchObject({ roomId });
+    expect(await said(host.token)).toEqual([]);
+    expect(await said(guest.token)).toEqual([]);
   });
 });

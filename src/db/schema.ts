@@ -252,6 +252,7 @@ export const directMessages = pgTable(
     clientMessageId: text("client_message_id"),
     cpProposalId: uuid("cp_proposal_id").references(() => cpProposals.id), // set when the message is a CP proposal card
     imageUrl: text("image_url"), // a photo message (body is "📷 Photo", so inbox previews and older apps still read)
+    roomId: uuid("room_id").references(() => rooms.id), // a room invite sent while you were offline: shows a Join button
     createdAt: createdAt(),
   },
   (t) => [

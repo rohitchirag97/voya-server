@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { config } from "../config";
 import { db, isUniqueViolation, type Tx } from "../db";
-import { blocks, chatMessages, follows, giftTransactions, levelThresholds, roomAdmins, roomKicks, roomParticipants, rooms, roomSeats, users, type User } from "../db/schema";
-import { emitToRoom, io, roomChannel, userChannel } from "../io";
+import { blocks, chatMessages, directMessages, follows, giftTransactions, levelThresholds, roomAdmins, roomKicks, roomParticipants, rooms, roomSeats, users, type User } from "../db/schema";
+import { emitToRoom, io, isOnline, roomChannel, userChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { SEAT_LAYOUTS, seatPositions, type SeatCount } from "../lib/layout";
 import { rateLimit } from "../lib/rateLimit";
@@ -1040,8 +1040,9 @@ export async function eligibleRecipients(user: User, roomId: string) {
   return (await getSeats(roomId)).filter((s) => s.occupant);
 }
 
-// Invite friends (mutual follows, no block either way) to the room you're in. Each gets a live "room:invite" on
-// whatever screen they're on; it's a heads-up only, so joining still follows the room's normal rules.
+// Invite friends (mutual follows, no block either way) to the room you're in. Online friends get a live
+// "room:invite" banner on whatever screen they're on; offline ones get it as a message with a Join button in their
+// inbox. A heads-up only: joining still follows the room's normal rules.
 export async function inviteFriends(user: User, roomId: string, userIds: string[]) {
   assertCanParticipate(user);
   rateLimit(`invite:${user.id}`, 30, 60_000);
@@ -1068,6 +1069,20 @@ export async function inviteFriends(user: User, roomId: string, userIds: string[
     kind: room.kind,
     from: { userId: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl },
   };
-  for (const f of friends) io.to(userChannel(f.id)).emit("room:invite", invite);
-  return { invited: friends.length };
+  let invited = 0;
+  let notified = 0;
+  for (const f of friends) {
+    if (isOnline(f.id)) {
+      io.to(userChannel(f.id)).emit("room:invite", invite);
+      invited++;
+      continue;
+    }
+    const [msg] = await db
+      .insert(directMessages)
+      .values({ senderId: user.id, recipientId: f.id, body: `📣 Join me in "${room.title}"`, roomId })
+      .returning();
+    io.to(userChannel(f.id)).to(userChannel(user.id)).emit("dm:new", { ...msg, senderName: user.displayName });
+    notified++;
+  }
+  return { invited, notified };
 }

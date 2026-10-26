@@ -3,13 +3,13 @@ import { createHash, randomInt } from "node:crypto";
 import { z } from "zod";
 import { db, isUniqueViolation } from "../db";
 import { blocks, chatMessages, roomParticipants, rooms, users, type User } from "../db/schema";
-import { io, roomChannel } from "../io";
+import { emitToRoom, io, roomChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
 import { levelOf } from "../lib/levels";
 import { assertCanParticipate } from "./auth";
 import { activeBadgeIds } from "./badges";
-import { assertMember, getActiveParticipant } from "./rooms";
+import { assertMember, assertRoomAdmin, getActiveParticipant, systemMessage } from "./rooms";
 import { cosmeticMinSvip, svipOf, svipSql, visibleAvatar, wearable } from "./svip";
 
 export type ChatInput = { body: string; mentions: { userId: string }[]; clientMessageId: string };
@@ -178,3 +178,16 @@ export const typingAllowed = (userId: string) => {
   }
 };
 
+
+// Owner/admins: clear the room's chat for everyone, including people who join later. The rows stay (moderation
+// history), just hidden like moderated messages; phones empty their chat on "room:chat:cleared".
+export async function clearChat(user: User, roomId: string) {
+  await assertRoomAdmin(roomId, user.id);
+  await db
+    .update(chatMessages)
+    .set({ moderationStatus: "CLEARED" })
+    .where(and(eq(chatMessages.roomId, roomId), eq(chatMessages.moderationStatus, "VISIBLE")));
+  emitToRoom(roomId, "room:chat:cleared", { roomId, by: user.displayName });
+  await systemMessage(roomId, `${user.displayName ?? "An admin"} cleared the chat`, { kind: "CHAT_CLEARED", userId: user.id });
+  return { cleared: true };
+}

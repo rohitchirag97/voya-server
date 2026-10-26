@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db, isUniqueViolation, pgCode } from "../db";
 import { blocks, cosmetics, follows, posts, profileLikes, profileVisits, reports, roomParticipants, rooms, users } from "../db/schema";
 import { json, requireAuth, schemas, type Env } from "../http";
-import { io, userChannel } from "../io";
+import { io, isOnline, userChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { impersonatingBio, reservedName } from "../lib/impersonation";
 import { ageOn, INTERESTS, MAX_COVERS, MAX_INTERESTS, MAX_PINNED_BADGES, MIN_AGE } from "../lib/profileOptions";
@@ -373,7 +373,8 @@ account.get("/me/friends", async (c) => {
     )
     .orderBy(asc(users.displayName))
     .limit(500);
-  return c.json({ friends });
+  // Online first (they can get an invite banner right now), then by name.
+  return c.json({ friends: friends.map((f) => ({ ...f, online: isOnline(f.userId) })).sort((a, b) => Number(b.online) - Number(a.online)) });
 });
 
 account.get("/me/visitors", async (c) => {

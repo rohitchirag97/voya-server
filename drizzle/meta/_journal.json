@@ -337,6 +337,13 @@
       "when": 1792998469404,
       "tag": "0047_dm_reads",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1793000667804,
+      "tag": "0048_dm_room_invites",
+      "breakpoints": true
     }
   ]
 }
