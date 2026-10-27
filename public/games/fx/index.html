@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>FX</title>
+<style>
+  /* Full-screen, transparent SVGA player over the room (app: room/FxLayer.tsx). The app calls window.voyaFx(url) with an
+     .svga under /games/fx; it plays once (loops = 1), clears, and says 'done' so the app sends the next one. */
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  #fx { position: absolute; inset: 0; }
+</style>
+<!-- SVGAPlayer-Web 2.3.2 (Apache-2.0). SVGA 2.x files only: export effects as 2.x (1.x zip files aren't loaded). -->
+<script src="lib/svga.min.js"></script>
+</head>
+<body>
+<div id="fx"></div>
+<script>
+  const tell = (msg) => window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(msg));
+  const player = new SVGA.Player('#fx');
+  const parser = new SVGA.Parser('#fx');
+  player.loops = 1;
+  player.clearsAfterStop = true;
+  player.setContentMode('AspectFit');
+  player.onFinished(() => tell({ type: 'done' }));
+
+  const cache = {}; // url -> parsed animation, so a gift sent again starts at once
+  window.voyaFx = (url) => {
+    const play = (item) => { player.setVideoItem(item); player.startAnimation(); };
+    if (cache[url]) return play(cache[url]);
+    parser.load(url, (item) => { cache[url] = item; play(item); }, () => tell({ type: 'done' }));
+  };
+  tell({ type: 'ready' });
+  // ?play=<path>: preview one effect in a browser (e.g. /games/fx/?play=gift/rocket.svga).
+  const preview = new URLSearchParams(location.search).get('play');
+  if (preview) window.voyaFx(preview);
+</script>
+</body>
+</html>

@@ -294,6 +294,7 @@ export const giftCatalog = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
     svg: text("svg"), // optional artwork (SVG markup); emoji fallback in the app when null
     animation: text("animation"), // motion preset the app plays when sent, e.g. "launch"; "pop" if null + svg
+    effect: text("effect"), // SVGA (path under /games/fx) played full screen once when sent; replaces the svg motion
     createdAt: createdAt(),
   },
   (t) => [check("gift_price_positive", sql`${t.coinPrice} > 0`)],

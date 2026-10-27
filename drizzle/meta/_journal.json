@@ -393,6 +393,13 @@
       "when": 1793028906813,
       "tag": "0055_room_video",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1793082941287,
+      "tag": "0056_gift_effect",
+      "breakpoints": true
     }
   ]
 }

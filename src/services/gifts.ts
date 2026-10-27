@@ -132,7 +132,7 @@ export async function sendGiftToAllSeated(sender: User, roomId: string, input: G
     recipient: { userId: null, displayName: `everyone on stage (${n})` },
     recipients: result.transactions.map((t) => ({ userId: t.recipientId, seatIndex: t.recipientSeatIndex })),
     seatIndex: null,
-    gift: { id: result.gift.id, name: result.gift.name, assetUrl: result.gift.assetUrl, svg: result.gift.svg, animation: result.gift.animation },
+    gift: { id: result.gift.id, name: result.gift.name, assetUrl: result.gift.assetUrl, svg: result.gift.svg, animation: result.gift.animation, effect: result.gift.effect },
     quantity: input.quantity,
     at: result.transactions[0]!.createdAt,
   });
@@ -219,7 +219,7 @@ export async function sendGift(sender: User, roomId: string, input: GiftInput, i
     sender: { userId: sender.id, displayName: sender.displayName, avatarUrl: sender.avatarUrl },
     recipient: { userId: t.recipientId, displayName: recipient?.displayName },
     seatIndex: t.recipientSeatIndex,
-    gift: { id: result.gift.id, name: result.gift.name, assetUrl: result.gift.assetUrl, svg: result.gift.svg, animation: result.gift.animation },
+    gift: { id: result.gift.id, name: result.gift.name, assetUrl: result.gift.assetUrl, svg: result.gift.svg, animation: result.gift.animation, effect: result.gift.effect },
     quantity: t.quantity,
     at: t.createdAt,
   });

@@ -1,0 +1,1 @@
+ALTER TABLE "gift_catalog" ADD COLUMN "effect" text;
