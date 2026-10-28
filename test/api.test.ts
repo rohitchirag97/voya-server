@@ -2709,7 +2709,17 @@ describe("Families", () => {
     expect((await api("DELETE", `/families/${fid}/members/${m.id}`, adm.token)).status).toBe(200);
     expect((await api("POST", `/families/${fid}/leave`, owner.token)).body.error.code).toBe("OWNER_CANNOT_LEAVE");
     expect((await api("GET", "/families/me", adm.token)).body.family).toMatchObject({ familyId: fid, role: "ADMIN" });
-    expect((await api("GET", `/users/${adm.id}`, poor.token)).body.family).toEqual({ familyId: fid, name: "Night Owls", role: "ADMIN" });
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)]);
+    const setImage = async (token: string) => {
+      const form = new FormData();
+      form.append("file", new File([png], "f.png", { type: "image/png" }));
+      const res = await fetch(`${base}/v1/families/${fid}/image`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: form });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    expect((await setImage(poor.token)).body.error.code).toBe("NOT_FAMILY_ADMIN");
+    const img = (await setImage(adm.token)).body.imageUrl;
+    expect(img).toStartWith("/v1/uploads/");
+    expect((await api("GET", `/users/${adm.id}`, poor.token)).body.family).toEqual({ familyId: fid, name: "Night Owls", imageUrl: img, members: 2, role: "ADMIN" });
     expect((await api("GET", `/users/${m.id}`, poor.token)).body.family).toBeNull();
 
     expect((await api("DELETE", `/families/${fid}`, adm.token)).body.error.code).toBe("NOT_FAMILY_OWNER");

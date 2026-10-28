@@ -22,9 +22,11 @@ async function roleIn(familyId: string, userId: string): Promise<Role | null> {
   return m?.familyId === familyId ? m.role : null;
 }
 
+const memberCount = sql<number>`(select count(*)::int from ${familyMembers} m where m.family_id = ${families.id})`;
+
 export async function myFamily(userId: string) {
   const [row] = await db
-    .select({ familyId: families.id, name: families.name, role: familyMembers.role })
+    .select({ familyId: families.id, name: families.name, imageUrl: families.imageUrl, members: memberCount, role: familyMembers.role })
     .from(familyMembers)
     .innerJoin(families, eq(families.id, familyMembers.familyId))
     .where(eq(familyMembers.userId, userId));
@@ -56,7 +58,7 @@ export async function create(user: User, name: string) {
 // Biggest families first; `q` filters by name.
 export function list(q?: string) {
   return db
-    .select({ familyId: families.id, name: families.name, members: sql<number>`count(${familyMembers.userId})::int` })
+    .select({ familyId: families.id, name: families.name, imageUrl: families.imageUrl, members: sql<number>`count(${familyMembers.userId})::int` })
     .from(families)
     .innerJoin(familyMembers, eq(familyMembers.familyId, families.id))
     .where(q ? ilike(families.name, `%${q.replace(/[\\%_]/g, "\\$&")}%`) : undefined)
@@ -78,7 +80,7 @@ export async function detail(viewerId: string, familyId: string) {
     .groupBy(familyMembers.userId, users.id)
     .orderBy(desc(contribution), asc(familyMembers.joinedAt));
   return {
-    family: { familyId: f.id, name: f.name, ownerId: f.ownerId, createdAt: f.createdAt, monthTotal: members.reduce((s, m) => s + m.contribution, 0) },
+    family: { familyId: f.id, name: f.name, imageUrl: f.imageUrl, ownerId: f.ownerId, createdAt: f.createdAt, monthTotal: members.reduce((s, m) => s + m.contribution, 0) },
     members,
     myRole: members.find((m) => m.userId === viewerId)?.role ?? null,
   };
@@ -108,6 +110,18 @@ export async function leave(user: User, familyId: string) {
 export async function disband(user: User, familyId: string) {
   const [gone] = await db.delete(families).where(and(eq(families.id, familyId), eq(families.ownerId, user.id))).returning();
   if (!gone) throw new AppError("NOT_FAMILY_OWNER", 403, "Only the owner can do that");
+}
+
+export async function assertManager(user: User, familyId: string) {
+  const mine = await roleIn(familyId, user.id);
+  if (mine !== "OWNER" && mine !== "ADMIN") throw new AppError("NOT_FAMILY_ADMIN", 403, "Only the owner and admins can do that");
+}
+
+// Owner or admin; the route has already stored the upload.
+export async function setImage(user: User, familyId: string, imageUrl: string) {
+  await assertManager(user, familyId);
+  await db.update(families).set({ imageUrl }).where(eq(families.id, familyId));
+  return { imageUrl };
 }
 
 // Owner only: make a member an admin, or back to member.

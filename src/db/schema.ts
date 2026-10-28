@@ -715,6 +715,7 @@ export const familyRole = pgEnum("family_role", ["OWNER", "ADMIN", "MEMBER"]);
 export const families = pgTable("families", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
+  imageUrl: text("image_url"), // /v1/uploads/<file>, set by the owner or an admin
   ownerId: uuid("owner_id").notNull().references(() => users.id),
   createdAt: createdAt(),
 });

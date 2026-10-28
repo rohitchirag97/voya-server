@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { json, requireAuth, schemas, type Env } from "../http";
+import { AppError } from "../lib/errors";
 import * as families from "../services/families";
+import { store } from "./posts";
 
 export const familyRoutes = new Hono<Env>();
 familyRoutes.use("/families", requireAuth);
@@ -27,6 +29,15 @@ familyRoutes.get("/families/:id", async (c) => c.json(await families.detail(c.ge
 familyRoutes.delete("/families/:id", async (c) => (await families.disband(c.get("user"), id(c)), c.json({ disbanded: true })));
 familyRoutes.post("/families/:id/join", async (c) => (await families.join(c.get("user"), id(c)), c.json({ joined: true })));
 familyRoutes.post("/families/:id/leave", async (c) => (await families.leave(c.get("user"), id(c)), c.json({ left: true })));
+
+// Family image: JPEG/PNG (multipart "file"), owner or admin. Checked before storing, so refused uploads leave no file.
+familyRoutes.post("/families/:id/image", async (c) => {
+  const familyId = id(c);
+  await families.assertManager(c.get("user"), familyId);
+  const file = (await c.req.formData().catch(() => null))?.get("file");
+  if (!(file instanceof File)) throw new AppError("FILE_REQUIRED", 400, "Choose a photo");
+  return c.json(await families.setImage(c.get("user"), familyId, `/v1/uploads/${(await store(file, ["image"])).name}`));
+});
 
 familyRoutes.post("/families/:id/invite", async (c) => {
   const b = await json(c, z.object({ userId: schemas.uuid }));
