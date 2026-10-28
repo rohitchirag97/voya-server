@@ -11,6 +11,7 @@ import { dm } from "./routes/dm";
 import { coinSellerRoutes } from "./routes/coinSellers";
 import { links } from "./routes/links";
 import { cpRoutes } from "./routes/cp";
+import { familyRoutes } from "./routes/families";
 import { postRoutes } from "./routes/posts";
 import { roomRoutes } from "./routes/rooms";
 import "./socket";
@@ -44,6 +45,7 @@ app.route("/v1", roomRoutes);
 app.route("/v1", dm);
 app.route("/v1", coinSellerRoutes);
 app.route("/v1", cpRoutes);
+app.route("/v1", familyRoutes);
 
 // Heartbeat every 10s, dead after 8s more without a reply: a phone that silently lost its connection is noticed in
 // ~18s (the defaults took up to 45s), so its seat is freed sooner.

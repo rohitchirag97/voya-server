@@ -272,6 +272,7 @@ export const directMessages = pgTable(
     cpProposalId: uuid("cp_proposal_id").references(() => cpProposals.id), // set when the message is a CP proposal card
     imageUrl: text("image_url"), // a photo message (body is "📷 Photo", so inbox previews and older apps still read)
     roomId: uuid("room_id").references(() => rooms.id), // a room invite sent while you were offline: shows a Join button
+    familyId: uuid("family_id").references(() => families.id, { onDelete: "set null" }), // a family invite: shows a View family button
     notice: jsonb("notice").$type<CoinNotice>(), // a coin receipt from the Recharge Notification account: shows as a card
     createdAt: createdAt(),
   },
@@ -345,6 +346,7 @@ export const giftTransactions = pgTable(
     uniqueIndex("gift_tx_idempotency").on(t.senderId, t.idempotencyKey),
     index("gift_tx_room_time").on(t.roomId, t.createdAt), // room charisma sums
     index("gift_tx_recipient_time").on(t.recipientId, t.createdAt), // weekly charisma on profiles
+    index("gift_tx_sender_time").on(t.senderId, t.createdAt), // monthly family contribution
   ],
 );
 
@@ -704,6 +706,28 @@ export const cpPointsDaily = pgTable(
     points: integer("points").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.pairId, t.day, t.source] })],
+);
+
+// ---------- Families ----------
+// Anyone can join a family; the owner (who paid to create it) appoints admins. A user is in at most one family.
+export const familyRole = pgEnum("family_role", ["OWNER", "ADMIN", "MEMBER"]);
+
+export const families = pgTable("families", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  ownerId: uuid("owner_id").notNull().references(() => users.id),
+  createdAt: createdAt(),
+});
+
+export const familyMembers = pgTable(
+  "family_members",
+  {
+    userId: uuid("user_id").primaryKey().references(() => users.id), // primary key = one family per user
+    familyId: uuid("family_id").notNull().references(() => families.id, { onDelete: "cascade" }),
+    role: familyRole("role").notNull().default("MEMBER"),
+    joinedAt: ts("joined_at").notNull().defaultNow(),
+  },
+  (t) => [index("family_members_family").on(t.familyId)],
 );
 
 // The newest message from `peerId` that `userId` has seen; anything after it is unread.

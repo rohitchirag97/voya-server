@@ -2685,6 +2685,63 @@ describe("CP relationships", () => {
   });
 });
 
+describe("Families", () => {
+  const fund = (id: string, balance: number) => db.execute(sql`update wallet_accounts set balance = ${balance} where user_id = ${id}`);
+
+  test("create costs 500, one family each; owner appoints admins, admins remove members only", async () => {
+    const [owner, adm, m, poor] = [await signup("fown"), await signup("fadm"), await signup("fmem"), await signup("fpoor")];
+    await fund(owner.id, 600);
+    await fund(poor.id, 499);
+    expect((await api("POST", "/families", poor.token, { name: "Broke" })).body.error.code).toBe("INSUFFICIENT_COINS");
+    const made = await api("POST", "/families", owner.token, { name: "Night Owls" });
+    expect(made.status).toBe(201);
+    expect(made.body.balance).toBe(100);
+    const fid = made.body.familyId;
+    expect((await api("POST", "/families", owner.token, { name: "Second" })).body.error.code).toBe("INSUFFICIENT_COINS");
+    await fund(owner.id, 600);
+    expect((await api("POST", "/families", owner.token, { name: "Second" })).body.error.code).toBe("ALREADY_IN_FAMILY");
+    expect((await api("GET", "/wallet", owner.token)).body.balance).toBe(600); // the failed create was rolled back
+
+    for (const u of [adm, m]) expect((await api("POST", `/families/${fid}/join`, u.token)).status).toBe(200);
+    expect((await api("POST", `/families/${fid}/members/${adm.id}/role`, m.token, { role: "ADMIN" })).body.error.code).toBe("NOT_FAMILY_OWNER");
+    expect((await api("POST", `/families/${fid}/members/${adm.id}/role`, owner.token, { role: "ADMIN" })).status).toBe(200);
+    expect((await api("DELETE", `/families/${fid}/members/${owner.id}`, adm.token)).body.error.code).toBe("CANNOT_REMOVE");
+    expect((await api("DELETE", `/families/${fid}/members/${m.id}`, adm.token)).status).toBe(200);
+    expect((await api("POST", `/families/${fid}/leave`, owner.token)).body.error.code).toBe("OWNER_CANNOT_LEAVE");
+    expect((await api("GET", "/families/me", adm.token)).body.family).toMatchObject({ familyId: fid, role: "ADMIN" });
+
+    expect((await api("DELETE", `/families/${fid}`, adm.token)).body.error.code).toBe("NOT_FAMILY_OWNER");
+    expect((await api("DELETE", `/families/${fid}`, owner.token)).status).toBe(200);
+    expect((await api("GET", "/families/me", adm.token)).body.family).toBeNull();
+  });
+
+  test("members sort by gifts sent this month since joining; invites only to people you follow", async () => {
+    const [owner, a, b, stranger] = [await signup("fo2"), await signup("fa2"), await signup("fb2"), await signup("fs2")];
+    await fund(owner.id, 500);
+    const fid = (await api("POST", "/families", owner.token, { name: "Gifters" })).body.familyId;
+    for (const u of [a, b]) await api("POST", `/families/${fid}/join`, u.token);
+    const { roomId } = await liveRoom();
+    const [gift] = (await db.execute<{ id: string }>(sql`select id from gift_catalog limit 1`)).rows;
+    const sent = (from: string, coins: number, at = sql`now()`) =>
+      db.execute(sql`insert into gift_transactions (sender_id, recipient_id, gift_id, room_id, recipient_seat_index, quantity, coins_debited, idempotency_key, created_at)
+        values (${from}, ${owner.id}, ${gift!.id}, ${roomId}, 0, 1, ${coins}, ${crypto.randomUUID()}, ${at})`);
+    await sent(a.id, 100);
+    await sent(b.id, 300);
+    await sent(a.id, 5000, sql`now() - interval '40 days'`); // last month: doesn't count
+    const d = (await api("GET", `/families/${fid}`, stranger.token)).body;
+    expect(d.members.map((x: any) => [x.userId, x.contribution])).toEqual([[b.id, 300], [a.id, 100], [owner.id, 0]]);
+    expect(d.family.monthTotal).toBe(400);
+    expect(d.myRole).toBeNull();
+
+    expect((await api("POST", `/families/${fid}/invite`, owner.token, { userId: stranger.id })).body.error.code).toBe("NOT_FOLLOWING");
+    await api("POST", `/users/${stranger.id}/follow`, owner.token);
+    expect((await api("POST", `/families/${fid}/invite`, a.token, { userId: stranger.id })).body.error.code).toBe("NOT_FAMILY_ADMIN");
+    expect((await api("POST", `/families/${fid}/invite`, owner.token, { userId: stranger.id })).status).toBe(200);
+    const dm = (await api("GET", `/dm/${owner.id}`, stranger.token)).body.messages;
+    expect(dm[0]).toMatchObject({ familyId: fid });
+  });
+});
+
 describe("CP levels", () => {
   test("the curve: level 1 at 0, each level costs more than the last, max 50", async () => {
     const { cpLevel, cpPointsFor, CP_MAX_LEVEL } = await import("../src/lib/cpLevels");
