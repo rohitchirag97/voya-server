@@ -1,10 +1,19 @@
-# Host Caddy: copy to /etc/caddy/Caddyfile, replace the site address (":80" = plain HTTP on the IP; a domain gets
-# automatic HTTPS from Let's Encrypt), then `sudo systemctl reload caddy`. WebSockets for /socket.io/ pass through as-is.
+# Host Caddy: copy to /etc/caddy/Caddyfile, then `sudo systemctl reload caddy`. The domain gets automatic HTTPS from
+# Let's Encrypt; WebSockets for /socket.io/ pass through as-is.
 # The API server (port 3000) answers the app's API, sockets, games, and the public share pages (/r/<roomId>, /download);
 # everything else is the admin web dashboard (port 3001).
-:80 {
+(voya) {
 	encode gzip
 	@api path /v1/* /socket.io/* /games/* /health /r/* /download /download/*
 	reverse_proxy @api 127.0.0.1:3000
 	reverse_proxy 127.0.0.1:3001
+}
+
+voyalive.tech, www.voyalive.tech {
+	import voya
+}
+
+# shortcut: plain HTTP on the bare IP kept for APKs built before the domain; delete once everyone has updated.
+:80 {
+	import voya
 }
