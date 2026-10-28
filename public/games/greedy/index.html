@@ -646,8 +646,8 @@
 <script>
 // Ring order of the 3×3 grid (cell 4 is the center); items alternate cheap/expensive around it.
 const RING_CELLS = [0, 1, 2, 5, 8, 7, 6, 3];
-// Galaxy puts Saturn (×45) front and centre on the orbit, flanked by Jupiter and Uranus; jungle alternates cheap/expensive.
-const RING_ITEMS = new URLSearchParams(location.search).get('game') === 'galaxy' ? [0, 4, 1, 6, 7, 5, 2, 3] : [0, 4, 1, 5, 2, 6, 3, 7];
+// Clockwise from the top in payout order (the four ×5, then ×10, ×15, ×25, ×45) so new players find things at a glance.
+const RING_ITEMS = [0, 1, 2, 3, 4, 5, 6, 7];
 const RESULT_MS = 6500; // how long the round result card stays up (the next round starts ~10s after the result)
 const $ = (id) => document.getElementById(id);
 // Which game this page is: the app opens /games/greedy/?game=galaxy (default jungle). Everything themed hangs off this.
