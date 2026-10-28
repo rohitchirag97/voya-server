@@ -15,6 +15,7 @@ import { changePhone, linkGoogle, linkPhone, refresh, requestOtp, revokeSession,
 import { activeBadges, badgeCatalog } from "../services/badges";
 import { weeklyGiftStats } from "../services/gifts";
 import { onBlock, relationshipsOf } from "../services/cp";
+import { myFamily } from "../services/families";
 import { pushDm } from "../services/dmPush";
 import { userSummary } from "../services/rooms";
 import { cosmeticMinSvip, SVIP_PERKS, svipOf, svipStatus, visibleAvatar, wearable } from "../services/svip";
@@ -324,6 +325,7 @@ async function profileOf(u: typeof users.$inferSelect, me: string) {
     lastSeenAt: u.lastSeenAt, // when they were last around (shown when not online)
     week: await weeklyGiftStats(u.id), // gift contribution / charisma since Monday
     relationships: await relationshipsOf(u.id), // active CPs (Love, Best friends, Brother/Sister)
+    family: (await myFamily(u.id)).family, // { familyId, name, role } or null
     isMe,
     visitors: isMe ? visitorCount!.n : undefined, // private: only the owner sees visitor numbers
   };

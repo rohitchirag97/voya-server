@@ -2709,6 +2709,8 @@ describe("Families", () => {
     expect((await api("DELETE", `/families/${fid}/members/${m.id}`, adm.token)).status).toBe(200);
     expect((await api("POST", `/families/${fid}/leave`, owner.token)).body.error.code).toBe("OWNER_CANNOT_LEAVE");
     expect((await api("GET", "/families/me", adm.token)).body.family).toMatchObject({ familyId: fid, role: "ADMIN" });
+    expect((await api("GET", `/users/${adm.id}`, poor.token)).body.family).toEqual({ familyId: fid, name: "Night Owls", role: "ADMIN" });
+    expect((await api("GET", `/users/${m.id}`, poor.token)).body.family).toBeNull();
 
     expect((await api("DELETE", `/families/${fid}`, adm.token)).body.error.code).toBe("NOT_FAMILY_OWNER");
     expect((await api("DELETE", `/families/${fid}`, owner.token)).status).toBe(200);
