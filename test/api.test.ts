@@ -1307,6 +1307,13 @@ describe("followers, following and visitors", () => {
     // Friends: only b follows owner and is followed back.
     expect((await api("GET", `/users/${owner.id}/friends`, a.token)).body.people.map((p: any) => p.userId)).toEqual([b.id]);
 
+    // Blocked list: owner blocks a; the profile says so; unblocking empties the list.
+    await api("POST", `/users/${a.id}/block`, owner.token);
+    expect((await api("GET", "/me/blocks", owner.token)).body.people.map((p: any) => p.userId)).toEqual([a.id]);
+    expect((await api("GET", `/users/${a.id}`, owner.token)).body.blockedByMe).toBe(true);
+    await api("DELETE", `/users/${a.id}/block`, owner.token);
+    expect((await api("GET", "/me/blocks", owner.token)).body.people).toEqual([]);
+
     // Visits: a twice, b once; opening your own profile isn't a visit.
     await api("GET", `/users/${owner.id}`, a.token);
     await api("GET", `/users/${owner.id}`, b.token);

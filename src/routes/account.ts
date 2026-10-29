@@ -292,7 +292,7 @@ async function profileOf(u: typeof users.$inferSelect, me: string) {
   const id = u.id;
   const isMe = id === me;
   const svip = await svipOf(id);
-  const [[followers], [following], [mine], [theirs], [postCount], [likeCount], [liked], [visitorCount], [friendCount]] = await Promise.all([
+  const [[followers], [following], [mine], [theirs], [postCount], [likeCount], [liked], [visitorCount], [friendCount], [blockedCount]] = await Promise.all([
     db.select({ n: count() }).from(follows).where(eq(follows.followedId, id)),
     db.select({ n: count() }).from(follows).where(eq(follows.followerId, id)),
     db.select({ n: count() }).from(follows).where(and(eq(follows.followerId, me), eq(follows.followedId, id))),
@@ -305,6 +305,7 @@ async function profileOf(u: typeof users.$inferSelect, me: string) {
     db
       .execute<{ n: number }>(sql`select count(*)::int as n from ${follows} a join ${follows} b on b.follower_id = a.followed_id and b.followed_id = a.follower_id where a.follower_id = ${id}`)
       .then((r) => r.rows),
+    db.select({ n: count() }).from(blocks).where(and(eq(blocks.blockerId, me), eq(blocks.blockedId, id))),
   ]);
   return {
     ...publicUser(u),
@@ -317,6 +318,7 @@ async function profileOf(u: typeof users.$inferSelect, me: string) {
     likedByMe: liked!.n > 0,
     isFollowing: mine!.n > 0,
     followsMe: theirs!.n > 0, // drives "Follow back"
+    blockedByMe: blockedCount!.n > 0,
     ...(await decorationsOf(u)),
     ...(await badgesWithWall(u)),
     svip,
@@ -512,6 +514,20 @@ account.delete("/users/:userId/block", async (c) => {
   const me = c.get("user").id;
   await db.delete(blocks).where(and(eq(blocks.blockerId, me), eq(blocks.blockedId, await target(c, me))));
   return c.json({ blocked: false });
+});
+
+// People I blocked, newest first (Settings > Blocked users).
+account.get("/me/blocks", async (c) => {
+  const me = c.get("user").id;
+  const q = pageQuery.parse(c.req.query());
+  const rows = await db
+    .select({ ...personCols(me), at: blocks.createdAt })
+    .from(blocks)
+    .innerJoin(users, eq(users.id, blocks.blockedId))
+    .where(and(eq(blocks.blockerId, me), q.cursor ? lt(blocks.createdAt, new Date(q.cursor)) : undefined))
+    .orderBy(desc(blocks.createdAt))
+    .limit(q.limit + 1);
+  return c.json(page(rows, q.limit));
 });
 
 account.post("/reports", async (c) => {
