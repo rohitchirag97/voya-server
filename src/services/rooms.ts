@@ -15,7 +15,7 @@ import { pushDm } from "./dmPush";
 const ZEGO_TOKEN_TTL_S = 3600;
 type Room = typeof rooms.$inferSelect;
 const levelSql = sql<number>`(select coalesce(max(${levelThresholds.level}), 0) from ${levelThresholds} where ${levelThresholds.xpRequired} <= ${users.xp})`.mapWith(Number);
-export const userSummary = { userId: users.id, displayName: users.displayName, avatarUrl: avatarSql, level: levelSql, staffRole: users.staffRole, svip: svipSql, frameId: frameSql };
+export const userSummary = { userId: users.id, displayName: users.displayName, avatarUrl: avatarSql, gender: users.gender, level: levelSql, staffRole: users.staffRole, svip: svipSql, frameId: frameSql };
 
 // ZEGO stream IDs allow [A-Za-z0-9_-]; one per publisher per room.
 export const streamIdFor = (room: Room, userId: string) => `${room.zegoRoomId}_${userId.replaceAll("-", "")}`;
