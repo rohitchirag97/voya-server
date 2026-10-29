@@ -167,7 +167,7 @@ account.patch("/me/profile", async (c) => {
         })
         .optional(),
       bio: z.string().max(160).nullable().optional(),
-      gender: z.enum(["MALE", "FEMALE", "OTHER"]).nullable().optional(),
+      gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(), // required in the app; once set it can be changed, not cleared
       birthday: z.iso
         .date()
         .refine((d) => ageOn(d) >= MIN_AGE && ageOn(d) <= 100, `You must be at least ${MIN_AGE}`)

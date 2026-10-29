@@ -2273,8 +2273,9 @@ describe("about me, friends and the badge wall", () => {
     expect((await patch({ birthday: "2001-02-30" })).status).toBe(400);
     expect((await patch({ interests: ["Hacking"] })).status).toBe(400);
     expect((await patch({ interests: opts.interests.slice(0, 11) })).status).toBe(400);
-    expect((await patch({ hometown: "", gender: null })).status).toBe(200);
-    expect((await api("GET", `/users/${a.id}`, b.token)).body).toMatchObject({ hometown: null, gender: null });
+    expect((await patch({ gender: null })).status).toBe(400); // gender can be changed, not cleared
+    expect((await patch({ hometown: "", gender: "FEMALE" })).status).toBe(200);
+    expect((await api("GET", `/users/${a.id}`, b.token)).body).toMatchObject({ hometown: null, gender: "FEMALE" });
   });
 
   test("friends = mutual follows; the badge wall pins owned badges only, and expired ones drop off", async () => {
