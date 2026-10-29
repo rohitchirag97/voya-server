@@ -31,6 +31,8 @@
   player.setContentMode('AspectFit');
   const box = document.getElementById('fx');
   const nameTag = document.getElementById('name');
+  // Entry banners sit over the room chat (lower half), so Ludo or video mode at the top never hides them.
+  const BANNER_TOP = 0.62; // the band's top edge, as a share of the screen height
   const BANNER_MS = 3000; // entry banners show for 3 s (the files run ~5 s), then fade out quickly
   // Each effect says 'done' exactly once: at its natural end, or when a banner is cut short.
   let current = 0;
@@ -68,7 +70,7 @@
   };
 
   const cache = {}; // url -> parsed animation, so a gift sent again starts at once
-  // banner (SVIP entries, 750×200): a band across the upper room instead of the whole screen. The person's picture
+  // banner (SVIP entries, 750×200): a band across the room chat instead of the whole screen. The person's picture
   // fills slot 03; the file's text slots (01, 02, 04) and grey placeholder bars stay blank, and the name is laid over
   // the middle of the bubble instead (between the picture and the crest: banner x 122–400, y 86–130; the bubble,
   // picture and slots don't move, only the sparkles and crest animate).
@@ -77,14 +79,14 @@
   window.voyaFx = async (url, banner) => {
     const id = (current = ++seq);
     player.clearDynamicObjects();
-    box.style.cssText = banner ? 'top: 28%; bottom: auto; height: calc(100vw * 200 / 750);' : '';
+    box.style.cssText = banner ? `top: ${BANNER_TOP * 100}%; bottom: auto; height: calc(100vw * 200 / 750);` : '';
     nameTag.style.display = 'none';
     if (banner) {
       const pic = await roundPicture(banner.avatar);
       if (pic) player.setImage(pic, '03');
       const u = window.innerWidth / 750; // screen px per banner px
       nameTag.textContent = banner.name;
-      nameTag.style.cssText = `left: ${NAME_BOX.x * u}px; top: ${window.innerHeight * 0.28 + NAME_BOX.y * u}px;
+      nameTag.style.cssText = `left: ${NAME_BOX.x * u}px; top: ${window.innerHeight * BANNER_TOP + NAME_BOX.y * u}px;
         width: ${NAME_BOX.w * u}px; height: ${NAME_BOX.h * u}px; font-size: ${fitSize(banner.name, 36, NAME_BOX.w - 8) * u}px;`;
       player.setImage(CLEAR, 'img_11871');
       player.setImage(CLEAR, 'img_11872');
