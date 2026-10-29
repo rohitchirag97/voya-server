@@ -51,10 +51,17 @@
     img.src = url;
   });
 
+  // Largest font size (up to `max`) at which `text` fits `width` banner pixels.
+  const measure = document.createElement('canvas').getContext('2d');
+  const fitSize = (text, max, width) => {
+    measure.font = `${max}px Arial`;
+    return Math.max(14, Math.min(max, Math.floor((max * width) / Math.max(1, measure.measureText(text).width))));
+  };
+
   const cache = {}; // url -> parsed animation, so a gift sent again starts at once
   // banner (SVIP entries, 750×200): a band across the upper room instead of the whole screen. Only the person's
-  // picture (slot 03) and name (slot 01, moved down to the bubble's middle) show; the second line (02), the tag (04)
-  // and the grey placeholder bars stay blank.
+  // picture (slot 03) and name (slot 01) show; the second line (02), the tag (04) and the grey placeholder bars stay
+  // blank.
   let seq = 0;
   window.voyaFx = async (url, banner) => {
     const id = (current = ++seq);
@@ -63,7 +70,9 @@
     if (banner) {
       const pic = await roundPicture(banner.avatar);
       if (pic) player.setImage(pic, '03');
-      player.setText({ text: banner.name, size: '26px', color: '#FFFFFF', offset: { x: -30, y: 16 } }, '01');
+      // Text is drawn inside the slot's own 207×30 box (an offset only clips it), so it stays centred there and a
+      // long name gets a smaller font to fit the width.
+      player.setText({ text: banner.name, size: `${fitSize(banner.name, 26, 196)}px`, color: '#FFFFFF' }, '01');
       player.setImage(CLEAR, 'img_11871');
       player.setImage(CLEAR, 'img_11872');
     }
