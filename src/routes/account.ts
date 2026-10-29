@@ -443,6 +443,12 @@ account.get("/me/visitors", async (c) => {
 account.post("/users/:userId/follow", async (c) => {
   const user = c.get("user");
   const followedId = await target(c, user.id);
+  // No following across a block, either way.
+  const [block] = await db
+    .select({ blockerId: blocks.blockerId })
+    .from(blocks)
+    .where(or(and(eq(blocks.blockerId, user.id), eq(blocks.blockedId, followedId)), and(eq(blocks.blockerId, followedId), eq(blocks.blockedId, user.id))));
+  if (block) throw new AppError("BLOCKED", 403, block.blockerId === user.id ? "You blocked them. Unblock to follow" : "You can't follow this person");
   const added = await db.insert(follows).values({ followerId: user.id, followedId }).onConflictDoNothing().returning().catch(fkGuard);
   if (added.length) {
     // Live heads-up to the person followed (only reaches them while they have the app connected).
@@ -506,6 +512,8 @@ account.post("/users/:userId/block", async (c) => {
   const me = c.get("user").id;
   const them = await target(c, me);
   await db.insert(blocks).values({ blockerId: me, blockedId: them }).onConflictDoNothing().catch(fkGuard);
+  // A block cuts every tie: follows both ways go, and any CP ends at once (onBlock).
+  await db.delete(follows).where(or(and(eq(follows.followerId, me), eq(follows.followedId, them)), and(eq(follows.followerId, them), eq(follows.followedId, me))));
   await onBlock(me, them);
   return c.json({ blocked: true });
 });

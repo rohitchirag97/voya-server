@@ -157,16 +157,17 @@ dm.post("/dm/:userId/read", async (c) => {
 async function assertCanMessage(user: User, them: string) {
   assertCanParticipate(user);
   rateLimit(`dm:${user.id}`, 20, 10_000);
-  const pairs = await db
-    .select({ a: follows.followerId })
-    .from(follows)
-    .where(or(and(eq(follows.followerId, user.id), eq(follows.followedId, them)), and(eq(follows.followerId, them), eq(follows.followedId, user.id))));
-  if (pairs.length < 2) throw new AppError("NOT_FRIENDS", 403, "You can only message friends (you follow each other)");
+  // Block first: a block also removes the follows, and "blocked" is the reason that matters.
   const [blocked] = await db
     .select({ a: blocks.blockerId })
     .from(blocks)
     .where(or(and(eq(blocks.blockerId, user.id), eq(blocks.blockedId, them)), and(eq(blocks.blockerId, them), eq(blocks.blockedId, user.id))));
   if (blocked) throw new AppError("BLOCKED", 403, "You can't message this person");
+  const pairs = await db
+    .select({ a: follows.followerId })
+    .from(follows)
+    .where(or(and(eq(follows.followerId, user.id), eq(follows.followedId, them)), and(eq(follows.followerId, them), eq(follows.followedId, user.id))));
+  if (pairs.length < 2) throw new AppError("NOT_FRIENDS", 403, "You can only message friends (you follow each other)");
 }
 
 dm.post("/dm/:userId", async (c) => {

@@ -1308,11 +1308,19 @@ describe("followers, following and visitors", () => {
     expect((await api("GET", `/users/${owner.id}/friends`, a.token)).body.people.map((p: any) => p.userId)).toEqual([b.id]);
 
     // Blocked list: owner blocks a; the profile says so; unblocking empties the list.
+    await api("POST", `/users/${owner.id}/follow`, a.token); // already following: stays one row
+    await api("POST", `/users/${a.id}/follow`, owner.token); // now friends
     await api("POST", `/users/${a.id}/block`, owner.token);
     expect((await api("GET", "/me/blocks", owner.token)).body.people.map((p: any) => p.userId)).toEqual([a.id]);
     expect((await api("GET", `/users/${a.id}`, owner.token)).body.blockedByMe).toBe(true);
+    // The block cut both follows, and neither side can follow again while it stands.
+    expect((await api("GET", `/users/${owner.id}/followers`, owner.token)).body.people.map((p: any) => p.userId)).toEqual([b.id]);
+    expect((await api("GET", `/users/${owner.id}/following`, owner.token)).body.people.map((p: any) => p.userId)).toEqual([b.id]);
+    expect((await api("POST", `/users/${owner.id}/follow`, a.token)).body.error).toMatchObject({ code: "BLOCKED", message: "You can't follow this person" });
+    expect((await api("POST", `/users/${a.id}/follow`, owner.token)).body.error.code).toBe("BLOCKED");
     await api("DELETE", `/users/${a.id}/block`, owner.token);
     expect((await api("GET", "/me/blocks", owner.token)).body.people).toEqual([]);
+    expect((await api("POST", `/users/${owner.id}/follow`, a.token)).status).toBe(200);
 
     // Visits: a twice, b once; opening your own profile isn't a visit.
     await api("GET", `/users/${owner.id}`, a.token);
