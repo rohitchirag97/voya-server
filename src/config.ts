@@ -14,6 +14,8 @@ export const config = {
   seatGraceMs: Number(process.env.SEAT_GRACE_MS ?? 30_000), // connection lost: time to come back before the seat frees up
   seatQuickGraceMs: Number(process.env.SEAT_QUICK_GRACE_MS ?? 0), // app closed (connection closed cleanly): the seat frees at once
   signupBonusCoins: Number(process.env.SIGNUP_BONUS_COINS ?? 0),
+  // In-app recharge without payment (provider DEV). Off unless explicitly turned on: only tests and local dev set it.
+  allowTestRecharge: process.env.ALLOW_TEST_RECHARGE === "1",
   // OAuth "Web application" client ID; Google sign-in is off when unset.
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
   uploadsDir:process.env.UPLOADS_DIR ?? "uploads",

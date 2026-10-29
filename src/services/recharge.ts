@@ -30,7 +30,9 @@ async function replay(userId: string, key: string, packageId: string) {
 // shortcut: test purchases only (provider "DEV", no money moves). Before launch, verify a real
 // Google Play / payment-provider receipt here instead, and keep this path off in production.
 export async function recharge(user: User, packageId: string, key: string | undefined) {
-  if (config.env === "production") throw new AppError("PAYMENTS_NOT_CONFIGURED", 503, "Recharge isn't available yet");
+  // Never on by accident: a missing or wrong NODE_ENV once let these through in production.
+  if (!config.allowTestRecharge || config.env === "production")
+    throw new AppError("PAYMENTS_NOT_CONFIGURED", 503, "In-app recharge isn't available yet. Buy coins from an authorised coin seller.");
   // "seller:" keys are reserved for seller sales recorded as recharges (services/sellers sell).
   if (!key || key.length > 128 || key.startsWith("seller:")) throw new AppError("IDEMPOTENCY_KEY_REQUIRED", 400);
   const pkg = PACKAGES.find((p) => p.id === packageId);
