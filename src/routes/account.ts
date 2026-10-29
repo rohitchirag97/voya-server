@@ -17,7 +17,7 @@ import { weeklyGiftStats } from "../services/gifts";
 import { onBlock, relationshipsOf } from "../services/cp";
 import { myFamily } from "../services/families";
 import { pushDm } from "../services/dmPush";
-import { userSummary } from "../services/rooms";
+import { ejectBlocked, userSummary } from "../services/rooms";
 import { cosmeticMinSvip, SVIP_PERKS, svipOf, svipStatus, visibleAvatar, wearable } from "../services/svip";
 import { nameError, normalizeName } from "../lib/displayName";
 
@@ -515,6 +515,7 @@ account.post("/users/:userId/block", async (c) => {
   // A block cuts every tie: follows both ways go, and any CP ends at once (onBlock).
   await db.delete(follows).where(or(and(eq(follows.followerId, me), eq(follows.followedId, them)), and(eq(follows.followerId, them), eq(follows.followedId, me))));
   await onBlock(me, them);
+  await ejectBlocked(me, them); // out of my room right now, if they're in it
   return c.json({ blocked: true });
 });
 

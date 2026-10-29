@@ -1097,16 +1097,13 @@ describe("socket chat", () => {
     const again = await emit(sa, "room:chat:send", { roomId, body: `hi @${b.handle}`, mentions: [], clientMessageId: "m1" });
     expect(again.data.messageId).toBe(sent.data.messageId);
 
-    // b blocks a: b no longer receives a's messages, and history hides them.
+    // b blocks a: room chat is shared, so b still gets a's messages live and in history (a block only stops DMs).
     await api("POST", `/users/${a.id}/block`, b.token);
-    let leaked = false;
-    sb.on("room:chat:new", (m) => m.sender?.userId === a.id && (leaked = true));
-    const hostGot = nextEvent(sh, "room:chat:new");
-    await emit(sa, "room:chat:send", { roomId, body: "secret", mentions: [], clientMessageId: "m2" });
-    await hostGot;
-    expect(leaked).toBe(false);
+    const bGot = nextEvent(sb, "room:chat:new");
+    await emit(sa, "room:chat:send", { roomId, body: "still here", mentions: [], clientMessageId: "m2" });
+    expect((await bGot).body).toBe("still here");
     const hist = await api("GET", `/rooms/${roomId}/messages`, b.token);
-    expect(hist.body.messages.some((m: any) => m.sender?.userId === a.id)).toBe(false);
+    expect(hist.body.messages.some((m: any) => m.body === "still here")).toBe(true);
 
     // Emotes: anyone in the room (b is not seated yet); the server draws the dice and the line stays in chat.
     const emoteGot = nextEvent(sh, "room:chat:new");
@@ -3357,5 +3354,24 @@ describe("bans", () => {
     const mod2 = await signup("banmod2");
     await db.execute(sql`update users set staff_role = 'MODERATOR' where id = ${mod2.id}`);
     expect((await api("POST", `/admin/users/${mod2.id}/ban`, mod.token, { duration: "7d", reason: "testing" })).body.error.code).toBe("CANNOT_BAN_STAFF");
+  });
+});
+
+describe("blocking and rooms", () => {
+  test("the owner's block throws them out at once and keeps them out; unblocking lets them back in", async () => {
+    const { host, roomId } = await liveRoom();
+    const guest = await joined(roomId, "blkguest");
+    expect((await api("GET", `/rooms/${roomId}/messages`, guest.token)).status).toBe(200);
+
+    await api("POST", `/users/${guest.id}/block`, host.token);
+    expect((await api("GET", `/rooms/${roomId}/messages`, guest.token)).body.error.code).toBe("NOT_IN_ROOM"); // out
+    expect((await api("POST", `/rooms/${roomId}/join`, guest.token)).body.error).toMatchObject({ code: "BLOCKED_BY_HOST", message: "You can't enter this room" });
+
+    await api("DELETE", `/users/${guest.id}/block`, host.token);
+    expect((await api("POST", `/rooms/${roomId}/join`, guest.token)).status).toBe(200); // not left on the kicked-out list
+
+    // Blocking the owner doesn't close the owner's room to you.
+    await api("POST", `/users/${host.id}/block`, guest.token);
+    expect((await api("POST", `/rooms/${roomId}/join`, guest.token)).status).toBe(200);
   });
 });

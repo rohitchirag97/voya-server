@@ -1,8 +1,8 @@
-import { and, desc, eq, gte, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { createHash, randomInt } from "node:crypto";
 import { z } from "zod";
 import { db, isUniqueViolation } from "../db";
-import { blocks, chatMessages, roomParticipants, rooms, users, type User } from "../db/schema";
+import { chatMessages, roomParticipants, rooms, users, type User } from "../db/schema";
 import { emitToRoom, io, roomChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
@@ -14,15 +14,6 @@ import { assertMember, assertRoomAdmin, getActiveParticipant, systemMessage } fr
 import { cosmeticMinSvip, svipOf, svipSql, visibleAvatar, wearable } from "./svip";
 
 export type ChatInput = { body: string; mentions: { userId: string }[]; clientMessageId: string };
-
-// Everyone who blocked `userId` or whom `userId` blocked: they never see each other's messages.
-async function blockedWith(userId: string) {
-  const rows = await db
-    .select({ a: blocks.blockerId, b: blocks.blockedId })
-    .from(blocks)
-    .where(or(eq(blocks.blockerId, userId), eq(blocks.blockedId, userId)));
-  return new Set(rows.map((r) => (r.a === userId ? r.b : r.a)));
-}
 
 type Sender = Pick<User, "id" | "displayName" | "avatarUrl" | "xp" | "chatBubbleId" | "avatarFrameId" | "staffRole"> & { svip: number | null };
 // Badges and bubbles travel as ids; the app caches their artwork from /badges and /cosmetics.
@@ -131,7 +122,8 @@ async function speaker(user: User, roomId: string): Promise<Sender> {
   return { ...user, svip, chatBubbleId: wearable(user.chatBubbleId, svip, mins), avatarFrameId: wearable(user.avatarFrameId, svip, mins) };
 }
 
-// Stores the message and sends it to everyone in the room except people blocked either way.
+// Stores the message and sends it to everyone in the room. Blocks don't apply here: room chat is shared, and a block
+// only stops private messages (dm.ts).
 async function post(user: User, roomId: string, sender: Sender, values: { body: string; mentions: string[]; clientMessageId: string; payload?: Record<string, unknown> }) {
   let msg;
   try {
@@ -150,10 +142,7 @@ async function post(user: User, roomId: string, sender: Sender, values: { body: 
   }
 
   const wire = toWire(msg!, sender, (await activeBadgeIds([user.id])).get(user.id), await mentionNamesFor([msg!]));
-  const hidden = await blockedWith(user.id);
-  for (const s of await io.in(roomChannel(roomId)).fetchSockets()) {
-    if (!hidden.has(s.data.userId)) s.emit("room:chat:new", wire);
-  }
+  io.to(roomChannel(roomId)).emit("room:chat:new", wire);
   return wire;
 }
 
@@ -161,7 +150,6 @@ export async function history(viewer: User, roomId: string, cursor: number | und
   // Only what was said since you joined (this visit): new arrivals don't read earlier conversations.
   const me = await getActiveParticipant(roomId, viewer.id);
   if (!me) throw new AppError("NOT_IN_ROOM", 403);
-  const hidden = [...(await blockedWith(viewer.id))];
   const rows = await db
     .select({
       m: chatMessages,
@@ -177,7 +165,6 @@ export async function history(viewer: User, roomId: string, cursor: number | und
         // Notices we no longer show (older rows may still exist).
         sql`coalesce(${chatMessages.payload}->>'kind', '') not in ('LEAVE', 'ADMIN_GRANTED', 'ADMIN_REVOKED')`,
         cursor ? lt(chatMessages.id, cursor) : undefined,
-        hidden.length ? or(isNull(chatMessages.senderUserId), notInArray(chatMessages.senderUserId, hidden)) : undefined,
       ),
     )
     .orderBy(desc(chatMessages.id))

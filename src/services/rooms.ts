@@ -620,6 +620,12 @@ export async function joinRoom(user: User, roomId: string, password?: string) {
       .from(roomKicks)
       .where(and(eq(roomKicks.roomId, roomId), eq(roomKicks.userId, user.id)));
     if (kicked) throw new AppError("REMOVED_FROM_ROOM", 403);
+    // The owner blocked them: their rooms are closed to them (blocking the other way round doesn't apply).
+    const [blocked] = await tx
+      .select({ a: blocks.blockerId })
+      .from(blocks)
+      .where(and(eq(blocks.blockerId, room.hostUserId), eq(blocks.blockedId, user.id)));
+    if (blocked) throw new AppError("BLOCKED_BY_HOST", 403, "You can't enter this room");
 
     const existing = await getActiveParticipant(roomId, user.id, tx);
     if (existing) {
@@ -909,14 +915,31 @@ export async function leaveRoom(user: User, roomId: string) {
 
 // Kicks the target: frees their seat, drops admin, and puts them on the room's kicked-out list.
 export async function removeParticipant(actor: User, roomId: string, targetUserId: string) {
+  const name = await eject(roomId, targetUserId, async (tx, room) => {
+    await assertCanModerate(tx, room, actor.id, targetUserId);
+    await tx.insert(roomKicks).values({ roomId, userId: targetUserId, kickedBy: actor.id }).onConflictDoNothing();
+  });
+  await systemMessage(roomId, `${name} was removed from the room`, { kind: "REMOVED", userId: targetUserId });
+  return { removed: true };
+}
+
+// The owner just blocked them: out of the owner's open rooms at once. Quietly (no notice), past SVIP kick protection,
+// and not on the kicked-out list: the block itself keeps them out (joinRoom), so unblocking lets them back.
+export async function ejectBlocked(ownerId: string, targetUserId: string) {
+  const mine = await db.select({ id: rooms.id }).from(rooms).where(and(eq(rooms.hostUserId, ownerId), eq(rooms.status, "LIVE")));
+  for (const { id } of mine) if (await getActiveParticipant(id, targetUserId)) await eject(id, targetUserId);
+}
+
+// Takes the target out of the room: frees their seat, drops admin, and tells them and the room. `before` runs first
+// in the same transaction (permission checks, the kicked-out list). Returns their display name.
+async function eject(roomId: string, targetUserId: string, before?: (tx: Tx, room: Room) => Promise<void>) {
   const result = await db.transaction(async (tx) => {
     const room = await lockRoom(tx, roomId);
-    await assertCanModerate(tx, room, actor.id, targetUserId);
+    if (before) await before(tx, room);
     if (!(await getActiveParticipant(roomId, targetUserId, tx))) throw new AppError("NOT_IN_ROOM", 404);
     const freed = await freeSeatOf(tx, roomId, targetUserId);
     await markLeft(tx, roomId, targetUserId, "REMOVED");
     await tx.delete(roomAdmins).where(and(eq(roomAdmins.roomId, roomId), eq(roomAdmins.userId, targetUserId)));
-    await tx.insert(roomKicks).values({ roomId, userId: targetUserId, kickedBy: actor.id }).onConflictDoNothing();
     const [target] = await tx.select({ displayName: users.displayName }).from(users).where(eq(users.id, targetUserId));
     return { freed, name: target?.displayName, roomVersion: await bumpVersion(tx, roomId) };
   });
@@ -926,8 +949,7 @@ export async function removeParticipant(actor: User, roomId: string, targetUserI
   io.in(userChannel(targetUserId)).socketsLeave(roomChannel(roomId));
   emitToRoom(roomId, "room:participant:left", { roomId, roomVersion: result.roomVersion, userId: targetUserId, at: new Date() });
   if (result.freed !== undefined) await broadcastSeats(roomId, result.roomVersion);
-  await systemMessage(roomId, `${result.name} was removed from the room`, { kind: "REMOVED", userId: targetUserId });
-  return { removed: true };
+  return result.name;
 }
 
 export async function setAdmin(owner: User, roomId: string, targetUserId: string, admin: boolean) {
