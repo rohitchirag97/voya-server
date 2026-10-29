@@ -331,10 +331,12 @@ async function profileOf(u: typeof users.$inferSelect, me: string) {
   };
 }
 
-// People lists, newest first. Cursor = the last row's timestamp (ISO). isFollowing = do I follow them.
+// People lists, newest first. Cursor = the last row's timestamp (ISO). isFollowing = do I follow them; followsMe = do
+// they follow me (both = friends).
 const pageQuery = z.object({ cursor: z.iso.datetime().optional(), limit: z.coerce.number().int().min(1).max(50).default(30) });
 const iFollow = (me: string) => sql<boolean>`exists(select 1 from ${follows} f2 where f2.follower_id = ${me} and f2.followed_id = ${users.id})`;
-const personCols = (me: string) => ({ ...userSummary, publicId: users.publicId, specialId: users.specialId, isFollowing: iFollow(me) });
+const followsMe = (me: string) => sql<boolean>`exists(select 1 from ${follows} f3 where f3.follower_id = ${users.id} and f3.followed_id = ${me})`;
+const personCols = (me: string) => ({ ...userSummary, publicId: users.publicId, specialId: users.specialId, isFollowing: iFollow(me), followsMe: followsMe(me) });
 const page = <T extends { at: Date }>(rows: T[], limit: number) => ({
   people: rows.slice(0, limit),
   nextCursor: rows.length > limit ? rows[limit - 1]!.at.toISOString() : null,
@@ -361,6 +363,26 @@ account.get("/users/:userId/following", async (c) => {
     .from(follows)
     .innerJoin(users, eq(users.id, follows.followedId))
     .where(and(eq(follows.followerId, id), q.cursor ? lt(follows.createdAt, new Date(q.cursor)) : undefined))
+    .orderBy(desc(follows.createdAt))
+    .limit(q.limit + 1);
+  return c.json(page(rows, q.limit));
+});
+
+// Their friends: people they follow who follow them back. at = when they followed them.
+account.get("/users/:userId/friends", async (c) => {
+  const id = schemas.uuid.parse(c.req.param("userId"));
+  const q = pageQuery.parse(c.req.query());
+  const rows = await db
+    .select({ ...personCols(c.get("user").id), at: follows.createdAt })
+    .from(follows)
+    .innerJoin(users, eq(users.id, follows.followedId))
+    .where(
+      and(
+        eq(follows.followerId, id),
+        sql`exists(select 1 from ${follows} back where back.follower_id = ${follows.followedId} and back.followed_id = ${id})`,
+        q.cursor ? lt(follows.createdAt, new Date(q.cursor)) : undefined,
+      ),
+    )
     .orderBy(desc(follows.createdAt))
     .limit(q.limit + 1);
   return c.json(page(rows, q.limit));

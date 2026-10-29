@@ -1298,10 +1298,14 @@ describe("followers, following and visitors", () => {
     const first = (await api("GET", `/users/${owner.id}/followers?limit=1`, owner.token)).body;
     expect(first.people.map((p: any) => p.userId)).toEqual([b.id]);
     expect(first.people[0].isFollowing).toBe(true); // owner follows b back
+    expect(first.people[0].followsMe).toBe(true);
     const next = (await api("GET", `/users/${owner.id}/followers?limit=1&cursor=${encodeURIComponent(first.nextCursor)}`, owner.token)).body;
     expect(next.people.map((p: any) => p.userId)).toEqual([a.id]);
     expect(next.people[0].isFollowing).toBe(false);
+    expect(next.people[0].followsMe).toBe(true); // a follows owner: "Follow back"
     expect((await api("GET", `/users/${owner.id}/following`, a.token)).body.people.map((p: any) => p.userId)).toEqual([b.id]);
+    // Friends: only b follows owner and is followed back.
+    expect((await api("GET", `/users/${owner.id}/friends`, a.token)).body.people.map((p: any) => p.userId)).toEqual([b.id]);
 
     // Visits: a twice, b once; opening your own profile isn't a visit.
     await api("GET", `/users/${owner.id}`, a.token);
