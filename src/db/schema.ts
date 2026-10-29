@@ -40,6 +40,8 @@ export const cosmetics = pgTable("cosmetics", {
   kind: cosmeticKind("kind").notNull(),
   name: text("name").notNull(),
   svg: text("svg").notNull(),
+  // Animated version (an .svga path under public/, e.g. games/fx/svip/frame/1.svga): the app plays it in place of the svg.
+  svga: text("svga"),
   // Chat bubbles: { gradient: [from, to], border, text }. The svg is the corner ornament.
   style: jsonb("style").$type<{ gradient: string[]; border: string; text: string }>(),
   enabled: boolean("enabled").notNull().default(true),

@@ -24,8 +24,39 @@
   player.setContentMode('AspectFit');
   player.onFinished(() => tell({ type: 'done' }));
 
+  const box = document.getElementById('fx');
+  const CLEAR = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  // The picture, cut to a circle (the banner's slot is round). Same origin as this page, so the canvas stays readable.
+  const roundPicture = (url) => new Promise((done) => {
+    if (!url) return done(null);
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 120;
+      const g = c.getContext('2d');
+      g.beginPath(); g.arc(60, 60, 60, 0, Math.PI * 2); g.clip();
+      g.drawImage(img, 0, 0, 120, 120);
+      try { done(c.toDataURL('image/png')); } catch (e) { done(null); }
+    };
+    img.onerror = () => done(null);
+    img.src = url;
+  });
+
   const cache = {}; // url -> parsed animation, so a gift sent again starts at once
-  window.voyaFx = (url) => {
+  // banner (SVIP entries, 750×200): a band across the upper room instead of the whole screen; its slots get the
+  // person's picture (03), name (01), "entered the room" (02) and tier tag (04); the grey placeholder bars go blank.
+  window.voyaFx = async (url, banner) => {
+    player.clearDynamicObjects();
+    box.style.cssText = banner ? 'top: 28%; bottom: auto; height: calc(100vw * 200 / 750);' : '';
+    if (banner) {
+      const pic = await roundPicture(banner.avatar);
+      if (pic) player.setImage(pic, '03');
+      player.setText({ text: banner.name, size: '24px', color: '#FFFFFF' }, '01');
+      player.setText({ text: 'entered the room', size: '20px', color: '#FFFFFF' }, '02');
+      player.setText({ text: banner.tag, size: '16px', color: '#FFFFFF' }, '04');
+      player.setImage(CLEAR, 'img_11871');
+      player.setImage(CLEAR, 'img_11872');
+    }
     const play = (item) => { player.setVideoItem(item); player.startAnimation(); };
     if (cache[url]) return play(cache[url]);
     parser.load(url, (item) => { cache[url] = item; play(item); }, () => tell({ type: 'done' }));

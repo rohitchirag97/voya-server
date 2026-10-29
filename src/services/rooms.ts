@@ -646,7 +646,7 @@ export async function joinRoom(user: User, roomId: string, password?: string) {
 }
 
 // The "X joined" notice: on entering, and again when someone comes back after their connection dropped.
-// It can be switched off in the room's settings; SVIP2+ entrances are always announced (and animated in the app).
+// It can be switched off in the room's settings; SVIP1+ entrances are always announced (and animated in the app).
 export async function announceEntry(roomId: string, user: User, svip?: number) {
   const tier = svip ?? (await svipOf(user.id));
   const grand = tier >= SVIP_PERKS.entrance;

@@ -208,7 +208,7 @@ async function decorationsOf(u: typeof users.$inferSelect) {
   const ids = [u.avatarFrameId, u.cardDecorId, u.chatBubbleId].filter((x): x is string => !!x);
   const rows = ids.length
     ? await db
-        .select({ id: cosmetics.id, name: cosmetics.name, svg: cosmetics.svg, style: cosmetics.style, enabled: cosmetics.enabled })
+        .select({ id: cosmetics.id, name: cosmetics.name, svg: cosmetics.svg, svga: cosmetics.svga, style: cosmetics.style, enabled: cosmetics.enabled })
         .from(cosmetics)
         .where(inArray(cosmetics.id, ids))
     : [];
@@ -217,7 +217,7 @@ async function decorationsOf(u: typeof users.$inferSelect) {
   // SVIP items show only while the owner still has the tier.
   const pick = (id: string | null) => {
     const r = rows.find((x) => x.id === wearable(id, svip, mins) && x.enabled);
-    return r ? { id: r.id, name: r.name, svg: r.svg, style: r.style } : null;
+    return r ? { id: r.id, name: r.name, svg: r.svg, svga: r.svga, style: r.style } : null;
   };
   return { avatarFrame: pick(u.avatarFrameId), cardDecor: pick(u.cardDecorId), chatBubble: pick(u.chatBubbleId) };
 }
@@ -228,7 +228,7 @@ account.use("/cosmetics", requireAuth);
 account.get("/cosmetics", async (c) =>
   c.json(
     await db
-      .select({ id: cosmetics.id, kind: cosmetics.kind, name: cosmetics.name, svg: cosmetics.svg, style: cosmetics.style, minSvip: cosmetics.minSvip })
+      .select({ id: cosmetics.id, kind: cosmetics.kind, name: cosmetics.name, svg: cosmetics.svg, svga: cosmetics.svga, style: cosmetics.style, minSvip: cosmetics.minSvip })
       .from(cosmetics)
       .where(eq(cosmetics.enabled, true))
       .orderBy(asc(cosmetics.kind), asc(cosmetics.sortOrder)),
@@ -269,7 +269,7 @@ account.get("/users/:userId", async (c) => {
   const me = c.get("user").id;
   const [u] = await db.select().from(users).where(eq(users.id, id));
   if (!u) throw new AppError("USER_NOT_FOUND", 404);
-  // Someone else opening this profile counts as a visit (one row per visitor, bumped each time); SVIP3+ visit invisibly.
+  // Someone else opening this profile counts as a visit (one row per visitor, bumped each time); SVIP4+ visit invisibly.
   if (id !== me && (await svipOf(me)) < SVIP_PERKS.invisibleVisits)
     await db
       .insert(profileVisits)

@@ -449,6 +449,13 @@
       "when": 1793254520542,
       "tag": "0063_salaries_cash",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1793274759685,
+      "tag": "0064_cosmetic_svga",
+      "breakpoints": true
     }
   ]
 }

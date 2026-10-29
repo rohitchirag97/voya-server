@@ -6,33 +6,41 @@ import { AppError, toSafeError } from "../lib/errors";
 
 // SVIP: tier from the ₹ recharged between the 1st and the last day of the current calendar month (India time).
 // It runs out when the month ends; recharging in the new month earns it again. Perk minimums: see SVIP_PERKS.
+// SVIP6 is the top tier.
 export const SVIP_TIERS = [
-  { tier: 1, rupees: 1_000 },
-  { tier: 2, rupees: 5_000 },
-  { tier: 3, rupees: 15_000 },
-  { tier: 4, rupees: 30_000 },
-  { tier: 5, rupees: 60_000 },
-  { tier: 6, rupees: 1_20_000 },
-  { tier: 7, rupees: 2_50_000 },
+  { tier: 1, rupees: 5_000 },
+  { tier: 2, rupees: 15_000 },
+  { tier: 3, rupees: 30_000 },
+  { tier: 4, rupees: 60_000 },
+  { tier: 5, rupees: 1_20_000 },
+  { tier: 6, rupees: 2_50_000 },
 ] as const;
 
+// Each tier's animations (entry, frame, seat badge, name decoration, profile badge) are SVGAs in
+// public/games/fx/svip/<kind>/<tier>.svga; the app picks them by tier.
 export const SVIP_PERKS = {
   badge: 1, // SVIP badge next to the name everywhere
-  frame: 1, // the tier's own avatar frame (cosmetics.min_svip)
+  frame: 1, // the tier's own animated avatar frame (cosmetics.min_svip)
   bubble: 1, // the tier's own chat bubble
-  entrance: 2, // entrance animation + "SVIP2 X entered" notice, even when the room hides join notices
-  invisibleVisits: 3, // opening a profile doesn't add you to its Visitors
+  entrance: 1, // the tier's entry banner + "SVIP1 X entered" notice, even when the room hides join notices
+  seatBadge: 1, // the tier's medal plays over your seat as you take it
   gifAvatar: 3, // animated GIF profile picture (hidden again if the tier lapses)
+  invisibleVisits: 4, // opening a profile doesn't add you to its Visitors
+  nameDecor: 4, // an animated shimmer on your name (profile, profile card, seat)
   antiKick: 5, // room owners/admins with a lower tier can't kick, mute or unseat you
+  profileBadge: 5, // an animated title badge on your profile and profile card
 } as const;
 
 export const SVIP_PERK_TEXT: { key: keyof typeof SVIP_PERKS; title: string; detail: string }[] = [
   { key: "badge", title: "SVIP badge", detail: "Your SVIP tier shows next to your name everywhere" },
-  { key: "frame", title: "SVIP frames", detail: "Wear your tier's exclusive avatar frame (and every lower tier's)" },
+  { key: "frame", title: "SVIP frames", detail: "Wear your tier's animated avatar frame (and every lower tier's)" },
   { key: "bubble", title: "SVIP chat bubbles", detail: "Chat in your tier's exclusive bubble (and every lower tier's)" },
-  { key: "entrance", title: "Grand entrance", detail: "An entrance animation and announcement in every room you enter" },
-  { key: "invisibleVisits", title: "Invisible visits", detail: "Visit profiles without showing in their Visitors" },
+  { key: "entrance", title: "Grand entrance", detail: "Your tier's entry banner and an announcement in every room you enter" },
+  { key: "seatBadge", title: "Seat medal", detail: "Your tier's medal plays over your seat as you take it" },
+  { key: "nameDecor", title: "Name shimmer", detail: "An animated shimmer on your name" },
+  { key: "profileBadge", title: "Profile title badge", detail: "An animated title badge on your profile and profile card" },
   { key: "gifAvatar", title: "Animated profile picture", detail: "Use a GIF as your profile picture" },
+  { key: "invisibleVisits", title: "Invisible visits", detail: "Visit profiles without showing in their Visitors" },
   { key: "antiKick", title: "Kick protection", detail: "Owners and admins below your tier can't kick, mute or unseat you" },
 ];
 

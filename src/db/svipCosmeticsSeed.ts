@@ -1,5 +1,5 @@
 // SVIP-only frame and chat bubble for each tier (min_svip = tier). Higher tiers get richer art:
-// more gems, wings from SVIP4, a crown from SVIP5, a blazing rim at SVIP7.
+// more gems, wings from SVIP4, a crown from SVIP5, a blazing rim at SVIP6 (the top tier).
 
 const PALETTE: Record<number, { light: string; mid: string; dark: string; gem: string; text: string; bubble: [string, string] }> = {
   1: { light: "#F3C9A4", mid: "#C08457", dark: "#6E4126", gem: "#FFE2C2", text: "#FFFFFF", bubble: ["#8A5A3B", "#C08457"] },
@@ -7,8 +7,7 @@ const PALETTE: Record<number, { light: string; mid: string; dark: string; gem: s
   3: { light: "#FFF1B8", mid: "#FFC94D", dark: "#B4760A", gem: "#FF4D8D", text: "#3A2300", bubble: ["#E09B12", "#FFD86B"] },
   4: { light: "#FFD3E2", mid: "#FF6F9F", dark: "#A31F55", gem: "#FFF1B8", text: "#FFFFFF", bubble: ["#A31F55", "#FF6F9F"] },
   5: { light: "#E4D4FF", mid: "#A47BFF", dark: "#4C1D95", gem: "#FFD86B", text: "#FFFFFF", bubble: ["#4C1D95", "#8B5CF6"] },
-  6: { light: "#CCFBF1", mid: "#2DD4BF", dark: "#0E5160", gem: "#FFD86B", text: "#FFFFFF", bubble: ["#0E5160", "#14B8A6"] },
-  7: { light: "#FFE9A8", mid: "#E7B53C", dark: "#2A1C05", gem: "#FF3D6E", text: "#FFE9A8", bubble: ["#0B0B0B", "#3A2A12"] },
+  6: { light: "#FFE9A8", mid: "#E7B53C", dark: "#2A1C05", gem: "#FF3D6E", text: "#FFE9A8", bubble: ["#0B0B0B", "#3A2A12"] },
 };
 
 const star = (x: number, y: number, r: number, fill: string) =>
@@ -36,7 +35,7 @@ function frame(tier: number) {
   <circle cx="80" cy="8" r="3" fill="${p.gem}"/><circle cx="100" cy="2.5" r="3.5" fill="${p.gem}"/><circle cx="120" cy="8" r="3" fill="${p.gem}"/>`
       : "";
   const blaze =
-    tier === 7
+    tier === 6
       ? `<circle cx="100" cy="100" r="89" fill="none" stroke="#FF3D6E" stroke-width="3" stroke-dasharray="2 9" stroke-linecap="round" opacity="0.9"/>
   ${star(170, 40, 8, "#FFE9A8")}${star(30, 40, 8, "#FFE9A8")}${star(22, 150, 6, "#FFE9A8")}${star(178, 150, 6, "#FFE9A8")}`
       : `${star(172, 52, 6, p.light)}${star(28, 148, 5, p.light)}`;
@@ -53,7 +52,7 @@ function frame(tier: number) {
   ${blaze}
   ${crown}
   <rect x="66" y="170" width="68" height="24" rx="12" fill="url(#${g})" stroke="${p.dark}" stroke-width="1.5"/>
-  <text x="100" y="187" text-anchor="middle" font-family="Arial" font-size="14" font-weight="900" fill="${tier === 3 ? "#3A2300" : tier === 7 ? "#2A1C05" : "#FFFFFF"}" letter-spacing="1">SVIP${tier}</text>
+  <text x="100" y="187" text-anchor="middle" font-family="Arial" font-size="14" font-weight="900" fill="${tier === 3 ? "#3A2300" : tier === 6 ? "#2A1C05" : "#FFFFFF"}" letter-spacing="1">SVIP${tier}</text>
 </svg>`;
 }
 
@@ -70,15 +69,16 @@ function ornament(tier: number) {
   </defs>
   ${top}
   <rect x="8" y="9" width="32" height="17" rx="8.5" fill="url(#${g})" stroke="${p.dark}" stroke-width="1.2"/>
-  <text x="24" y="21.5" text-anchor="middle" font-family="Arial" font-size="10" font-weight="900" fill="${tier === 3 || tier === 7 ? "#2A1C05" : "#FFFFFF"}">S${tier}</text>
+  <text x="24" y="21.5" text-anchor="middle" font-family="Arial" font-size="10" font-weight="900" fill="${tier === 3 || tier === 6 ? "#2A1C05" : "#FFFFFF"}">S${tier}</text>
   ${star(44, 8, 4, p.light)}
 </svg>`;
 }
 
-export const SVIP_COSMETICS = [1, 2, 3, 4, 5, 6, 7].flatMap((tier) => {
+export const SVIP_COSMETICS = [1, 2, 3, 4, 5, 6].flatMap((tier) => {
   const p = PALETTE[tier]!;
   return [
-    { id: `svip${tier}_frame`, kind: "AVATAR_FRAME" as const, name: `SVIP${tier} Frame`, svg: frame(tier), minSvip: tier, sortOrder: 100 + tier },
+    // svg: the drawn frame (older apps); svga: the animated frame the app plays instead.
+    { id: `svip${tier}_frame`, kind: "AVATAR_FRAME" as const, name: `SVIP${tier} Frame`, svg: frame(tier), svga: `games/fx/svip/frame/${tier}.svga`, minSvip: tier, sortOrder: 100 + tier },
     {
       id: `svip${tier}_bubble`,
       kind: "CHAT_BUBBLE" as const,

@@ -248,23 +248,33 @@ describe("svip", () => {
           + ${when === "this" ? sql`interval '1 minute'` : when === "last" ? sql`interval '-1 day'` : sql`interval '-40 days'`})`);
 
   test("only recharges from the 1st to the last day of the current month count, and the tier ends with the month", async () => {
-    expect([999, 1000, 4999, 5000, 2_50_000, 9_99_999].map(tierFor)).toEqual([0, 1, 1, 2, 7, 7]);
+    expect([4999, 5000, 14_999, 15_000, 2_50_000, 9_99_999].map(tierFor)).toEqual([0, 1, 1, 2, 6, 6]); // SVIP6 is the top
     const a = await signup("sva");
-    expect((await api("GET", "/me/svip", a.token)).body).toMatchObject({ tier: 0, validUntil: null, next: { tier: 1, remaining: 1000 } });
+    expect((await api("GET", "/me/svip", a.token)).body).toMatchObject({ tier: 0, validUntil: null, next: { tier: 1, remaining: 5000 } });
 
     await paid(a.id, 2_50_000, "last"); // last month, however big, doesn't count
     await paid(a.id, 50_000, "older");
     expect((await api("GET", "/me/svip", a.token)).body).toMatchObject({ tier: 0, thisMonthRupees: 0 });
-    await paid(a.id, 3_000, "this");
-    expect((await api("GET", "/me/svip", a.token)).body).toMatchObject({ tier: 1, thisMonthRupees: 3_000, next: { tier: 2, remaining: 2_000 } });
-    await paid(a.id, 27_000, "this"); // ₹30,000 this month → SVIP4
+    await paid(a.id, 6_000, "this");
+    expect((await api("GET", "/me/svip", a.token)).body).toMatchObject({ tier: 1, thisMonthRupees: 6_000, next: { tier: 2, remaining: 9_000 } });
+    await paid(a.id, 54_000, "this"); // ₹60,000 this month → SVIP4
     const up = (await api("GET", "/me/svip", a.token)).body;
     expect(up.tier).toBe(4);
     // Active until the 1st of next month, 00:00 India time.
     const end = new Date(up.validUntil);
     expect(end.getTime()).toBeGreaterThan(Date.now());
     expect(new Date(end.getTime() + 5.5 * 3600_000).toISOString().slice(8, 16)).toBe("01T00:00");
-    expect(up.tiers).toHaveLength(7);
+    expect(up.tiers).toHaveLength(6);
+    // One new perk per tier: GIF picture at SVIP3, invisible visits at SVIP4, kick protection at SVIP5.
+    const perks = (t: number) => up.tiers[t - 1].perks.map((p: any) => p.title);
+    expect(perks(3)).toContain("Animated profile picture");
+    expect(perks(3)).not.toContain("Invisible visits");
+    expect(perks(4)).toContain("Invisible visits");
+    expect(perks(4)).not.toContain("Kick protection");
+    expect(perks(1)).toEqual(expect.arrayContaining(["Grand entrance", "Seat medal"])); // entries start at SVIP1
+    expect(perks(4)).toContain("Name shimmer");
+    expect(perks(4)).not.toContain("Profile title badge");
+    expect(perks(5)).toContain("Profile title badge");
     expect(up.tiers[4].perks.map((p: any) => p.title)).toEqual(expect.arrayContaining(["Kick protection", "SVIP frames", "Grand entrance"]));
 
     // The tier travels with profiles and user summaries.
@@ -278,13 +288,15 @@ describe("svip", () => {
     const b = await signup("svcosb");
     const items = (await api("GET", "/cosmetics", a.token)).body;
     expect(items.filter((x: any) => x.minSvip > 0).map((x: any) => x.id)).toEqual(
-      expect.arrayContaining(["svip1_frame", "svip7_frame", "svip1_bubble", "svip7_bubble"]),
+      expect.arrayContaining(["svip1_frame", "svip6_frame", "svip1_bubble", "svip6_bubble"]),
     );
+    expect(items.map((x: any) => x.id)).not.toContain("svip7_frame"); // SVIP7 is gone
     expect((await api("PATCH", "/me/cosmetics", a.token, { avatarFrameId: "svip3_frame" })).body.error.code).toBe("SVIP_REQUIRED");
-    await paid(a.id, 15_000, "this");
+    await paid(a.id, 30_000, "this"); // SVIP3
     expect((await api("PATCH", "/me/cosmetics", a.token, { avatarFrameId: "svip3_frame", chatBubbleId: "svip2_bubble" })).status).toBe(200);
     expect((await api("PATCH", "/me/cosmetics", a.token, { avatarFrameId: "svip4_frame" })).body.error.code).toBe("SVIP_REQUIRED");
-    expect((await api("GET", `/users/${a.id}`, b.token)).body.avatarFrame.id).toBe("svip3_frame");
+    expect((await api("GET", `/users/${a.id}`, b.token)).body.avatarFrame).toMatchObject({ id: "svip3_frame", svga: "games/fx/svip/frame/3.svga" });
+    expect(items.find((x: any) => x.id === "svip6_frame").svga).toBe("games/fx/svip/frame/6.svga");
     // The month rolls over (simulated by moving the recharge to last month): the frame stops showing.
     await db.execute(sql`update recharges set created_at = created_at - interval '40 days' where user_id = ${a.id}`);
     const lapsed = (await api("GET", `/users/${a.id}`, b.token)).body;
@@ -298,7 +310,7 @@ describe("svip", () => {
     await new Promise<void>((r) => s.once("connect", () => r()));
     const got: any[] = [];
     s.on("app:announce", (a) => got.push(a));
-    await paid(u.id, 600, "this"); // ₹600 so far; the ₹499 package crosses ₹1,000 → SVIP1
+    await paid(u.id, 4_600, "this"); // ₹4,600 so far; the ₹499 package crosses ₹5,000 → SVIP1
     expect((await api("POST", "/wallet/recharge", u.token, { packageId: "coins_4990" }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
     await Bun.sleep(300);
     expect(got).toEqual(
@@ -314,11 +326,11 @@ describe("svip", () => {
     expect(got).toEqual([expect.objectContaining({ kind: "RECHARGE", userId: u.id })]); // every recharge is announced
   });
 
-  test("SVIP3+ visit invisibly; SVIP5+ can't be moderated by lower tiers; SVIP2+ entrances are announced", async () => {
+  test("SVIP4+ visit invisibly; SVIP5+ can't be moderated by lower tiers; SVIP1+ entrances are announced", async () => {
     const owner = await signup("svo");
     const seen = await signup("svseen");
     const ghost = await signup("svghost");
-    await paid(ghost.id, 15_000, "this");
+    await paid(ghost.id, 60_000, "this"); // SVIP4
     await api("GET", `/users/${owner.id}`, seen.token);
     await api("GET", `/users/${owner.id}`, ghost.token);
     expect((await api("GET", `/users/${owner.id}`, owner.token)).body.visitors).toBe(1);
@@ -326,7 +338,7 @@ describe("svip", () => {
     const { host, roomId } = await liveRoom();
     expect((await api("PATCH", `/rooms/${roomId}/settings`, host.token, { showEntry: false })).status).toBe(200);
     const vip = await signup("svvip");
-    await paid(vip.id, 60_000, "this");
+    await paid(vip.id, 1_20_000, "this"); // SVIP5
     expect((await api("POST", `/rooms/${roomId}/join`, vip.token)).status).toBe(200);
     await joined(roomId, "svplain");
     const notices = (await api("GET", `/rooms/${roomId}/messages?limit=50`, host.token)).body.messages.filter((m: any) => m.payload?.kind === "JOIN");
@@ -334,7 +346,7 @@ describe("svip", () => {
 
     expect((await api("POST", `/rooms/${roomId}/participants/${vip.id}/mute`, host.token, { muted: true })).body.error.code).toBe("SVIP_PROTECTED");
     expect((await api("POST", `/rooms/${roomId}/participants/${vip.id}/remove`, host.token)).body.error.code).toBe("SVIP_PROTECTED");
-    await paid(host.id, 1_20_000, "this"); // a higher tier owner can
+    await paid(host.id, 2_50_000, "this"); // a higher tier (SVIP6) owner can
     expect((await api("POST", `/rooms/${roomId}/participants/${vip.id}/remove`, host.token)).status).toBe(200);
   });
 });
@@ -2414,7 +2426,7 @@ describe("animated profile pictures", () => {
     const a = await signup("gifa");
     const b = await signup("gifb");
     expect((await send("/me/avatar", a.token, gif)).body.error).toMatchObject({ code: "SVIP_REQUIRED", message: "Animated profile pictures are an SVIP3 perk" });
-    await recharge(a.id, 15_000); // SVIP3
+    await recharge(a.id, 30_000); // SVIP3
     const up = await send("/me/avatar", a.token, gif);
     expect(up.body.avatarUrl).toMatch(/\.gif$/);
     const served = await fetch(base + up.body.avatarUrl);
