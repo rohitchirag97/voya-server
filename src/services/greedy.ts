@@ -46,9 +46,9 @@ export const GAMES = {
 export type Game = keyof typeof GAMES;
 export const gameSchema = z.enum(["jungle", "galaxy"]).default("jungle");
 export const channel = (game: Game) => `game:greedy:${game}`;
-export const CHIPS = [10, 100, 1000, 10000] as const; // quick picks; any amount from 1 to MAX_ITEM_BET is allowed
+export const CHIPS = [100, 1000, 10000, 100000] as const; // quick picks; any amount from 1 to MAX_ITEM_BET is allowed
 // Per user, per animal, per round. ×45 of this must fit the int wallet columns.
-export const MAX_ITEM_BET = 1_000_000;
+export const MAX_ITEM_BET = 10_000_000;
 export const BET_MS = Number(process.env.GREEDY_BET_MS ?? 30_000);
 export const REVEAL_MS = 10_000; // spin animation + winners board before the next round
 const WINNERS_SHOWN = 50;

@@ -3,7 +3,7 @@
 // How much each shared activity is worth. Capped sources stop counting for the day (India time) once the cap is hit,
 // so the level reflects time spent together, not spam; gifts cost coins, so they're uncapped.
 export const CP_POINTS = {
-  giftPerCoin: 1, // a gift between the two, either direction
+  coinsPerGiftPoint: 10, // a gift between the two, either direction: 1 point per 10 coins
   dm: { each: 3, dailyCap: 60 }, // a message in their inbox chat (~20 a day count)
   together: { present: 1, seated: 2, dailyCap: 240 }, // per minute in the same live room; more when both are on seats
 } as const;

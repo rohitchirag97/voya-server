@@ -13,7 +13,7 @@ export const config = {
   zegoServerSecret: need("ZEGO_SERVER_SECRET"),
   seatGraceMs: Number(process.env.SEAT_GRACE_MS ?? 30_000), // connection lost: time to come back before the seat frees up
   seatQuickGraceMs: Number(process.env.SEAT_QUICK_GRACE_MS ?? 0), // app closed (connection closed cleanly): the seat frees at once
-  signupBonusCoins: Number(process.env.SIGNUP_BONUS_COINS ?? 1000),
+  signupBonusCoins: Number(process.env.SIGNUP_BONUS_COINS ?? 10000),
   // OAuth "Web application" client ID; Google sign-in is off when unset.
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
   uploadsDir:process.env.UPLOADS_DIR ?? "uploads",

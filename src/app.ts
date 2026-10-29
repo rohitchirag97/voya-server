@@ -5,6 +5,10 @@ import { requestId } from "hono/request-id";
 import type { Env } from "./http";
 import { io } from "./io";
 import { toSafeError } from "./lib/errors";
+import { levelTable } from "./lib/salaryLevels";
+import { MIN_WITHDRAWAL_PAISE } from "./services/cash";
+import { DIAMOND_SHARE_PERCENT } from "./services/diamonds";
+import { PAISE_PER_COIN } from "./services/recharge";
 import { account } from "./routes/account";
 import { admin } from "./routes/admin";
 import { dm } from "./routes/dm";
@@ -12,6 +16,7 @@ import { coinSellerRoutes } from "./routes/coinSellers";
 import { links } from "./routes/links";
 import { cpRoutes } from "./routes/cp";
 import { familyRoutes } from "./routes/families";
+import { agencyRoutes } from "./routes/agencies";
 import { postRoutes } from "./routes/posts";
 import { roomRoutes } from "./routes/rooms";
 import "./socket";
@@ -34,6 +39,11 @@ app.onError((e, c) => {
 app.notFound((c) => c.json({ error: { code: "NOT_FOUND", message: "Not found", requestId: c.get("requestId") } }, 404));
 
 app.get("/health", (c) => c.json({ ok: true }));
+// Public (no login): the host salary policy for the website's /salary page. Registered before the /v1 routers, whose
+// auth middleware would otherwise cover it.
+app.get("/v1/salary-policy", (c) =>
+  c.json({ ...levelTable(), diamondSharePercent: DIAMOND_SHARE_PERCENT, rupeesPerCoin: PAISE_PER_COIN / 100, minWithdrawalRupees: MIN_WITHDRAWAL_PAISE / 100 }),
+);
 app.route("/", links); // shareable room links (/r/:roomId) and the install page (/download)
 // HTML5 mini-games, opened in a WebView over the room. The socket client comes from the installed socket.io, so versions always match.
 app.get("/games/socket.io.min.js", () => new Response(Bun.file(`${import.meta.dir}/../node_modules/socket.io/client-dist/socket.io.min.js`)));
@@ -46,6 +56,7 @@ app.route("/v1", dm);
 app.route("/v1", coinSellerRoutes);
 app.route("/v1", cpRoutes);
 app.route("/v1", familyRoutes);
+app.route("/v1", agencyRoutes);
 
 // Heartbeat every 10s, dead after 8s more without a reply: a phone that silently lost its connection is noticed in
 // ~18s (the defaults took up to 45s), so its seat is freed sooner.

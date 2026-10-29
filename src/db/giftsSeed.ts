@@ -31,5 +31,5 @@ const rocket = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 200">
 </svg>`;
 
 export const ANIMATED_GIFTS = [
-  { id: "rocket", name: "Rocket", assetUrl: "gifts/rocket.svg", coinPrice: 100, maxQuantity: 10, sortOrder: 5, svg: rocket, animation: "launch" },
+  { id: "rocket", name: "Rocket", assetUrl: "gifts/rocket.svg", coinPrice: 1000, maxQuantity: 10, sortOrder: 5, svg: rocket, animation: "launch" },
 ];

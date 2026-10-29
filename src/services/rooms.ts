@@ -297,7 +297,7 @@ export async function refreshPk(roomId: string) {
 // ---------- room rank & heart level ----------
 // Rank: this week's gift coins received in the room vs every other room (Monday 00:00 India time; null = no gifts yet).
 // Heart level: lifetime gift coins received in the room.
-export const HEART_LEVELS = [0, 1_000, 10_000, 50_000, 2_00_000, 10_00_000, 50_00_000, 2_00_00_000, 5_00_00_000, 10_00_00_000];
+export const HEART_LEVELS = [0, 10_000, 1_00_000, 5_00_000, 20_00_000, 1_00_00_000, 5_00_00_000, 20_00_00_000, 50_00_00_000, 1_00_00_00_000];
 const IST = sql.raw(`'Asia/Kolkata'`);
 export async function roomStats(roomId: string) {
   await getRoom(roomId);

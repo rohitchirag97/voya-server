@@ -14,12 +14,12 @@ import { announceWin } from "./gameWins";
 export const K = 0.07;
 export const BET_MS = Number(process.env.ROCKET_BET_MS ?? 8_000);
 export const PAUSE_MS = 4_000; // after a crash, before the next round opens
-export const MAX_BET = 100_000; // × the 50x cap must fit the int wallet columns
+export const MAX_BET = 1_000_000; // × the 50x cap must fit the int wallet columns
 // The rocket never flies past 50x: a round that would go higher explodes at exactly 50.00x, and anyone still in loses.
 // Targets below the cap keep the fixed 98% return; about 2% of rounds reach the cap.
 export const CAP100 = 5_000;
 export const RTP = 0.98;
-export const CHIPS = [10, 100, 1000, 10000] as const;
+export const CHIPS = [100, 1000, 10000, 100000] as const;
 export const CHANNEL = "game:rocket";
 export const clock = { now: () => Date.now() }; // tests move time; everything below reads the clock through this
 

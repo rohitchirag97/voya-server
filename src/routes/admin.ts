@@ -7,7 +7,12 @@ import { io, userChannel } from "../io";
 import { json, requireAuth, requireStaff, schemas, type Env } from "../http";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
+import * as agencies from "../services/agencies";
+import * as cash from "../services/cash";
+import * as salaries from "../services/salaries";
+import { findUserByRef } from "../services/auth";
 import { userSummary } from "../services/rooms";
+import { store } from "./posts";
 import { decideCoinSeller, listSellers, mint } from "../services/sellers";
 import { setSpecialId } from "../services/specialIds";
 
@@ -102,6 +107,43 @@ admin.get("/admin/coin-sellers", async (c) => {
 admin.post("/admin/coin-sellers/:userId/decision", async (c) => {
   const { approve } = await json(c, z.object({ approve: z.boolean() }));
   return c.json(await decideCoinSeller(schemas.uuid.parse(c.req.param("userId")), approve));
+});
+
+// ---------- agencies ----------
+
+admin.get("/admin/agencies", async (c) => c.json({ agencies: await agencies.listAgencies() }));
+
+// Create an agency for a user (profile ID, special ID or name); they become its owner.
+admin.post("/admin/agencies", async (c) => {
+  const b = await json(c, z.object({ owner: z.string().trim().min(1).max(40), name: z.string().trim().min(2).max(30) }));
+  return c.json(await agencies.createAgency(await findUserByRef(b.owner), b.name), 201);
+});
+
+admin.patch("/admin/agencies/:agencyId", async (c) => {
+  const b = await json(c, z.object({ name: z.string().trim().min(2).max(30).optional(), status: z.enum(["ACTIVE", "SUSPENDED", "CLOSED"]).optional() }));
+  return c.json(await agencies.updateAgency(schemas.uuid.parse(c.req.param("agencyId")), b));
+});
+
+// Agency image: JPEG/PNG (multipart "file").
+admin.post("/admin/agencies/:agencyId/image", async (c) => {
+  const file = (await c.req.formData().catch(() => null))?.get("file");
+  if (!(file instanceof File)) throw new AppError("FILE_REQUIRED", 400, "Choose a photo");
+  return c.json(await agencies.setAgencyImage(schemas.uuid.parse(c.req.param("agencyId")), `/v1/uploads/${(await store(file, ["image"])).name}`));
+});
+
+// ---------- salaries and withdrawals ----------
+
+const monthParam = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Month as YYYY-MM");
+admin.get("/admin/salaries/:month", async (c) => c.json(await salaries.salarySheet(monthParam.parse(c.req.param("month")))));
+admin.post("/admin/salaries/:month/pay", async (c) => c.json(await salaries.payMonth(c.get("user"), monthParam.parse(c.req.param("month")))));
+
+admin.get("/admin/withdrawals", async (c) => {
+  const status = z.enum(["PENDING", "PAID", "REJECTED"]).default("PENDING").parse(c.req.query("status"));
+  return c.json({ withdrawals: await cash.listWithdrawals(status) });
+});
+admin.post("/admin/withdrawals/:id/decision", async (c) => {
+  const b = await json(c, z.object({ paid: z.boolean(), note: z.string().trim().max(200).nullable().default(null) }));
+  return c.json(await cash.decideWithdrawal(c.get("user"), schemas.uuid.parse(c.req.param("id")), b.paid, b.note || null));
 });
 
 // Create coins in a seller wallet.

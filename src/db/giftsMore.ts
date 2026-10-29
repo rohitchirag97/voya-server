@@ -1,4 +1,4 @@
-// More gifts, cheapest to priciest (nothing over 20,000 coins). Artwork is drawn here as small SVGs (viewBox 100x100);
+// More gifts, cheapest to priciest (nothing over 2,00,000 coins). Artwork is drawn here as small SVGs (viewBox 100x100);
 // seeded with "insert if missing", so price edits made later in the admin panel are never overwritten.
 
 const svg = (body: string, defs = "") => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>${defs}</defs>${body}</svg>`;
@@ -175,19 +175,19 @@ const g = (id: string, name: string, coinPrice: number, maxQuantity: number, sor
 });
 
 export const MORE_GIFTS = [
-  g("lollipop", "Lollipop", 5, 999, 10, lollipop),
-  g("icecream", "Ice Cream", 9, 999, 11, iceCream),
-  g("balloons", "Balloons", 19, 999, 12, balloons),
-  g("teddy", "Teddy Bear", 39, 520, 13, teddy),
-  g("perfume", "Perfume", 99, 99, 20, perfume),
-  g("guitar", "Guitar", 149, 99, 21, guitar),
-  g("cake", "Party Cake", 199, 99, 22, cake),
-  g("diamond_ring", "Diamond Ring", 299, 99, 23, diamondRing),
-  g("love_letter", "Love Letter", 520, 66, 30, loveLetter),
-  g("sports_car", "Sports Car", 1314, 33, 31, sportsCar),
-  g("yacht", "Yacht", 2999, 10, 32, yacht),
-  g("castle", "Dream Castle", 5200, 10, 33, castle),
-  g("private_jet", "Private Jet", 8888, 5, 34, privateJet, "launch"),
-  g("treasure_chest", "Treasure Chest", 13140, 5, 35, treasure),
-  g("universe", "Universe", 19999, 3, 36, universe),
+  g("lollipop", "Lollipop", 50, 999, 10, lollipop),
+  g("icecream", "Ice Cream", 90, 999, 11, iceCream),
+  g("balloons", "Balloons", 190, 999, 12, balloons),
+  g("teddy", "Teddy Bear", 390, 520, 13, teddy),
+  g("perfume", "Perfume", 990, 99, 20, perfume),
+  g("guitar", "Guitar", 1490, 99, 21, guitar),
+  g("cake", "Party Cake", 1990, 99, 22, cake),
+  g("diamond_ring", "Diamond Ring", 2990, 99, 23, diamondRing),
+  g("love_letter", "Love Letter", 5200, 66, 30, loveLetter),
+  g("sports_car", "Sports Car", 13140, 33, 31, sportsCar),
+  g("yacht", "Yacht", 29990, 10, 32, yacht),
+  g("castle", "Dream Castle", 52000, 10, 33, castle),
+  g("private_jet", "Private Jet", 88880, 5, 34, privateJet, "launch"),
+  g("treasure_chest", "Treasure Chest", 131400, 5, 35, treasure),
+  g("universe", "Universe", 199990, 3, 36, universe),
 ];

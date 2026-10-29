@@ -3,6 +3,8 @@ import { z } from "zod";
 import { json, requireAuth, schemas, type Env } from "../http";
 import * as chat from "../services/chat";
 import * as gifts from "../services/gifts";
+import * as diamonds from "../services/diamonds";
+import * as cash from "../services/cash";
 import * as recharge from "../services/recharge";
 import * as live from "../services/live";
 import * as ludo from "../services/ludo";
@@ -201,7 +203,36 @@ roomRoutes.post("/rooms/:roomId/gifts", async (c) =>
 );
 
 roomRoutes.get("/gifts", async (c) => c.json(await gifts.listGifts()));
-roomRoutes.get("/wallet", async (c) => c.json({ balance: await gifts.getBalance(c.get("user").id) }));
+roomRoutes.get("/wallet", async (c) => {
+  const id = c.get("user").id;
+  return c.json({ balance: await gifts.getBalance(id), diamonds: (await diamonds.diamondBalance(id)).balance });
+});
+// Diamonds: total and how much is in agency salary pools, rates (so the app never hardcodes them), recent history.
+roomRoutes.get("/wallet/diamonds", async (c) => {
+  const id = c.get("user").id;
+  return c.json({ ...(await diamonds.diamondBalance(id)), sharePercent: diamonds.DIAMOND_SHARE_PERCENT, diamondsPerCoin: diamonds.DIAMONDS_PER_COIN, history: await diamonds.diamondHistory(id) });
+});
+// Cash earnings (salaries from level 3, owner bonuses): balance, bank details, withdrawals.
+roomRoutes.get("/cash", async (c) => c.json(await cash.cashOf(c.get("user").id)));
+roomRoutes.put("/cash/details", async (c) => {
+  const b = await json(
+    c,
+    z.object({
+      accountName: z.string().trim().min(2, "Enter the account holder's name").max(80),
+      accountNumber: z.string().trim().regex(/^\d{9,18}$/, "Account number: 9 to 18 digits"),
+      ifsc: z.string().trim().toUpperCase().regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, "IFSC looks like SBIN0001234"),
+    }),
+  );
+  return c.json(await cash.setDetails(c.get("user"), b));
+});
+roomRoutes.post("/cash/withdraw", async (c) => {
+  const b = await json(c, z.object({ rupees: z.number().int().min(1).max(10_000_000) }));
+  return c.json(await cash.requestWithdrawal(c.get("user"), b.rupees * 100));
+});
+roomRoutes.post("/wallet/diamonds/convert", async (c) => {
+  const b = await json(c, z.object({ diamonds: schemas.coins, idempotencyKey: schemas.idempotencyKey }));
+  return c.json(await diamonds.convertToCoins(c.get("user"), b.diamonds, b.idempotencyKey));
+});
 roomRoutes.get("/wallet/packages", (c) => c.json(recharge.PACKAGES));
 roomRoutes.post("/wallet/recharge", async (c) => {
   const { packageId } = await json(c, z.object({ packageId: z.string().min(1).max(64) }));

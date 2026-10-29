@@ -273,6 +273,7 @@ export const directMessages = pgTable(
     imageUrl: text("image_url"), // a photo message (body is "📷 Photo", so inbox previews and older apps still read)
     roomId: uuid("room_id").references(() => rooms.id), // a room invite sent while you were offline: shows a Join button
     familyId: uuid("family_id").references(() => families.id, { onDelete: "set null" }), // a family invite: shows a View family button
+    agencyId: uuid("agency_id").references(() => agencies.id), // an agency invite: shows a View invite button
     notice: jsonb("notice").$type<CoinNotice>(), // a coin receipt from the Recharge Notification account: shows as a card
     createdAt: createdAt(),
   },
@@ -324,6 +325,32 @@ export const walletLedger = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("wallet_ledger_user").on(t.userId, t.id)],
+);
+
+// Diamonds: what gift recipients earn (a share of the coins spent). Convertible to coins; agency hosts can also withdraw.
+export const diamondAccounts = pgTable(
+  "diamond_accounts",
+  {
+    userId: uuid("user_id").primaryKey().references(() => users.id),
+    balance: integer("balance").notNull().default(0),
+  },
+  (t) => [check("diamonds_non_negative", sql`${t.balance} >= 0`)],
+);
+
+// Append-only, like walletLedger. idempotencyKey is set for user-initiated moves (conversions), so a retry can't repeat one.
+export const diamondLedger = pgTable(
+  "diamond_ledger",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    entryType: text("entry_type").notNull(), // GIFT_RECEIVED | CONVERT_TO_COINS
+    amount: integer("amount").notNull(),
+    referenceType: text("reference_type").notNull(),
+    referenceId: text("reference_id").notNull(),
+    idempotencyKey: text("idempotency_key"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("diamond_ledger_user").on(t.userId, t.id), uniqueIndex("diamond_ledger_idempotency").on(t.userId, t.idempotencyKey)],
 );
 
 export const giftTransactions = pgTable(
@@ -729,6 +756,152 @@ export const familyMembers = pgTable(
     joinedAt: ts("joined_at").notNull().defaultNow(),
   },
   (t) => [index("family_members_family").on(t.familyId)],
+);
+
+// ---------- Agencies ----------
+// Staff create an agency for an owner. Hosts join by applying (with the agency's code) or by accepting the owner's invite;
+// the owner approves applications. Leaving: the host asks, and it happens when the owner approves or after 3 months
+// with no activity on the account (see services/agencies.ts expireLeaves).
+export const agencyStatus = pgEnum("agency_status", ["ACTIVE", "SUSPENDED", "CLOSED"]);
+export const agencyHostStatus = pgEnum("agency_host_status", ["APPLIED", "INVITED", "ACTIVE", "LEAVING"]);
+
+export const agencies = pgTable(
+  "agencies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: integer("code").notNull().unique().generatedAlwaysAsIdentity({ startWith: 100001 }), // the "Agency ID" people type
+    name: text("name").notNull(),
+    imageUrl: text("image_url"),
+    ownerId: uuid("owner_id").notNull().references(() => users.id),
+    status: agencyStatus("status").notNull().default("ACTIVE"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("agencies_one_open_per_owner").on(t.ownerId).where(sql`${t.status} <> 'CLOSED'`)],
+);
+
+export const agencyHosts = pgTable(
+  "agency_hosts",
+  {
+    userId: uuid("user_id").primaryKey().references(() => users.id), // primary key = one agency (or request) per host
+    agencyId: uuid("agency_id").notNull().references(() => agencies.id),
+    status: agencyHostStatus("status").notNull(),
+    requestedAt: ts("requested_at").notNull().defaultNow(), // when applied / invited
+    joinedAt: ts("joined_at"),
+    leaveRequestedAt: ts("leave_requested_at"), // LEAVING: since when they asked
+  },
+  (t) => [index("agency_hosts_agency").on(t.agencyId, t.status)],
+);
+
+// Agency hosts' time on a seat in a live room, sampled every minute (services/hostMonth.ts). One row per continuous
+// stretch in one room; muted time counts. Salary rules (10-minute minimum, 2 h a day) apply when it's read.
+export const micSessions = pgTable(
+  "mic_sessions",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    roomId: uuid("room_id").notNull().references(() => rooms.id),
+    agencyId: uuid("agency_id").references(() => agencies.id), // the agency they were hosting for
+    startedAt: ts("started_at").notNull(),
+    lastAt: ts("last_at").notNull(),
+  },
+  (t) => [index("mic_sessions_user").on(t.userId, t.lastAt)],
+);
+
+// ---------- Host salaries and cash ----------
+// A host's gift diamonds for one month in one agency: the salary pool. Converting to coins takes from here first
+// (`converted`), and that value is taken off the salary. Settlement pays the salary and the rest lapses (settledAt).
+export const hostMonths = pgTable(
+  "host_months",
+  {
+    userId: uuid("user_id").notNull().references(() => users.id),
+    agencyId: uuid("agency_id").notNull().references(() => agencies.id),
+    month: date("month").notNull(), // first day of the India month, e.g. 2026-10-01
+    earned: integer("earned").notNull().default(0),
+    converted: integer("converted").notNull().default(0),
+    settledAt: ts("settled_at"),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.agencyId, t.month] }), check("host_month_converted", sql`${t.converted} <= ${t.earned}`)],
+);
+
+// A month's salary payout: started (and finished) by staff after reviewing the sheet. Lines are written as they're paid.
+export const salaryRuns = pgTable("salary_runs", {
+  month: date("month").primaryKey(),
+  startedBy: uuid("started_by").notNull().references(() => users.id),
+  startedAt: createdAt(),
+  finishedAt: ts("finished_at"),
+});
+
+export const salaryLines = pgTable(
+  "salary_lines",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    month: date("month").notNull(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    agencyId: uuid("agency_id").notNull().references(() => agencies.id),
+    kind: text("kind").notNull(), // HOST | OWNER
+    level: integer("level").notNull(),
+    diamonds: integer("diamonds").notNull(),
+    micMinutes: integer("mic_minutes").notNull(),
+    grossPaise: integer("gross_paise").notNull(), // the level's salary (HOST) or 10% of the hosts' (OWNER)
+    convertedDiamonds: integer("converted_diamonds").notNull(),
+    payPaise: integer("pay_paise").notNull(), // after early conversions
+    paidIn: text("paid_in").notNull(), // COINS | CASH | NONE
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("salary_lines_once").on(t.month, t.userId, t.agencyId, t.kind)],
+);
+
+// Withdrawable money (salaries from level 3 up, owner bonuses), in paise.
+export const cashAccounts = pgTable(
+  "cash_accounts",
+  {
+    userId: uuid("user_id").primaryKey().references(() => users.id),
+    balancePaise: integer("balance_paise").notNull().default(0),
+  },
+  (t) => [check("cash_non_negative", sql`${t.balancePaise} >= 0`)],
+);
+
+// Append-only. kind: SALARY | AGENCY_BONUS | WITHDRAWAL | WITHDRAWAL_RETURNED.
+export const cashLedger = pgTable(
+  "cash_ledger",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    kind: text("kind").notNull(),
+    amountPaise: integer("amount_paise").notNull(),
+    referenceType: text("reference_type").notNull(),
+    referenceId: text("reference_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("cash_ledger_user").on(t.userId, t.id)],
+);
+
+export const payoutDetails = pgTable("payout_details", {
+  userId: uuid("user_id").primaryKey().references(() => users.id),
+  accountName: text("account_name").notNull(),
+  accountNumber: text("account_number").notNull(),
+  ifsc: text("ifsc").notNull(),
+  updatedAt: createdAt(),
+});
+
+export const withdrawalStatus = pgEnum("withdrawal_status", ["PENDING", "PAID", "REJECTED"]);
+// The amount leaves the cash balance when requested; a rejection returns it. Bank details are copied in as they were.
+export const withdrawals = pgTable(
+  "withdrawals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    amountPaise: integer("amount_paise").notNull(),
+    accountName: text("account_name").notNull(),
+    accountNumber: text("account_number").notNull(),
+    ifsc: text("ifsc").notNull(),
+    status: withdrawalStatus("status").notNull().default("PENDING"),
+    note: text("note"), // staff: payment reference, or why it was rejected
+    createdAt: createdAt(),
+    decidedAt: ts("decided_at"),
+    decidedBy: uuid("decided_by").references(() => users.id),
+  },
+  (t) => [uniqueIndex("withdrawals_one_open").on(t.userId).where(sql`${t.status} = 'PENDING'`), index("withdrawals_status").on(t.status, t.createdAt)],
 );
 
 // The newest message from `peerId` that `userId` has seen; anything after it is unread.

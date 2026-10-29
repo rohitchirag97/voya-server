@@ -97,7 +97,22 @@ const subSeller = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <text x="32" y="49.6" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="900" fill="#334155">₹</text>
   <path d="M22 22 L27.5 18.5" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
 </svg>`;
+// Agency Owner: a building with a crown on a violet shield.
+const agencyOwner = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="ao" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B79CFF"/><stop offset="0.55" stop-color="#7C4DDB"/><stop offset="1" stop-color="#3E1E8C"/></linearGradient>
+    <linearGradient id="aog" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF1B8"/><stop offset="1" stop-color="#E8A417"/></linearGradient>
+  </defs>
+  <path d="M32 5 L55 13 V31 C55 45 45 54 32 59 C19 54 9 45 9 31 V13 Z" fill="url(#ao)" stroke="#2A1260" stroke-width="1.5"/>
+  <path d="M22 20 L25 13 L29 17 L32 11 L35 17 L39 13 L42 20 Z" fill="url(#aog)"/>
+  <rect x="20" y="24" width="24" height="23" rx="2" fill="#F5F0FF"/>
+  <g fill="#7C4DDB"><rect x="24" y="28" width="5" height="4" rx="1"/><rect x="35" y="28" width="5" height="4" rx="1"/><rect x="24" y="35" width="5" height="4" rx="1"/><rect x="35" y="35" width="5" height="4" rx="1"/></g>
+  <rect x="29" y="40" width="6" height="7" rx="1" fill="url(#aog)"/>
+  <path d="M17 14 L32 9" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+</svg>`;
+
 export const SAMPLE_BADGES = [
+  { id: "agency_owner", name: "Agency Owner", description: "Runs an official VoyaLive host agency.", svg: agencyOwner, sortOrder: 0 },
   { id: "coin_seller", name: "Coin Seller", description: "Authorised VoyaLive coin seller. Safe to buy coins from.", svg: coinSeller, sortOrder: 0 },
   { id: "sub_seller", name: "Sub Seller", description: "Authorised VoyaLive sub seller, appointed by a coin seller. Safe to buy coins from.", svg: subSeller, sortOrder: 0 },
   { id: "vip", name: "VIP", description: "A valued member of the VoyaLive family.", svg: vip, sortOrder: 1 },

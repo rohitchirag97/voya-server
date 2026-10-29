@@ -15,10 +15,10 @@ export async function migrateAndSeed() {
   await db
     .insert(giftCatalog)
     .values([
-      { id: "rose", name: "Rose", assetUrl: "gifts/rose.png", coinPrice: 1, sortOrder: 1 },
-      { id: "chai", name: "Chai", assetUrl: "gifts/chai.png", coinPrice: 10, sortOrder: 2 },
-      { id: "star", name: "Star", assetUrl: "gifts/star.png", coinPrice: 50, sortOrder: 3 },
-      { id: "crown", name: "Crown", assetUrl: "gifts/crown.png", coinPrice: 500, maxQuantity: 10, sortOrder: 4 },
+      { id: "rose", name: "Rose", assetUrl: "gifts/rose.png", coinPrice: 10, sortOrder: 1 },
+      { id: "chai", name: "Chai", assetUrl: "gifts/chai.png", coinPrice: 100, sortOrder: 2 },
+      { id: "star", name: "Star", assetUrl: "gifts/star.png", coinPrice: 500, sortOrder: 3 },
+      { id: "crown", name: "Crown", assetUrl: "gifts/crown.png", coinPrice: 5000, maxQuantity: 10, sortOrder: 4 },
     ])
     .onConflictDoNothing();
   await db.insert(cosmetics).values(SAMPLE_COSMETICS).onConflictDoNothing();

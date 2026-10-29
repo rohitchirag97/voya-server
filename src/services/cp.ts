@@ -12,9 +12,9 @@ import { pushDm } from "./dmPush";
 
 export type CpType = (typeof cpProposals.$inferSelect)["type"];
 export const CP_TYPES = {
-  LOVE: { max: 1, price: 520, gift: "Ring" },
-  BESTIE: { max: 4, price: 199, gift: "Bracelet" },
-  SIBLING: { max: 7, price: 99, gift: "Charm" },
+  LOVE: { max: 1, price: 5200, gift: "Ring" },
+  BESTIE: { max: 4, price: 1990, gift: "Bracelet" },
+  SIBLING: { max: 7, price: 990, gift: "Charm" },
 } as const satisfies Record<CpType, { max: number; price: number; gift: string }>;
 export const SIBLING_LABELS = ["BROTHER", "SISTER"] as const;
 export const PROPOSAL_TTL_MS = 48 * 3600_000;
@@ -221,10 +221,11 @@ async function addCapped(pairId: string, source: string, points: number, cap: nu
   return gained;
 }
 
-// A gift between CP partners: 1 point per coin, uncapped (it's paid for).
+// A gift between CP partners: 1 point per 10 coins, uncapped (it's paid for).
 export async function awardGift(senderId: string, recipientId: string, coins: number) {
   const pair = await activePairId(senderId, recipientId);
-  if (pair && coins > 0) await addPoints(pair, coins * CP_POINTS.giftPerCoin);
+  const points = Math.floor(coins / CP_POINTS.coinsPerGiftPoint);
+  if (pair && points > 0) await addPoints(pair, points);
 }
 
 // An inbox message between CP partners.

@@ -8,18 +8,13 @@ import { rateLimit } from "../lib/rateLimit";
 import { notifyCoins } from "./dmPush";
 import { announceToAllRooms, monthRupeesOf, tierFor } from "./svip";
 
+// One flat price for every amount, no bonus coins: ₹1 = 10 coins. (Coin sellers buy at ₹0.09 and resell at this price.)
+export const PAISE_PER_COIN = 10;
 // Coin packages (price in paise). Each ₹1 paid also earns 1 level point (XP).
-export const PACKAGES = [
-  { id: "coins_60", coins: 60, pricePaise: 9_900 },
-  { id: "coins_300", coins: 300, pricePaise: 44_900 },
-  { id: "coins_980", coins: 980, pricePaise: 1_39_900 },
-  { id: "coins_2000", coins: 2000, pricePaise: 2_79_900 },
-  { id: "coins_5000", coins: 5000, pricePaise: 6_49_900 },
-] as const;
+export const PACKAGES = [10, 50, 99, 499, 999, 4999].map((rupees) => ({ id: `coins_${rupees * 10}`, coins: rupees * 10, pricePaise: rupees * 100 }));
 
-// Coins bought from a seller count as a recharge worth the best-value package's price per coin: same level points and SVIP.
-const BEST = PACKAGES[PACKAGES.length - 1]!;
-export const sellerPricePaise = (coins: number) => Math.round((coins * BEST.pricePaise) / BEST.coins);
+// Coins bought from a seller count as a recharge at the user's price: same level points and SVIP.
+export const sellerPricePaise = (coins: number) => coins * PAISE_PER_COIN;
 
 const balanceOf = async (userId: string) =>
   (await db.select({ b: walletAccounts.balance }).from(walletAccounts).where(eq(walletAccounts.userId, userId)))[0]?.b ?? 0;

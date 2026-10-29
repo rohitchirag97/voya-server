@@ -8,6 +8,7 @@ import { assertCanParticipate } from "./auth";
 import { refreshCharisma, refreshPk, systemMessage, userSummary } from "./rooms";
 import { refreshLivePk } from "./live";
 import { awardGift } from "./cp";
+import { creditGifts } from "./diamonds";
 
 export type GiftInput = { recipientUserId: string; giftId: string; quantity: number };
 type GiftTx = typeof giftTransactions.$inferSelect;
@@ -114,6 +115,7 @@ export async function sendGiftToAllSeated(sender: User, roomId: string, input: G
       await tx
         .insert(walletLedger)
         .values(txs.map((t) => ({ userId: sender.id, entryType: "GIFT_DEBIT", amount: -each, referenceType: "GIFT", referenceId: t.id })));
+      await creditGifts(tx, txs);
       return { transactions: txs, balance: wallet.balance, gift };
     });
   } catch (e) {
@@ -198,8 +200,8 @@ export async function sendGift(sender: User, roomId: string, input: GiftInput, i
           idempotencyKey,
         })
         .returning();
-      // P0: coins are a sink; creator earnings (recipient credit) come with monetization.
       await tx.insert(walletLedger).values({ userId: sender.id, entryType: "GIFT_DEBIT", amount: -cost, referenceType: "GIFT", referenceId: g!.id });
+      await creditGifts(tx, [g!]); // the recipient's diamonds
       return { transaction: g!, balance: wallet.balance, gift };
     });
   } catch (e) {

@@ -7,7 +7,7 @@ import { assertCanParticipate } from "./auth";
 import { pushDm } from "./dmPush";
 import { userSummary } from "./rooms";
 
-export const FAMILY_PRICE = 500; // coins to create a family; not refunded on disband
+export const FAMILY_PRICE = 5000; // coins to create a family; not refunded on disband
 
 type Role = (typeof familyMembers.$inferSelect)["role"];
 const inFamily = () => new AppError("ALREADY_IN_FAMILY", 409, "You are already in a family. Leave it first");

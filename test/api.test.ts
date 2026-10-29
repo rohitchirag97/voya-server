@@ -298,8 +298,8 @@ describe("svip", () => {
     await new Promise<void>((r) => s.once("connect", () => r()));
     const got: any[] = [];
     s.on("app:announce", (a) => got.push(a));
-    await paid(u.id, 600, "this"); // ₹600 so far; the ₹449 package crosses ₹1,000 → SVIP1
-    expect((await api("POST", "/wallet/recharge", u.token, { packageId: "coins_300" }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
+    await paid(u.id, 600, "this"); // ₹600 so far; the ₹499 package crosses ₹1,000 → SVIP1
+    expect((await api("POST", "/wallet/recharge", u.token, { packageId: "coins_4990" }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
     await Bun.sleep(300);
     expect(got).toEqual(
       expect.arrayContaining([
@@ -308,7 +308,7 @@ describe("svip", () => {
       ]),
     );
     got.length = 0;
-    expect((await api("POST", "/wallet/recharge", u.token, { packageId: "coins_60" }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
+    expect((await api("POST", "/wallet/recharge", u.token, { packageId: "coins_100" }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
     await Bun.sleep(300);
     expect(got.filter((a) => a.kind === "SVIP_UP")).toEqual([]); // still SVIP1: no repeat
     expect(got).toEqual([expect.objectContaining({ kind: "RECHARGE", userId: u.id })]); // every recharge is announced
@@ -466,36 +466,36 @@ describe("levels and recharge", () => {
     const me = async () => (await api("GET", "/me", u.token)).body;
     expect((await me()).level).toMatchObject({ level: 0, xp: 0 });
     const packages = (await api("GET", "/wallet/packages", u.token)).body;
-    expect(packages[0]).toMatchObject({ id: "coins_60", coins: 60 });
+    expect(packages.map((p: any) => [p.coins, p.pricePaise])).toEqual([[100, 1000], [500, 5000], [990, 9900], [4990, 49900], [9990, 99900], [49990, 499900]]); // ₹1 = 10 coins, no bonus
 
     const buy = (packageId: string, key: string) => api("POST", "/wallet/recharge", u.token, { packageId }, { "Idempotency-Key": key });
     const before = (await api("GET", "/wallet", u.token)).body.balance;
-    // ₹99 for 60 coins → 99 XP: level 0 → Lv 1 (Lv 2 needs 100).
-    const r1 = await buy("coins_60", "r1");
-    expect(r1.body).toMatchObject({ balance: before + 60, leveledUp: true, level: { level: 1, xp: 99 } });
+    // ₹99 for 990 coins → 99 XP: level 0 → Lv 1 (Lv 2 needs 100).
+    const r1 = await buy("coins_990", "r1");
+    expect(r1.body).toMatchObject({ balance: before + 990, leveledUp: true, level: { level: 1, xp: 99 } });
     // Retry: no second credit.
-    expect((await buy("coins_60", "r1")).body.replayed).toBe(true);
+    expect((await buy("coins_990", "r1")).body.replayed).toBe(true);
     await Bun.sleep(100);
     // One inbox notice from the Recharge Notification account (support staff), none for the replay.
     const notices = (await api("GET", "/dm/pending", u.token)).body.messages;
     expect(notices).toEqual([
       expect.objectContaining({
-        notice: { kind: "RECHARGE", status: "SUCCESS", coins: 60, balance: before + 60, txnId: expect.stringMatching(/^TXN\d+$/), paidRupees: 99 },
+        notice: { kind: "RECHARGE", status: "SUCCESS", coins: 990, balance: before + 990, txnId: expect.stringMatching(/^TXN\d+$/), paidRupees: 99 },
         sender: expect.objectContaining({ displayName: "Recharge Notification", staffRole: "SUPPORT" }),
       }),
     ]);
-    expect((await api("GET", "/wallet", u.token)).body.balance).toBe(before + 60);
-    expect((await buy("coins_300", "r1")).body.error.code).toBe("IDEMPOTENCY_CONFLICT");
+    expect((await api("GET", "/wallet", u.token)).body.balance).toBe(before + 990);
+    expect((await buy("coins_4990", "r1")).body.error.code).toBe("IDEMPOTENCY_CONFLICT");
     expect((await buy("nope", "r9")).body.error.code).toBe("INVALID_PACKAGE");
 
-    // ₹99 + ₹449 = 548 XP → Lv 3 (needs 300; Lv 4 needs 600).
-    const r2 = await buy("coins_300", "r2");
-    expect(r2.body).toMatchObject({ leveledUp: true, level: { level: 3, xp: 548, levelXp: 248, levelXpNeeded: 300 } });
+    // ₹99 + ₹499 = 598 XP → Lv 3 (needs 300; Lv 4 needs 600).
+    const r2 = await buy("coins_4990", "r2");
+    expect(r2.body).toMatchObject({ leveledUp: true, level: { level: 3, xp: 598, levelXp: 298, levelXpNeeded: 300 } });
     expect((await me()).level.level).toBe(3);
 
     // Spending coins never lowers the level; the ledger still matches the balance.
     const ledger = (await api("GET", "/wallet/transactions?limit=50", u.token)).body.entries;
-    expect(ledger.filter((e: any) => e.entryType === "RECHARGE").map((e: any) => e.amount).sort()).toEqual([300, 60]);
+    expect(ledger.filter((e: any) => e.entryType === "RECHARGE").map((e: any) => e.amount).sort()).toEqual([4990, 990]);
     expect(ledger.reduce((s: number, e: any) => s + e.amount, 0)).toBe((await api("GET", "/wallet", u.token)).body.balance);
   });
 });
@@ -909,11 +909,11 @@ describe("gifts", () => {
     const fan = await joined(roomId, "wkfan");
     const gift = (giftId: string, quantity: number) =>
       api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: host.id, giftId, quantity }, { "Idempotency-Key": crypto.randomUUID() });
-    expect((await gift("chai", 2)).status).toBe(200); // 20 coins
-    expect((await gift("star", 1)).status).toBe(200); // 50 coins
+    expect((await gift("chai", 2)).status).toBe(200); // 200 coins
+    expect((await gift("star", 1)).status).toBe(200); // 500 coins
     const week = async (id: string) => (await api("GET", `/users/${id}`, fan.token)).body.week;
-    expect(await week(fan.id)).toMatchObject({ contribution: 70, charisma: 0 });
-    expect(await week(host.id)).toMatchObject({ contribution: 0, charisma: 70 });
+    expect(await week(fan.id)).toMatchObject({ contribution: 700, charisma: 0 });
+    expect(await week(host.id)).toMatchObject({ contribution: 0, charisma: 700 });
     const { endsAt } = await week(host.id);
     // Resets Monday 00:00 India time.
     const ist = new Date(new Date(endsAt).getTime() + 5.5 * 3600_000);
@@ -941,19 +941,47 @@ describe("gifts", () => {
     expect(results.map((r) => r.status)).toEqual([200, 200]);
     expect((await send(host.id, "k2")).body.replayed).toBe(true);
     expect((await send(host.id, "k2", "rose")).body.error.code).toBe("IDEMPOTENCY_CONFLICT");
-    expect((await api("GET", "/wallet", sender.token)).body.balance).toBe(config.signupBonusCoins - 10);
+    expect((await api("GET", "/wallet", sender.token)).body.balance).toBe(config.signupBonusCoins - 100);
 
-    // 990 left; ten parallel 100-coin sends: only nine fit.
-    const crowns = await Promise.all(Array.from({ length: 10 }, (_, i) => send(host.id, `c${i}`, "star", 2)));
+    // 900 left; ten parallel 100-coin sends: only nine fit.
+    const crowns = await Promise.all(Array.from({ length: 10 }, (_, i) => send(host.id, `c${i}`, "chai", 1)));
     const ok = crowns.filter((r) => r.status === 200).length;
     expect(ok).toBe(9);
     expect(crowns.find((r) => r.status !== 200)!.body.error.code).toBe("INSUFFICIENT_COINS");
     const balance = (await api("GET", "/wallet", sender.token)).body.balance;
-    expect(balance).toBe(990 - 9 * 100);
+    expect(balance).toBe(900 - 9 * 100);
 
     // Ledger reconciles with cached balance.
     const ledger = (await api("GET", "/wallet/transactions?limit=50", sender.token)).body.entries;
     expect(ledger.reduce((s: number, e: any) => s + e.amount, 0)).toBe(balance);
+  });
+
+  test("recipients earn 70% as diamonds, once per gift; diamonds convert to coins once per key", async () => {
+    const { host, roomId } = await liveRoom();
+    const a = await joined(roomId, "dia");
+    await api("POST", `/rooms/${roomId}/seats/1/claim`, a.token);
+    const send = (from: { token: string }, to: string, key: string, giftId: string, quantity = 1) =>
+      api("POST", `/rooms/${roomId}/gifts`, from.token, { recipientUserId: to, giftId, quantity }, { "Idempotency-Key": key });
+    const wallet = async (u: { token: string }) => (await api("GET", "/wallet", u.token)).body;
+
+    expect((await send(a, host.id, "d1", "star")).status).toBe(200); // 500 coins -> 350 diamonds
+    expect((await send(a, host.id, "d1", "star")).body.replayed).toBe(true); // a retry earns nothing more
+    // Crossing gifts at the same moment both land.
+    const both = await Promise.all([send(a, host.id, "d2", "chai"), send(host, a.id, "d3", "chai")]); // 100 coins -> 70
+    expect(both.map((r) => r.status)).toEqual([200, 200]);
+    expect((await wallet(host)).diamonds).toBe(420);
+    expect((await wallet(a)).diamonds).toBe(70);
+
+    // 2 diamonds = 1 coin; an odd diamond stays behind.
+    const before = (await wallet(host)).balance;
+    const convert = (n: number, key: string) => api("POST", "/wallet/diamonds/convert", host.token, { diamonds: n, idempotencyKey: key });
+    expect((await convert(1, "convert-0")).body.error.code).toBe("VALIDATION_ERROR");
+    expect((await convert(500, "convert-1")).body.error.code).toBe("INSUFFICIENT_DIAMONDS");
+    expect((await convert(401, "convert-2")).body).toEqual({ diamonds: 20, balance: before + 200, fromPool: 0 });
+    expect((await convert(2, "convert-2")).body.error.code).toBe("DUPLICATE_REQUEST");
+    const d = (await api("GET", "/wallet/diamonds", host.token)).body;
+    expect(d).toMatchObject({ balance: 20, sharePercent: 70, diamondsPerCoin: 2 });
+    expect(d.history.reduce((s: number, e: any) => s + e.amount, 0)).toBe(20); // ledger reconciles with the balance
   });
 
   test("self-gift while seated, and one gift to everyone on stage", async () => {
@@ -970,7 +998,7 @@ describe("gifts", () => {
     expect(self.status).toBe(200);
     expect(self.body.transaction.recipientId).toBe(a.id);
 
-    // Everyone seated (host, a, b) gets 2x chai = 20 each; the listener pays 60 once.
+    // Everyone seated (host, a, b) gets 2x chai = 200 each; the listener pays 600 once.
     const sl = socketFor(listener.token);
     await emit(sl, "room:join", { roomId });
     const banner = nextEvent(sl, "room:gift:received");
@@ -980,18 +1008,18 @@ describe("gifts", () => {
     const r = await all("b1");
     expect(r.status).toBe(200);
     expect(r.body.transactions.map((t: any) => t.recipientId).sort()).toEqual([host.id, a.id, b.id].sort());
-    expect(r.body.balance).toBe(before - 60);
+    expect(r.body.balance).toBe(before - 600);
     expect((await banner).recipients).toHaveLength(3);
 
     // Retrying the same batch never charges twice; reusing the key for something else is refused.
     expect((await all("b1")).body.replayed).toBe(true);
-    expect(await bal(listener)).toBe(before - 60);
+    expect(await bal(listener)).toBe(before - 600);
     expect((await all("b1", "rose", 1)).body.error.code).toBe("IDEMPOTENCY_CONFLICT");
 
     // Not enough coins for everyone: nothing is charged at all.
     const tooMuch = await all("b2", "crown", 10);
     expect(tooMuch.body.error.code).toBe("INSUFFICIENT_COINS");
-    expect(await bal(listener)).toBe(before - 60);
+    expect(await bal(listener)).toBe(before - 600);
 
     // Ledger still reconciles with the balance.
     const ledger = (await api("GET", "/wallet/transactions?limit=50", listener.token)).body.entries;
@@ -1003,12 +1031,13 @@ describe("gifts", () => {
     const fan = await joined(roomId, "rocketfan");
     const catalog = (await api("GET", "/gifts", fan.token)).body;
     const rocket = catalog.find((g: any) => g.id === "rocket");
-    expect(rocket).toMatchObject({ coinPrice: 100, animation: "launch" });
+    expect(rocket).toMatchObject({ coinPrice: 1000, animation: "launch" });
     expect(rocket.svg).toStartWith("<svg");
 
     const s = socketFor(host.token);
     await emit(s, "room:join", { roomId });
     const shown = nextEvent(s, "room:gift:received");
+    await db.execute(sql`update wallet_accounts set balance = 2000 where user_id = ${fan.id}`);
     const sent = await api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: host.id, giftId: "rocket", quantity: 2 }, { "Idempotency-Key": "rk1" });
     expect(sent.status).toBe(200);
     const evt = await shown;
@@ -1445,10 +1474,10 @@ describe("staff console and seller wallets", () => {
     const got = (await api("GET", "/dm/pending", buyer.token)).body.messages.at(-1);
     expect(got.notice).toMatchObject({ kind: "SELLER", status: "SUCCESS", coins: 300, balance: before + 300 });
     expect(got.body).not.toContain(seller.handle); // the seller stays anonymous
-    expect((await api("GET", "/me", buyer.token)).body.level.xp).toBe(389); // 300 coins at the ₹6,499 / 5,000 coins rate
+    expect((await api("GET", "/me", buyer.token)).body.level.xp).toBe(30); // 300 coins at ₹1 = 10 coins
     // ...and counts toward SVIP like an app recharge.
     const { rows: svipRows } = await db.execute<{ paise: number }>(sql`select sum(price_paise)::int as paise from recharges where user_id = ${buyer.id}`);
-    expect(svipRows[0]!.paise).toBe(38994);
+    expect(svipRows[0]!.paise).toBe(3000);
     const mine = await coins(seller.token);
     expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: String(sid), amount: 100, idempotencyKey: key() })).body.balance).toBe(600);
     expect(await coins(seller.token)).toBe(mine + 100);
@@ -1642,7 +1671,7 @@ describe("greedy game", () => {
     const round = await openRound();
 
     const join = await emit(sa, "greedy:join", {});
-    expect(join.data).toMatchObject({ round: { roundId: round.id }, myBets: [], balance: 1000, me: a.id, maxBet: 1_000_000 });
+    expect(join.data).toMatchObject({ round: { roundId: round.id }, myBets: [], balance: 1000, me: a.id, maxBet: 10_000_000 });
 
     expect((await emit(sa, "greedy:bet", { roundId: round.id, item: 7, amount: 100 })).data).toMatchObject({ item: 7, itemTotal: 100, balance: 900 });
     expect((await emit(sa, "greedy:bet", { roundId: round.id, item: 7, amount: 100 })).data).toMatchObject({ itemTotal: 200, balance: 800 });
@@ -1670,8 +1699,8 @@ describe("greedy game", () => {
     const { openRound, settleAndAnnounce, MAX_ITEM_BET } = await import("../src/services/greedy");
     const a = await signup("greedyc");
     const b = await signup("greedyd");
-    await db.execute(sql`update wallet_accounts set balance = 2000000 where user_id = ${a.id}`);
-    await db.execute(sql`insert into wallet_ledger (user_id, entry_type, amount, reference_type, reference_id) values (${a.id}, 'PROMO_GRANT', 1999000, 'TEST', 'test')`);
+    await db.execute(sql`update wallet_accounts set balance = 20000000 where user_id = ${a.id}`);
+    await db.execute(sql`insert into wallet_ledger (user_id, entry_type, amount, reference_type, reference_id) values (${a.id}, 'PROMO_GRANT', 19999000, 'TEST', 'test')`);
     const sa = socketFor(a.token);
     const sb = socketFor(b.token);
     const round = await openRound();
@@ -1682,7 +1711,7 @@ describe("greedy game", () => {
     expect((await emit(sa, "greedy:bet", { roundId: round.id, item: 4, amount: MAX_ITEM_BET })).data.itemTotal).toBe(MAX_ITEM_BET);
     expect((await emit(sa, "greedy:bet", { roundId: round.id, item: 4, amount: 1 })).error.code).toBe("BET_LIMIT");
     expect((await emit(sa, "greedy:bet", { roundId: round.id, item: 4, amount: MAX_ITEM_BET + 1 })).error.code).toBe("VALIDATION_ERROR");
-    expect((await api("GET", "/wallet", a.token)).body.balance).toBe(1_000_000); // the refused bet was not charged
+    expect((await api("GET", "/wallet", a.token)).body.balance).toBe(10_000_000); // the refused bet was not charged
 
     const announced = nextEvent(sb, "greedy:result");
     await settleAndAnnounce(round.id, 4); // Zebra ×10
@@ -1690,9 +1719,9 @@ describe("greedy game", () => {
       roundId: round.id,
       item: 4,
       winnerCount: 2,
-      totalPayout: 10_005_200,
+      totalPayout: 100_005_200,
       winners: [ // biggest first, with names for the winners screen
-        { userId: a.id, displayName: a.handle, payout: 10_000_000 },
+        { userId: a.id, displayName: a.handle, payout: 100_000_000 },
         { userId: b.id, displayName: b.handle, payout: 5200 },
       ],
     });
@@ -1887,11 +1916,11 @@ describe("rocket game", () => {
       expect((await emit(sa, "rocket:bet", { roundId: round.id, slot: 2, amount: 10 })).error.code).toBe("VALIDATION_ERROR");
       expect((await emit(sa, "rocket:bet", { roundId: round.id, amount: 0 })).error.code).toBe("VALIDATION_ERROR");
       // Per-panel cap: the bet that would go over it is refused and not charged.
-      await db.execute(sql`update wallet_accounts set balance = balance + 200000 where user_id = ${d.id}`);
-      await db.execute(sql`insert into wallet_ledger (user_id, entry_type, amount, reference_type, reference_id) values (${d.id}, 'PROMO_GRANT', 200000, 'TEST', 'test')`);
+      await db.execute(sql`update wallet_accounts set balance = balance + 2000000 where user_id = ${d.id}`);
+      await db.execute(sql`insert into wallet_ledger (user_id, entry_type, amount, reference_type, reference_id) values (${d.id}, 'PROMO_GRANT', 2000000, 'TEST', 'test')`);
       expect((await emit(sd, "rocket:bet", { roundId: round.id, amount: rocket.MAX_BET })).data.amount).toBe(rocket.MAX_BET);
       expect((await emit(sd, "rocket:bet", { roundId: round.id, amount: 1 })).error.code).toBe("BET_LIMIT");
-      expect((await api("GET", "/wallet", d.token)).body.balance).toBe(201000 - rocket.MAX_BET);
+      expect((await api("GET", "/wallet", d.token)).body.balance).toBe(2001000 - rocket.MAX_BET);
       expect((await emit(sa, "rocket:cashout", { roundId: round.id })).error.code).toBe("NOT_LAUNCHED");
       const live = (await emit(sd, "rocket:join", {})).data;
       expect([live.playerCount, live.totalBet]).toEqual([4, 600 + rocket.MAX_BET]); // players are people, not panels
@@ -2051,9 +2080,9 @@ describe("charisma counter", () => {
     expect((await started).charisma.totals).toEqual({});
 
     const live = nextEvent(sf, "room:charisma");
-    expect((await gift("chai", 2, "c-1")).status).toBe(200); // 2 × 10 coins
-    expect((await live).charisma.totals).toEqual({ [host.id]: 20 });
-    expect((await api("GET", `/rooms/${roomId}`, fan.token)).body.charisma.totals).toEqual({ [host.id]: 20 });
+    expect((await gift("chai", 2, "c-1")).status).toBe(200); // 2 × 100 coins
+    expect((await live).charisma.totals).toEqual({ [host.id]: 200 });
+    expect((await api("GET", `/rooms/${roomId}`, fan.token)).body.charisma.totals).toEqual({ [host.id]: 200 });
 
     // Starting again (Reset) restarts from zero for everyone; stopping turns it off.
     const reset = nextEvent(sf, "room:charisma");
@@ -2123,6 +2152,7 @@ describe("pk battles and room stats", () => {
 
     const gift = (to: string, giftId: string) =>
       api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: to, giftId, quantity: 1 }, { "Idempotency-Key": crypto.randomUUID() });
+    await db.execute(sql`update wallet_accounts set balance = 5000 where user_id = ${fan.id}`);
     await gift(host.id, "star"); // before the PK: not counted
     const sf = socketFor(fan.token);
     await emit(sf, "room:join", { roomId });
@@ -2130,11 +2160,11 @@ describe("pk battles and room stats", () => {
     expect(started.body.pk).toMatchObject({ a: { userId: host.id, score: 0 }, b: { userId: rival.id, score: 0 } });
     expect((await start(host.token, host.id, rival.id)).body.error.code).toBe("PK_RUNNING");
 
-    const scored = new Promise<any>((r) => sf.on("room:pk", (e) => e.pk?.b.score === 50 && r(e)));
-    await gift(rival.id, "star"); // 50
+    const scored = new Promise<any>((r) => sf.on("room:pk", (e) => e.pk?.b.score === 500 && r(e)));
+    await gift(rival.id, "star"); // 500
     expect((await scored).pk.a.score).toBe(0);
-    await gift(host.id, "chai"); // 10
-    expect((await api("GET", `/rooms/${roomId}`, fan.token)).body.pk).toMatchObject({ a: { score: 10 }, b: { score: 50 } });
+    await gift(host.id, "chai"); // 100
+    expect((await api("GET", `/rooms/${roomId}`, fan.token)).body.pk).toMatchObject({ a: { score: 100 }, b: { score: 500 } });
 
     // Time's up (simulated): the next read finishes it and announces the winner.
     // Shift the whole battle (and the gifts sent during it) an hour back, so it's over.
@@ -2144,7 +2174,7 @@ describe("pk battles and room stats", () => {
       'endsAt', (pk->>'endsAt')::timestamptz - interval '1 hour') where id = ${roomId}`);
     expect((await api("GET", `/rooms/${roomId}`, fan.token)).body.pk).toBeNull();
     const msgs = (await api("GET", `/rooms/${roomId}/messages?limit=50`, host.token)).body.messages;
-    expect(msgs.find((m: any) => m.payload?.kind === "PK_END")).toMatchObject({ body: `🏆 ${rival.handle} won the PK · 50 to 10`, payload: { winner: rival.id } });
+    expect(msgs.find((m: any) => m.payload?.kind === "PK_END")).toMatchObject({ body: `🏆 ${rival.handle} won the PK · 500 to 100`, payload: { winner: rival.id } });
 
     // Cancel
     expect((await start(host.token, host.id, rival.id, 3)).status).toBe(200);
@@ -2159,17 +2189,18 @@ describe("pk battles and room stats", () => {
     await api("POST", `/rooms/${two.roomId}/join`, fan.token);
     const stats = async (roomId: string) => (await api("GET", `/rooms/${roomId}/stats`, fan.token)).body;
     const fresh = await stats(one.roomId);
-    expect(fresh).toMatchObject({ rank: null, weekCoins: 0, heart: { level: 1, coins: 0, nextAt: 1000 } });
+    expect(fresh).toMatchObject({ rank: null, weekCoins: 0, heart: { level: 1, coins: 0, nextAt: 10000 } });
 
+    await db.execute(sql`update wallet_accounts set balance = 5000 where user_id = ${fan.id}`);
     const gift = (roomId: string, to: string, giftId: string, quantity: number) =>
       api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: to, giftId, quantity }, { "Idempotency-Key": crypto.randomUUID() });
-    expect((await gift(two.roomId, two.host.id, "star", 2)).status).toBe(200); // 100
-    expect((await gift(one.roomId, one.host.id, "chai", 3)).status).toBe(200); // 30
+    expect((await gift(two.roomId, two.host.id, "star", 2)).status).toBe(200); // 1000
+    expect((await gift(one.roomId, one.host.id, "chai", 3)).status).toBe(200); // 300
     const a = await stats(one.roomId);
     const b = await stats(two.roomId);
-    expect(a.weekCoins).toBe(30);
+    expect(a.weekCoins).toBe(300);
     expect(b.rank).toBeLessThan(a.rank);
-    expect(a.heart).toMatchObject({ level: 1, coins: 30 });
+    expect(a.heart).toMatchObject({ level: 1, coins: 300 });
     const outsider = await signup("stout");
     expect((await api("GET", `/rooms/${one.roomId}/stats`, outsider.token)).status).toBe(403);
   });
@@ -2182,12 +2213,12 @@ describe("top gifters", () => {
     const small = await joined(roomId, "tgsmall");
     const gift = (u: { token: string }, giftId: string, quantity: number) =>
       api("POST", `/rooms/${roomId}/gifts`, u.token, { recipientUserId: host.id, giftId, quantity }, { "Idempotency-Key": crypto.randomUUID() });
-    expect((await gift(small, "chai", 1)).status).toBe(200); // 10
-    expect((await gift(big, "star", 2)).status).toBe(200); // 100
-    expect((await gift(small, "chai", 2)).status).toBe(200); // +20 = 30
+    expect((await gift(small, "chai", 1)).status).toBe(200); // 100
+    expect((await gift(big, "star", 2)).status).toBe(200); // 1000
+    expect((await gift(small, "chai", 2)).status).toBe(200); // +200 = 300
     const top = async (period: string) => (await api("GET", `/rooms/${roomId}/top-gifters?period=${period}`, host.token)).body;
     const week = await top("week");
-    expect(week.map((x: any) => [x.userId, x.coins])).toEqual([[big.id, 100], [small.id, 30]]);
+    expect(week.map((x: any) => [x.userId, x.coins])).toEqual([[big.id, 1000], [small.id, 300]]);
     expect(week[0]).toMatchObject({ displayName: big.handle, svip: 0 });
     // A gift from last month counts for neither.
     await db.execute(sql`update gift_transactions set created_at = created_at - interval '40 days' where sender_id = ${big.id}`);
@@ -2463,8 +2494,8 @@ describe("live streams", () => {
 
     const gift = (room: string, to: string, giftId: string) =>
       api("POST", `/rooms/${room}/gifts`, fan.token, { recipientUserId: to, giftId, quantity: 1 }, { "Idempotency-Key": crypto.randomUUID() });
-    expect((await gift(roomA, a.id, "star")).status).toBe(200); // 50 for A
-    expect((await api("GET", `/lives/${roomA}/pk`, fan.token)).body.pk).toMatchObject({ a: { score: 50 }, b: { score: 0 } });
+    expect((await gift(roomA, a.id, "star")).status).toBe(200); // 500 for A
+    expect((await api("GET", `/lives/${roomA}/pk`, fan.token)).body.pk).toMatchObject({ a: { score: 500 }, b: { score: 0 } });
 
     // Time's up (moved an hour back with its gifts): the next read finishes it.
     await db.execute(sql`update gift_transactions set created_at = created_at - interval '1 hour' where room_id = ${roomA}`);
@@ -2473,7 +2504,7 @@ describe("live streams", () => {
     for (const room of [roomA, roomB]) {
       const host = room === roomA ? a : b;
       const msgs = (await api("GET", `/rooms/${room}/messages?limit=50`, host.token)).body.messages;
-      expect(msgs.find((m: any) => m.payload?.kind === "PK_END")?.body).toBe(`🏆 ${a.handle} won the PK · 50 to 0`);
+      expect(msgs.find((m: any) => m.payload?.kind === "PK_END")?.body).toBe(`🏆 ${a.handle} won the PK · 500 to 0`);
     }
 
     // Decline, then an invite withdrawn.
@@ -2581,21 +2612,21 @@ describe("CP relationships", () => {
 
   test("love: pay to propose, the card arrives as a DM, accepting pairs you; one Love each", async () => {
     const [a, b, c] = [await signup("cpa"), await signup("cpb"), await signup("cpc")];
-    for (const u of [a, b, c]) await fund(u.id, 5000);
+    for (const u of [a, b, c]) await fund(u.id, 50000);
     const sent = await propose(a, b, "LOVE");
     expect(sent.status).toBe(201);
-    expect(sent.body.balance).toBe(5000 - 520);
-    expect(await coins(a.token)).toBe(4480);
+    expect(sent.body.balance).toBe(50000 - 5200);
+    expect(await coins(a.token)).toBe(44800);
     // not friends, still delivered as a card in DMs
     const dm = (await api("GET", `/dm/${a.id}`, b.token)).body.messages;
-    expect(dm[0].cp).toMatchObject({ id: sent.body.proposal.id, type: "LOVE", status: "PENDING", price: 520 });
+    expect(dm[0].cp).toMatchObject({ id: sent.body.proposal.id, type: "LOVE", status: "PENDING", price: 5200 });
     expect((await propose(b, a, "BESTIE")).body.error.code).toBe("CP_PENDING"); // one open request between two people
 
     expect((await api("POST", `/cp/proposals/${sent.body.proposal.id}/accept`, a.token)).status).toBe(404); // only the recipient answers
     expect((await api("POST", `/cp/proposals/${sent.body.proposal.id}/accept`, b.token)).body.status).toBe("ACCEPTED");
     expect(await rels(c, a)).toEqual([expect.objectContaining({ type: "LOVE", label: null, user: expect.objectContaining({ userId: b.id }) })]);
     expect((await rels(c, b))[0].user.userId).toBe(a.id);
-    expect(await coins(a.token)).toBe(4480); // spent, not refunded
+    expect(await coins(a.token)).toBe(44800); // spent, not refunded
 
     expect((await propose(c, a, "LOVE")).body.error).toMatchObject({ code: "CP_LIMIT", message: "They have no free Love CP slot" });
     expect((await propose(a, c, "LOVE")).body.error).toMatchObject({ code: "CP_LIMIT", message: "You have no free Love CP slot" });
@@ -2605,23 +2636,23 @@ describe("CP relationships", () => {
   test("decline, cancel and expiry all refund in full", async () => {
     const { expireProposals } = await import("../src/services/cp");
     const [a, b] = [await signup("cpd"), await signup("cpe")];
-    await fund(a.id, 1000);
+    await fund(a.id, 10000);
     const p1 = (await propose(a, b, "BESTIE")).body.proposal;
-    expect(await coins(a.token)).toBe(801);
+    expect(await coins(a.token)).toBe(8010);
     expect((await api("POST", `/cp/proposals/${p1.id}/decline`, b.token)).body.status).toBe("DECLINED");
-    expect(await coins(a.token)).toBe(1000);
+    expect(await coins(a.token)).toBe(10000);
     expect((await api("POST", `/cp/proposals/${p1.id}/accept`, b.token)).body.error.code).toBe("CP_NOT_PENDING");
 
     const p2 = (await propose(a, b, "SIBLING", "SISTER")).body.proposal;
-    expect(p2).toMatchObject({ label: "SISTER", price: 99 });
+    expect(p2).toMatchObject({ label: "SISTER", price: 990 });
     expect((await api("POST", `/cp/proposals/${p2.id}/cancel`, b.token)).status).toBe(404); // only the sender cancels
     expect((await api("POST", `/cp/proposals/${p2.id}/cancel`, a.token)).body.status).toBe("CANCELLED");
-    expect(await coins(a.token)).toBe(1000);
+    expect(await coins(a.token)).toBe(10000);
 
     const p3 = (await propose(a, b, "LOVE")).body.proposal;
     await db.execute(sql`update cp_proposals set expires_at = now() - interval '1 minute' where id = ${p3.id}`);
     expect(await expireProposals()).toBeGreaterThanOrEqual(1);
-    expect(await coins(a.token)).toBe(1000);
+    expect(await coins(a.token)).toBe(10000);
     expect((await api("GET", `/dm/${a.id}`, b.token)).body.messages[0].cp.status).toBe("EXPIRED");
     const ledger = (await api("GET", "/wallet/transactions", a.token)).body.entries.map((e: any) => e.entryType);
     expect(ledger.filter((t: string) => t === "CP_REFUND")).toHaveLength(3);
@@ -2649,21 +2680,21 @@ describe("CP relationships", () => {
     expect((await rels(a, a)).map((r) => r.type)).toEqual([...Array(4).fill("BESTIE"), ...Array(7).fill("SIBLING")]);
 
     const poor = await signup("cppoor");
-    await fund(poor.id, 98);
+    await fund(poor.id, 980);
     expect((await propose(poor, friends[4]!, "SIBLING", "BROTHER")).status).toBe(402);
-    expect(await coins(poor.token)).toBe(98);
+    expect(await coins(poor.token)).toBe(980);
   });
 
   test("a full slot at accept time is refused; ending a Love starts a 7-day cooldown; blocking ends the CP and refunds", async () => {
     const [a, b, c, d] = [await signup("cpg"), await signup("cph"), await signup("cpi"), await signup("cpj")];
-    for (const u of [a, b, c, d]) await fund(u.id, 5000);
+    for (const u of [a, b, c, d]) await fund(u.id, 50000);
     // b gets two Love requests; accepting one fills b's slot, so the other can't be accepted (it stays open to decline)
     const fromA = (await propose(a, b, "LOVE")).body.proposal;
     const fromC = (await propose(c, b, "LOVE")).body.proposal;
     expect((await api("POST", `/cp/proposals/${fromA.id}/accept`, b.token)).status).toBe(200);
     expect((await api("POST", `/cp/proposals/${fromC.id}/accept`, b.token)).body.error.code).toBe("CP_LIMIT");
     expect((await api("POST", `/cp/proposals/${fromC.id}/decline`, b.token)).status).toBe(200);
-    expect(await coins(c.token)).toBe(5000);
+    expect(await coins(c.token)).toBe(50000);
 
     const pairId = (await rels(a, a))[0].pairId;
     expect((await api("DELETE", `/cp/pairs/${pairId}`, c.token)).status).toBe(404); // not theirs
@@ -2680,7 +2711,7 @@ describe("CP relationships", () => {
     await api("POST", `/users/${a.id}/block`, c.token);
     expect(await rels(c, c)).toEqual([expect.objectContaining({ type: "SIBLING", label: "BROTHER" })]); // c–d untouched
     expect((await api("GET", `/dm/${c.id}`, a.token)).body.messages[0].cp.status).toBe("CANCELLED");
-    expect(await coins(c.token)).toBe(5000 - 99);
+    expect(await coins(c.token)).toBe(50000 - 990);
     expect((await propose(a, c, "BESTIE")).body.error.code).toBe("BLOCKED");
   });
 });
@@ -2688,19 +2719,19 @@ describe("CP relationships", () => {
 describe("Families", () => {
   const fund = (id: string, balance: number) => db.execute(sql`update wallet_accounts set balance = ${balance} where user_id = ${id}`);
 
-  test("create costs 500, one family each; owner appoints admins, admins remove members only", async () => {
+  test("create costs 5000, one family each; owner appoints admins, admins remove members only", async () => {
     const [owner, adm, m, poor] = [await signup("fown"), await signup("fadm"), await signup("fmem"), await signup("fpoor")];
-    await fund(owner.id, 600);
-    await fund(poor.id, 499);
+    await fund(owner.id, 6000);
+    await fund(poor.id, 4999);
     expect((await api("POST", "/families", poor.token, { name: "Broke" })).body.error.code).toBe("INSUFFICIENT_COINS");
     const made = await api("POST", "/families", owner.token, { name: "Night Owls" });
     expect(made.status).toBe(201);
-    expect(made.body.balance).toBe(100);
+    expect(made.body.balance).toBe(1000);
     const fid = made.body.familyId;
     expect((await api("POST", "/families", owner.token, { name: "Second" })).body.error.code).toBe("INSUFFICIENT_COINS");
-    await fund(owner.id, 600);
+    await fund(owner.id, 6000);
     expect((await api("POST", "/families", owner.token, { name: "Second" })).body.error.code).toBe("ALREADY_IN_FAMILY");
-    expect((await api("GET", "/wallet", owner.token)).body.balance).toBe(600); // the failed create was rolled back
+    expect((await api("GET", "/wallet", owner.token)).body.balance).toBe(6000); // the failed create was rolled back
 
     for (const u of [adm, m]) expect((await api("POST", `/families/${fid}/join`, u.token)).status).toBe(200);
     expect((await api("POST", `/families/${fid}/members/${adm.id}/role`, m.token, { role: "ADMIN" })).body.error.code).toBe("NOT_FAMILY_OWNER");
@@ -2729,7 +2760,7 @@ describe("Families", () => {
 
   test("members sort by gifts sent this month since joining; invites only to people you follow", async () => {
     const [owner, a, b, stranger] = [await signup("fo2"), await signup("fa2"), await signup("fb2"), await signup("fs2")];
-    await fund(owner.id, 500);
+    await fund(owner.id, 5000);
     const fid = (await api("POST", "/families", owner.token, { name: "Gifters" })).body.familyId;
     for (const u of [a, b]) await api("POST", `/families/${fid}/join`, u.token);
     const { roomId } = await liveRoom();
@@ -2754,6 +2785,237 @@ describe("Families", () => {
   });
 });
 
+describe("Agencies", () => {
+  const badgeIds = async (id: string, token: string) => ((await api("GET", `/users/${id}`, token)).body.badges as any[]).map((b) => b.id);
+  const mine = async (u: { token: string }) => (await api("GET", "/agencies/me", u.token)).body;
+
+  test("staff create, suspend and close; hosts apply or accept invites; the owner approves; one agency each", async () => {
+    const [adm, owner, h1, h2, h3] = [await signup("agadm"), await signup("agown"), await signup("agh1"), await signup("agh2"), await signup("agh3")];
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+
+    expect((await api("POST", "/admin/agencies", owner.token, { owner: owner.handle, name: "Mine" })).status).toBe(403);
+    const made = await api("POST", "/admin/agencies", adm.token, { owner: owner.handle, name: "Star Hosts" });
+    expect(made.status).toBe(201);
+    expect(made.body).toMatchObject({ name: "Star Hosts", status: "ACTIVE" });
+    expect(made.body.code).toBeGreaterThanOrEqual(100001);
+    const { agencyId, code } = made.body;
+    expect(await badgeIds(owner.id, h1.token)).toContain("agency_owner");
+    expect((await api("POST", "/admin/agencies", adm.token, { owner: owner.handle, name: "Again" })).body.error.code).toBe("ALREADY_OWNER");
+
+    // Apply with the agency ID; the owner approves.
+    expect((await api("GET", `/agencies/code/${code}`, h1.token)).body).toMatchObject({ agencyId, name: "Star Hosts", owner: { userId: owner.id } });
+    expect((await api("POST", `/agencies/${agencyId}/apply`, h1.token)).body.membership).toMatchObject({ agencyId, hostStatus: "APPLIED" });
+    expect((await api("POST", `/agencies/${agencyId}/apply`, h1.token)).body.error.code).toBe("ALREADY_IN_AGENCY");
+    expect((await api("POST", `/agencies/${agencyId}/apply`, owner.token)).body.error.code).toBe("IS_AGENCY_OWNER");
+    expect((await api("POST", `/agencies/owned/people/${h1.id}/approve`, h1.token)).body.error.code).toBe("NOT_AGENCY_OWNER");
+    expect((await api("POST", `/agencies/owned/people/${h1.id}/approve`, owner.token)).status).toBe(200);
+    expect((await mine(h1)).membership).toMatchObject({ hostStatus: "ACTIVE", joinedAt: expect.any(String) });
+
+    // Invite arrives as a DM card; accepting joins.
+    expect((await api("POST", "/agencies/owned/invite", owner.token, { user: owner.handle })).body.error.code).toBe("CANNOT_TARGET_SELF");
+    expect((await api("POST", "/agencies/owned/invite", owner.token, { user: h2.handle })).status).toBe(200);
+    expect((await api("GET", `/dm/${owner.id}`, h2.token)).body.messages[0]).toMatchObject({ agencyId });
+    expect((await mine(h2)).membership.hostStatus).toBe("INVITED");
+    expect((await api("POST", "/agencies/me/accept", h2.token)).body.membership.hostStatus).toBe("ACTIVE");
+
+    // An application turned down, an applicant withdrawing.
+    await api("POST", `/agencies/${agencyId}/apply`, h3.token);
+    expect((await api("DELETE", `/agencies/owned/people/${h3.id}`, owner.token)).status).toBe(200);
+    expect((await mine(h3)).membership).toBeNull();
+    await api("POST", `/agencies/${agencyId}/apply`, h3.token);
+    expect((await api("POST", "/agencies/me/cancel", h3.token)).body.membership).toBeNull();
+
+    const people = (await api("GET", "/agencies/owned", owner.token)).body.people;
+    expect(people.map((p: any) => [p.userId, p.hostStatus])).toEqual([[h1.id, "ACTIVE"], [h2.id, "ACTIVE"]]);
+
+    // Suspended: no badge, no invites. Reactivated: back. Closed: everyone is let go, and the owner may get a new agency.
+    expect((await api("PATCH", `/admin/agencies/${agencyId}`, adm.token, { status: "SUSPENDED" })).body.status).toBe("SUSPENDED");
+    expect(await badgeIds(owner.id, h1.token)).not.toContain("agency_owner");
+    expect((await api("POST", "/agencies/owned/invite", owner.token, { user: h3.handle })).body.error.code).toBe("AGENCY_SUSPENDED");
+    expect((await api("PATCH", `/admin/agencies/${agencyId}`, adm.token, { status: "ACTIVE", name: "Star Hosts India" })).body).toMatchObject({ status: "ACTIVE", name: "Star Hosts India" });
+    expect(await badgeIds(owner.id, h1.token)).toContain("agency_owner");
+    expect((await api("GET", "/admin/agencies", adm.token)).body.agencies.find((a: any) => a.agencyId === agencyId)).toMatchObject({ hosts: 2, owner: { userId: owner.id } });
+    expect((await api("PATCH", `/admin/agencies/${agencyId}`, adm.token, { status: "CLOSED" })).status).toBe(200);
+    expect((await mine(h1)).membership).toBeNull();
+    expect(await badgeIds(owner.id, h1.token)).not.toContain("agency_owner");
+    expect((await api("PATCH", `/admin/agencies/${agencyId}`, adm.token, { status: "ACTIVE" })).body.error.code).toBe("AGENCY_CLOSED");
+    expect((await api("POST", "/admin/agencies", adm.token, { owner: owner.handle, name: "Second Act" })).status).toBe(201);
+  });
+
+  test("leaving: the owner approves, or it happens after 3 months with no app use, gifts or recharges", async () => {
+    const [adm, owner, quiet, busy] = [await signup("aladm"), await signup("alown"), await signup("alq"), await signup("alb")];
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const { agencyId } = (await api("POST", "/admin/agencies", adm.token, { owner: owner.handle, name: "Leavers" })).body;
+    for (const h of [quiet, busy]) {
+      await api("POST", "/agencies/owned/invite", owner.token, { user: h.handle });
+      await api("POST", "/agencies/me/accept", h.token);
+      expect((await api("POST", "/agencies/me/leave", h.token)).body.membership.hostStatus).toBe("LEAVING");
+    }
+    expect((await api("POST", `/agencies/${agencyId}/apply`, quiet.token)).body.error.code).toBe("ALREADY_IN_AGENCY"); // still in until released
+
+    // 4 months on: the quiet host is released; one who received a gift last week is not.
+    const ago = sql`now() - interval '4 months'`;
+    await db.execute(sql`update agency_hosts set leave_requested_at = ${ago} where agency_id = ${agencyId}`);
+    await db.execute(sql`update users set last_seen_at = ${ago} where id in (${quiet.id}, ${busy.id})`);
+    const { roomId } = await liveRoom();
+    const [gift] = (await db.execute<{ id: string }>(sql`select id from gift_catalog limit 1`)).rows;
+    await db.execute(sql`insert into gift_transactions (sender_id, recipient_id, gift_id, room_id, recipient_seat_index, quantity, coins_debited, idempotency_key, created_at)
+      values (${owner.id}, ${busy.id}, ${gift!.id}, ${roomId}, 0, 1, 100, ${crypto.randomUUID()}, now() - interval '7 days')`);
+    expect((await mine(quiet)).membership).toBeNull();
+    expect((await mine(busy)).membership.hostStatus).toBe("LEAVING");
+
+    // The owner can let them go at once.
+    expect((await api("POST", `/agencies/owned/people/${busy.id}/approve`, owner.token)).body.people).toEqual([]);
+    expect((await mine(busy)).membership).toBeNull();
+  });
+});
+
+describe("Host month: mic time, diamonds and level", () => {
+  test("seat time is sampled; 10-min minimum, 2 h a day, split at midnight; diamonds since joining; level and owner bonus", async () => {
+    const { sampleMicTime } = await import("../src/services/hostMonth");
+    const [adm, owner, h] = [await signup("hmadm"), await signup("hmown"), await signup("hmhost")];
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const { agencyId } = (await api("POST", "/admin/agencies", adm.token, { owner: owner.handle, name: "Month Co" })).body;
+    await api("POST", "/agencies/owned/invite", owner.token, { user: h.handle });
+    await api("POST", "/agencies/me/accept", h.token);
+
+    // On a seat in a live room: the sampler opens a session and keeps extending it.
+    const { roomId } = await liveRoom();
+    await api("POST", `/rooms/${roomId}/join`, h.token);
+    expect((await api("POST", `/rooms/${roomId}/seats/1/claim`, h.token)).status).toBe(200);
+    expect(await sampleMicTime()).toBeGreaterThanOrEqual(1);
+    await sampleMicTime();
+    const { rows: live } = await db.execute(sql`select count(*)::int as n from mic_sessions where user_id = ${h.id}`);
+    expect(live[0]!.n).toBe(1);
+
+    // Known sessions this month (India time), joined before the month began.
+    await db.execute(sql`delete from mic_sessions where user_id = ${h.id}`);
+    await db.execute(sql`update agency_hosts set joined_at = (date_trunc('month', now() at time zone 'Asia/Kolkata') - interval '1 day') at time zone 'Asia/Kolkata' where user_id = ${h.id}`);
+    const at = (offset: string) => sql`(date_trunc('month', now() at time zone 'Asia/Kolkata') + ${offset}::interval) at time zone 'Asia/Kolkata'`;
+    const session = (from: string, to: string) =>
+      db.execute(sql`insert into mic_sessions (user_id, room_id, agency_id, started_at, last_at) values (${h.id}, ${roomId}, ${agencyId}, ${at(from)}, ${at(to)})`);
+    await session("1 day 10:00", "1 day 10:05"); // 5 minutes: too short
+    await session("1 day 12:00", "1 day 15:00"); // 3 h, capped to 2 h for the day
+    await session("2 days 23:30", "3 days 00:40"); // 30 + 40 minutes across midnight
+    for (let d = 4; d < 16; d++) await session(`${d} days 18:00`, `${d} days 20:30`); // 12 days × 2 h (capped)
+    // 120 + 70 + 12 × 120 = 1630 minutes ≈ 27 h
+
+    const thisMonth = sql`date_trunc('month', now() at time zone 'Asia/Kolkata')::date`;
+    await db.execute(sql`insert into host_months (user_id, agency_id, month, earned) values
+      (${h.id}, ${agencyId}, ${thisMonth}, 60000),
+      (${h.id}, ${agencyId}, (${thisMonth} - interval '1 month')::date, 900000)`); // last month's pool: doesn't count
+
+    const month = (await api("GET", "/agencies/me", h.token)).body.month;
+    expect(month).toMatchObject({ diamonds: 60000, micMinutes: 1630, level: 3, salary: 2600, paidIn: "CASH", agencyBonus: 260 });
+    expect(month.next).toMatchObject({ level: 4, diamonds: 100000, minutes: 1500 });
+
+    const view = (await api("GET", "/agencies/owned", owner.token)).body;
+    expect(view.people[0]).toMatchObject({ userId: h.id, month: { level: 3 } });
+    expect(view.totals).toEqual({ diamonds: 60000, salaries: 2600, agencyBonus: 260 });
+    expect((await api("GET", "/agencies/levels", h.token)).body.levels).toHaveLength(15);
+    // The same table, public, for the website's /salary page.
+    const policy = (await api("GET", "/salary-policy")).body;
+    expect(policy.levels[2]).toMatchObject({ level: 3, diamonds: 50000, hours: 20, bonusPct: 4, bonusDiamonds: 2000, salary: 2600 });
+    expect(policy).toMatchObject({ coinLevels: 2, agencyShare: 0.1, rupeesPerDiamond: 0.05, diamondSharePercent: 70, rupeesPerCoin: 0.1, minWithdrawalRupees: 500 });
+  });
+});
+
+describe("Salaries and withdrawals", () => {
+  const lastMonth = async () => (await db.execute<{ m: string }>(sql`select to_char((now() at time zone 'Asia/Kolkata') - interval '1 month', 'YYYY-MM') as m`)).rows[0]!.m;
+  async function agencyWithHost(tag: string) {
+    const [adm, owner, h] = [await signup(`${tag}adm`), await signup(`${tag}own`), await signup(`${tag}h`)];
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const { agencyId } = (await api("POST", "/admin/agencies", adm.token, { owner: owner.handle, name: `${tag} Agency` })).body;
+    await api("POST", "/agencies/owned/invite", owner.token, { user: h.handle });
+    await api("POST", "/agencies/me/accept", h.token);
+    return { adm, owner, h, agencyId };
+  }
+
+  test("a host's gifts go to the month's salary pool; converting uses the pool first", async () => {
+    const { h, agencyId } = await agencyWithHost("pool");
+    const { host, roomId } = await liveRoom();
+    await api("POST", `/rooms/${roomId}/join`, h.token);
+    await api("POST", `/rooms/${roomId}/seats/1/claim`, h.token);
+    await db.execute(sql`update diamond_accounts set balance = 0 where user_id = ${h.id}`);
+    await db.execute(sql`insert into diamond_accounts (user_id, balance) values (${h.id}, 100) on conflict (user_id) do update set balance = 100`); // from before joining
+    expect((await api("POST", `/rooms/${roomId}/gifts`, host.token, { recipientUserId: h.id, giftId: "star", quantity: 1 }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
+    expect((await api("GET", "/wallet/diamonds", h.token)).body).toMatchObject({ balance: 450, pool: 350 }); // 500 coins -> 350 to the pool
+    const { rows } = await db.execute<{ earned: number }>(sql`select earned from host_months where user_id = ${h.id} and agency_id = ${agencyId}`);
+    expect(rows[0]!.earned).toBe(350);
+
+    const r = await api("POST", "/wallet/diamonds/convert", h.token, { diamonds: 400, idempotencyKey: crypto.randomUUID() });
+    expect(r.body).toMatchObject({ diamonds: 50, fromPool: 350 }); // pool first, then 50 from the account
+    const { rows: after } = await db.execute<{ converted: number }>(sql`select converted from host_months where user_id = ${h.id}`);
+    expect(after[0]!.converted).toBe(350);
+  });
+
+  test("staff pay a finished month once: salary minus early conversions, coins for levels 1-2, cash above, 10% to the owner", async () => {
+    const { adm, owner, h, agencyId } = await agencyWithHost("pay");
+    const small = await signup("paysmall");
+    await api("POST", "/agencies/owned/invite", owner.token, { user: small.handle });
+    await api("POST", "/agencies/me/accept", small.token);
+    const month = await lastMonth();
+    const { roomId } = await liveRoom();
+    // Last month: h earned 60,000 (Level 3 with 20 h), converted 10,000 early; small earned 12,000 (Level 1 with 10 h).
+    await db.execute(sql`insert into host_months (user_id, agency_id, month, earned, converted) values
+      (${h.id}, ${agencyId}, ${month + "-01"}, 60000, 10000), (${small.id}, ${agencyId}, ${month + "-01"}, 12000, 0)`);
+    for (const [u, days] of [[h.id, 11], [small.id, 6]] as const)
+      for (let d = 1; d < days; d++)
+        await db.execute(sql`insert into mic_sessions (user_id, room_id, agency_id, started_at, last_at) values (${u}, ${roomId}, ${agencyId},
+          (${month + "-01"}::timestamp + ${`${d} days 18:00`}::interval) at time zone 'Asia/Kolkata', (${month + "-01"}::timestamp + ${`${d} days 20:00`}::interval) at time zone 'Asia/Kolkata')`);
+
+    const sheet = (await api("GET", `/admin/salaries/${month}`, adm.token)).body;
+    expect(sheet.over).toBe(true);
+    const line = (id: string) => sheet.hosts.find((x: any) => x.user.userId === id);
+    expect(line(h.id)).toMatchObject({ level: 3, micMinutes: 1200, grossPaise: 260000, converted: 10000, payPaise: 210000, paidIn: "CASH", paid: false });
+    expect(line(small.id)).toMatchObject({ level: 1, grossPaise: 50000, payPaise: 50000, paidIn: "COINS" });
+    const ownerLine = sheet.owners.find((o: any) => o.agency.agencyId === agencyId); // the sheet covers every agency
+    expect(ownerLine).toMatchObject({ user: { userId: owner.id }, payPaise: 31000, paid: false }); // 10% of 2,600 + 500
+
+    const thisMonth = (await db.execute<{ m: string }>(sql`select to_char(now() at time zone 'Asia/Kolkata', 'YYYY-MM') as m`)).rows[0]!.m;
+    expect((await api("POST", `/admin/salaries/${thisMonth}/pay`, adm.token)).body.error.code).toBe("MONTH_NOT_OVER");
+    expect((await api("POST", `/admin/salaries/${month}/pay`, h.token)).status).toBe(403);
+    const coinsBefore = (await api("GET", "/wallet", small.token)).body.balance;
+    const paid = (await api("POST", `/admin/salaries/${month}/pay`, adm.token)).body;
+    expect(paid.run.finishedAt).toBeTruthy();
+    expect(paid.hosts.every((x: any) => x.paid)).toBe(true);
+    expect((await api("POST", `/admin/salaries/${month}/pay`, adm.token)).body.error.code).toBe("ALREADY_PAID");
+
+    expect((await api("GET", "/cash", h.token)).body.balancePaise).toBe(210000);
+    expect((await api("GET", "/cash", owner.token)).body.balancePaise).toBe(31000);
+    expect((await api("GET", "/wallet", small.token)).body.balance).toBe(coinsBefore + 5000); // ₹500 as coins
+    const { rows } = await db.execute<{ n: number }>(sql`select count(*)::int as n from host_months where agency_id = ${agencyId} and settled_at is null`);
+    expect(rows[0]!.n).toBe(0); // pools settled: what's left lapses
+    expect((await api("GET", "/wallet/diamonds", h.token)).body.pool).toBe(0);
+  });
+
+  test("withdrawals: bank details first, ₹500 minimum, one at a time; staff pay or reject (money returns)", async () => {
+    const { adm, h } = await agencyWithHost("wd");
+    await db.execute(sql`insert into cash_accounts (user_id, balance_paise) values (${h.id}, 300000)`);
+    const withdraw = (rupees: number) => api("POST", "/cash/withdraw", h.token, { rupees });
+    expect((await withdraw(1000)).body.error.code).toBe("NO_PAYOUT_DETAILS");
+    expect((await api("PUT", "/cash/details", h.token, { accountName: "Asha Rao", accountNumber: "12", ifsc: "SBIN0001234" })).status).toBe(400);
+    expect((await api("PUT", "/cash/details", h.token, { accountName: "Asha Rao", accountNumber: "123456789012", ifsc: "sbin0001234" })).body.details).toEqual({ accountName: "Asha Rao", accountNumber: "123456789012", ifsc: "SBIN0001234" });
+    expect((await withdraw(499)).body.error.code).toBe("BELOW_MINIMUM");
+    expect((await withdraw(5000)).body.error.code).toBe("INSUFFICIENT_CASH");
+    expect((await withdraw(1000)).body.balancePaise).toBe(200000);
+    expect((await withdraw(500)).body.error.code).toBe("WITHDRAWAL_OPEN");
+
+    const queue = (await api("GET", "/admin/withdrawals", adm.token)).body.withdrawals.filter((w: any) => w.user.userId === h.id);
+    expect(queue).toEqual([expect.objectContaining({ amountPaise: 100000, ifsc: "SBIN0001234", status: "PENDING" })]);
+    expect((await api("POST", `/admin/withdrawals/${queue[0].id}/decision`, adm.token, { paid: true, note: "UTR 1234" })).body.status).toBe("PAID");
+    expect((await api("POST", `/admin/withdrawals/${queue[0].id}/decision`, adm.token, { paid: false })).body.error.code).toBe("ALREADY_DECIDED");
+
+    resetRateLimits(); // 5 withdrawal attempts a minute
+    expect((await withdraw(2000)).body.balancePaise).toBe(0);
+    const second = (await api("GET", "/admin/withdrawals", adm.token)).body.withdrawals.find((w: any) => w.user.userId === h.id);
+    await api("POST", `/admin/withdrawals/${second.id}/decision`, adm.token, { paid: false, note: "Account name doesn't match" });
+    const mine = (await api("GET", "/cash", h.token)).body;
+    expect(mine.balancePaise).toBe(200000); // returned
+    expect(mine.withdrawals.map((w: any) => w.status)).toEqual(["REJECTED", "PAID"]);
+  });
+});
+
 describe("CP levels", () => {
   test("the curve: level 1 at 0, each level costs more than the last, max 50", async () => {
     const { cpLevel, cpPointsFor, CP_MAX_LEVEL } = await import("../src/lib/cpLevels");
@@ -2768,16 +3030,16 @@ describe("CP levels", () => {
     const { awardTogether } = await import("../src/services/cp");
     const { host, roomId } = await liveRoom();
     const fan = await joined(roomId, "cplvfan");
-    await db.execute(sql`update wallet_accounts set balance = 10000 where user_id in (${host.id}, ${fan.id})`);
+    await db.execute(sql`update wallet_accounts set balance = 100000 where user_id in (${host.id}, ${fan.id})`);
     const p = (await api("POST", "/cp/proposals", fan.token, { toUserId: host.id, type: "LOVE" })).body.proposal;
     expect((await api("POST", `/cp/proposals/${p.id}/accept`, host.token)).status).toBe(200);
     const level = async () => (await api("GET", `/users/${host.id}`, fan.token)).body.relationships[0].level;
     expect(await level()).toMatchObject({ level: 1, points: 0 });
 
-    // Gifts: 1 point per coin, either way.
+    // Gifts: 1 point per 10 coins, either way.
     const gift = (giftId: string, quantity: number) =>
       api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: host.id, giftId, quantity }, { "Idempotency-Key": crypto.randomUUID() });
-    expect((await gift("chai", 2)).status).toBe(200); // 20 coins
+    expect((await gift("chai", 2)).status).toBe(200); // 200 coins
     expect((await level()).points).toBe(20);
 
     // Messages: 3 each, at most 60 a day.
