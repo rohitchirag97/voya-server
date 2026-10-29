@@ -22,9 +22,18 @@
   player.loops = 1;
   player.clearsAfterStop = true;
   player.setContentMode('AspectFit');
-  player.onFinished(() => tell({ type: 'done' }));
-
   const box = document.getElementById('fx');
+  const BANNER_MS = 3000; // entry banners show for 3 s (the files run ~5 s), then fade out quickly
+  // Each effect says 'done' exactly once: at its natural end, or when a banner is cut short.
+  let current = 0;
+  let cut = null;
+  const finish = (id) => {
+    if (id !== current) return;
+    current = 0;
+    clearTimeout(cut);
+    tell({ type: 'done' });
+  };
+  player.onFinished(() => finish(current));
   const CLEAR = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
   // The picture, cut to a circle (the banner's slot is round). Same origin as this page, so the canvas stays readable.
   const roundPicture = (url) => new Promise((done) => {
@@ -43,23 +52,33 @@
   });
 
   const cache = {}; // url -> parsed animation, so a gift sent again starts at once
-  // banner (SVIP entries, 750×200): a band across the upper room instead of the whole screen; its slots get the
-  // person's picture (03), name (01), "entered the room" (02) and tier tag (04); the grey placeholder bars go blank.
+  // banner (SVIP entries, 750×200): a band across the upper room instead of the whole screen. Only the person's
+  // picture (slot 03) and name (slot 01, moved down to the bubble's middle) show; the second line (02), the tag (04)
+  // and the grey placeholder bars stay blank.
+  let seq = 0;
   window.voyaFx = async (url, banner) => {
+    const id = (current = ++seq);
     player.clearDynamicObjects();
     box.style.cssText = banner ? 'top: 28%; bottom: auto; height: calc(100vw * 200 / 750);' : '';
     if (banner) {
       const pic = await roundPicture(banner.avatar);
       if (pic) player.setImage(pic, '03');
-      player.setText({ text: banner.name, size: '24px', color: '#FFFFFF' }, '01');
-      player.setText({ text: 'entered the room', size: '20px', color: '#FFFFFF' }, '02');
-      player.setText({ text: banner.tag, size: '16px', color: '#FFFFFF' }, '04');
+      player.setText({ text: banner.name, size: '26px', color: '#FFFFFF', offset: { x: -30, y: 16 } }, '01');
       player.setImage(CLEAR, 'img_11871');
       player.setImage(CLEAR, 'img_11872');
     }
-    const play = (item) => { player.setVideoItem(item); player.startAnimation(); };
+    const play = (item) => {
+      player.setVideoItem(item);
+      player.startAnimation();
+      if (!banner) return;
+      cut = setTimeout(() => {
+        box.style.transition = 'opacity 0.3s';
+        box.style.opacity = '0';
+        setTimeout(() => { player.stopAnimation(true); finish(id); }, 300);
+      }, BANNER_MS);
+    };
     if (cache[url]) return play(cache[url]);
-    parser.load(url, (item) => { cache[url] = item; play(item); }, () => tell({ type: 'done' }));
+    parser.load(url, (item) => { cache[url] = item; play(item); }, () => finish(id));
   };
   tell({ type: 'ready' });
   // ?play=<path>: preview one effect in a browser (e.g. /games/fx/?play=gift/rocket.svga).
