@@ -47,7 +47,17 @@ app.get("/v1/salary-policy", (c) =>
 app.route("/", links); // shareable room links (/r/:roomId) and the install page (/download)
 // HTML5 mini-games, opened in a WebView over the room. The socket client comes from the installed socket.io, so versions always match.
 app.get("/games/socket.io.min.js", () => new Response(Bun.file(`${import.meta.dir}/../node_modules/socket.io/client-dist/socket.io.min.js`)));
-app.use("/games/*", serveStatic({ root: `${import.meta.dir}/../public` }));
+app.use(
+  "/games/*",
+  serveStatic({
+    root: `${import.meta.dir}/../public`,
+    // Effects and gift icons are big and rarely change: phones keep them for a week, so a gift sent again (or in the
+    // next session) plays at once. Pages and scripts stay uncached so updates show straight away.
+    onFound: (path, c) => {
+      if (/\.(svga|png)$/.test(path)) c.header("Cache-Control", "public, max-age=604800");
+    },
+  }),
+);
 app.route("/v1", account);
 app.route("/v1", admin); // before roomRoutes, whose "*" auth would run a second time
 app.route("/v1", postRoutes); // before roomRoutes, whose "*" auth would cover the public /uploads too

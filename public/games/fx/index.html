@@ -41,9 +41,56 @@
     if (id !== current) return;
     current = 0;
     clearTimeout(cut);
+    stopSound();
     nameTag.style.display = 'none';
     tell({ type: 'done' });
   };
+
+  // Sound: SVGAPlayer-Web ignores an effect's audio, so it's read here. SVGA 2 files are zlib-compressed protobuf;
+  // the MP3s sit in `images` (field 3, keyed) and `audios` (field 5) says when each starts. Per url, kept small.
+  const sounds = {}; // url -> Promise<[{ src, at (ms after start), from (ms into the track) }]>
+  const playing = [];
+  const varint = (b, o) => { let r = 0, s = 0, x; do { x = b[o++]; r += (x & 0x7f) * 2 ** s; s += 7; } while (x & 0x80); return [r, o]; };
+  const fields = (b) => {
+    const out = []; let o = 0;
+    while (o < b.length) {
+      let k; [k, o] = varint(b, o); const f = k >> 3, t = k & 7;
+      if (t === 0) { let v; [v, o] = varint(b, o); out.push([f, v]); }
+      else if (t === 2) { let n; [n, o] = varint(b, o); out.push([f, b.subarray(o, o + n)]); o += n; }
+      else if (t === 5) { out.push([f, new DataView(b.buffer, b.byteOffset + o, 4).getFloat32(0, true)]); o += 4; }
+      else if (t === 1) { o += 8; } else break;
+    }
+    return out;
+  };
+  const text = (b) => new TextDecoder().decode(b);
+  const soundsOf = (url) => (sounds[url] ??= (async () => {
+    try {
+      const raw = new Response(new Blob([await (await fetch(url)).arrayBuffer()]).stream().pipeThrough(new DecompressionStream('deflate')));
+      const movie = fields(new Uint8Array(await raw.arrayBuffer()));
+      const auds = movie.filter(([n]) => n === 5).map(([, v]) => Object.fromEntries(fields(v)));
+      if (!auds.length) return [];
+      const fps = Object.fromEntries(fields(movie.find(([n]) => n === 2)[1]))[3] || 20;
+      const files = Object.fromEntries(movie.filter(([n]) => n === 3).map(([, v]) => { const e = Object.fromEntries(fields(v)); return [text(e[1]), e[2]]; }));
+      return auds.filter((a) => files[text(a[1])]).map((a) => ({
+        src: URL.createObjectURL(new Blob([files[text(a[1])]], { type: 'audio/mpeg' })),
+        at: ((a[2] || 0) / fps) * 1000,
+        from: (a[4] || 0) / 1000,
+      }));
+    } catch (e) { return []; } // older WebView or a broken file: the effect still plays, silently
+  })());
+  const startSound = async (url, id) => {
+    for (const s of await soundsOf(url)) {
+      const t = setTimeout(() => {
+        if (id !== current) return;
+        const a = new Audio(s.src);
+        a.currentTime = s.from;
+        a.play().catch(() => {});
+        playing.push(a);
+      }, s.at);
+      playing.push({ pause: () => clearTimeout(t) });
+    }
+  };
+  const stopSound = () => { for (const a of playing.splice(0)) a.pause(); };
   player.onFinished(() => finish(current));
   const CLEAR = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
   // The picture, cut to a circle (the banner's slot is round). Same origin as this page, so the canvas stays readable.
@@ -69,7 +116,25 @@
     return Math.max(14, Math.min(max, Math.floor((max * width) / Math.max(1, measure.measureText(text).width))));
   };
 
-  const cache = {}; // url -> parsed animation, so a gift sent again starts at once
+  // url -> parsed animation, so a gift sent again starts at once. Only the last few: big effects take a lot of memory.
+  const cache = {};
+  const order = [];
+  const remember = (url, item) => {
+    if (!cache[url]) order.push(url);
+    cache[url] = item;
+    while (order.length > 4) delete cache[order.shift()];
+  };
+  // Downloads effects ahead of time, one at a time, into the WebView's cache (the server lets it keep them a week),
+  // so a gift arriving later only needs unpacking.
+  window.voyaFxWarm = async (urls) => {
+    for (const u of urls) {
+      try { await fetch(u); } catch (e) { /* offline: it downloads when played */ }
+    }
+  };
+  // Unpacks one effect ahead (the gift picked in the gift box), so sending it plays with no wait.
+  window.voyaFxPrepare = (url) => {
+    if (!cache[url]) parser.load(url, (item) => remember(url, item), () => {});
+  };
   // banner (SVIP entries, 750×200): a band across the room chat instead of the whole screen. The person's picture
   // fills slot 03; the file's text slots (01, 02, 04) and grey placeholder bars stay blank, and the name is laid over
   // the middle of the bubble instead (between the picture and the crest: banner x 122–400, y 86–130; the bubble,
@@ -94,6 +159,7 @@
     const play = (item) => {
       player.setVideoItem(item);
       player.startAnimation();
+      startSound(url, id);
       if (!banner) return;
       nameTag.style.display = 'flex';
       cut = setTimeout(() => {
@@ -105,7 +171,7 @@
       }, BANNER_MS);
     };
     if (cache[url]) return play(cache[url]);
-    parser.load(url, (item) => { cache[url] = item; play(item); }, () => finish(id));
+    parser.load(url, (item) => { remember(url, item); play(item); }, () => finish(id));
   };
   tell({ type: 'ready' });
   // ?play=<path>: preview one effect in a browser (e.g. /games/fx/?play=gift/rocket.svga).
