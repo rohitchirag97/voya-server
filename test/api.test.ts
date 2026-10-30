@@ -1045,6 +1045,15 @@ describe("gifts", () => {
     const rocket = catalog.find((g: any) => g.id === "rocket");
     expect(rocket).toMatchObject({ coinPrice: 1000, animation: "launch" });
     expect(rocket.svg).toStartWith("<svg");
+    // SVGA gifts with a PNG icon (cut from their animation) instead of svg artwork.
+    expect(catalog.find((g: any) => g.id === "crystal_heart")).toMatchObject({
+      coinPrice: 49990,
+      maxQuantity: 99,
+      svg: null,
+      assetUrl: "games/fx/gift/icons/crystal_heart.png",
+      effect: "/games/fx/gift/crystal-heart.svga",
+    });
+    expect(["golden_phoenix", "ice_castle", "royal_castle"].every((id) => catalog.some((g: any) => g.id === id))).toBe(true);
 
     const s = socketFor(host.token);
     await emit(s, "room:join", { roomId });

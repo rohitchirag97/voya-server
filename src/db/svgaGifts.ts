@@ -45,4 +45,11 @@ const heartRocket = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 17
 export const SVGA_GIFTS = [
   { id: "pink_lips", name: "Glossy Pink Lips", assetUrl: "gifts/pink_lips.svg", coinPrice: 2990, maxQuantity: 99, sortOrder: 24, svg: lips, effect: "/games/fx/gift/pink-lips.svga" },
   { id: "heart_rocket", name: "Pink Heart Rocket", assetUrl: "gifts/heart_rocket.svg", coinPrice: 13140, maxQuantity: 33, sortOrder: 29, svg: heartRocket, effect: "/games/fx/gift/pink-heart-rocket.svga" },
+  // Icons for these are cut from each gift's own animation (a PNG under games/, which the app shows when svg is null).
+  ...[
+    { id: "golden_phoenix", name: "Golden Phoenix Flame", coinPrice: 9990, sortOrder: 30, effect: "golden-phoenix" },
+    { id: "ice_castle", name: "Ice Castle", coinPrice: 19990, sortOrder: 31, effect: "ice-castle" },
+    { id: "royal_castle", name: "Royal Castle", coinPrice: 29990, sortOrder: 32, effect: "royal-castle" },
+    { id: "crystal_heart", name: "Crystal Heart In Hands", coinPrice: 49990, sortOrder: 33, effect: "crystal-heart" },
+  ].map((x) => ({ ...x, assetUrl: `games/fx/gift/icons/${x.id}.png`, maxQuantity: 99, effect: `/games/fx/gift/${x.effect}.svga` })),
 ];
