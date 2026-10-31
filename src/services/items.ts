@@ -55,7 +55,7 @@ export async function saveItemFile(file: File, want: "image" | "svga") {
 
 // A picture's or animation's own width and height, read from the file (PNG, JPEG, WebP, SVGA 2.x); null if unknown.
 // Badges keep their shape (they're often wide), so the app needs it.
-export async function artSize(file: File): Promise<{ w: number; h: number } | null> {
+export async function artSize(file: Blob): Promise<{ w: number; h: number } | null> {
   const b = new Uint8Array(await file.arrayBuffer());
   const u16 = (i: number) => (b[i]! << 8) | b[i + 1]!;
   const u32 = (i: number) => ((b[i]! << 24) >>> 0) + (b[i + 1]! << 16) + (b[i + 2]! << 8) + b[i + 3]!;
@@ -117,6 +117,25 @@ export async function artSize(file: File): Promise<{ w: number; h: number } | nu
     }
   } catch {}
   return null;
+}
+
+// Badges: 100 high, as wide as the art (within 1:5 and 5:1); the picture is never cropped.
+const badgeWidth = (size?: { w: number; h: number } | null) => (size ? Math.round(Math.min(5, Math.max(0.2, size.w / size.h)) * 100) : 100);
+const badgeSvg = (image: string, w: number) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 100"><image href="/${image}" width="${w}" height="100" preserveAspectRatio="xMidYMid meet"/></svg>`;
+
+// Badges uploaded before they kept their shape were squared and cropped to fill: redraw them from their picture.
+// Runs at start; only touches those (a cropped square), so it's a no-op once done.
+export async function repairBadgeShapes() {
+  const rows = await db.select({ id: badges.id, svg: badges.svg }).from(badges).where(sql`${badges.svg} like '%preserveAspectRatio="xMidYMid slice"%' and ${badges.svg} like '%href="/games/items/%'`);
+  for (const r of rows) {
+    const image = r.svg.match(/href="\/(games\/items\/[^"]+)"/)?.[1];
+    if (!image) continue;
+    const file = Bun.file(join(ITEM_FILES_DIR(), image.split("/").pop()!));
+    if (!(await file.exists())) continue;
+    await db.update(badges).set({ svg: badgeSvg(image, badgeWidth(await artSize(file))) }).where(eq(badges.id, r.id));
+  }
+  return rows.length;
 }
 
 // The app draws badges and frames as SVG: an uploaded picture goes in as an <image> (the app adds its server address
@@ -202,9 +221,9 @@ async function artwork(i: ItemInput) {
   if (i.kind === "BADGE") {
     // Badges keep their own shape (often wide): 100 high, as wide as the art; the picture is never cropped.
     const size = (pic && (await artSize(pic))) || (anim && (await artSize(anim)));
-    const w = size ? Math.round(Math.min(5, Math.max(0.2, size.w / size.h)) * 100) : 100;
+    const w = badgeWidth(size);
     const svg = image
-      ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 100"><image href="/${image}" width="${w}" height="100" preserveAspectRatio="xMidYMid meet"/></svg>`
+      ? badgeSvg(image, w)
       : svga
         ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 100"/>` // only carries the shape
         : null;

@@ -3914,6 +3914,13 @@ describe("any artwork", () => {
     const ihdr = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 1, 44, 0, 0, 0, 100, ...new Array(40).fill(0)]);
     const wide = (await send(adm.token, "POST", "/admin/items/BADGE", { name: "Wide", art: new File([ihdr], "w.png") })).body.id;
     expect((await item(wide)).svg).toContain('viewBox="0 0 300 100"');
+    // Badges uploaded before that were squared and cropped: the start-up repair redraws them from their picture.
+    const pic = (await item(wide)).svg.match(/href="\/([^"]+)"/)[1];
+    await db.execute(sql`update badges set svg = ${`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><image href="/${pic}" width="100" height="100" preserveAspectRatio="xMidYMid slice"/></svg>`} where id = ${wide}`);
+    const { repairBadgeShapes } = await import("../src/services/items");
+    expect(await repairBadgeShapes()).toBeGreaterThanOrEqual(1);
+    expect((await item(wide)).svg).toContain('viewBox="0 0 300 100"');
+    expect((await item(wide)).svg).not.toContain("slice");
     const params = new Uint8Array(10);
     const v = new DataView(params.buffer);
     v.setUint8(0, 0x0d); v.setFloat32(1, 400, true); v.setUint8(5, 0x15); v.setFloat32(6, 100, true);
