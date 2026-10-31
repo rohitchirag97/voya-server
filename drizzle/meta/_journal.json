@@ -505,6 +505,13 @@
       "when": 1793445809198,
       "tag": "0071_prize_items",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1793448781996,
+      "tag": "0072_item_flags_grants",
+      "breakpoints": true
     }
   ]
 }

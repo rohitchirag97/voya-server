@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, asc, desc, eq, gt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { json, requireAuth, requireStaff, schemas, type Env } from "../http";
 import { db } from "../db";
 import { notices, users } from "../db/schema";
@@ -17,16 +17,22 @@ noticeRoutes.use("/admin/notices/*", requireAuth, requireStaff("OWNER", "ADMIN")
 
 const card = { id: notices.id, title: notices.title, imageUrl: notices.imageUrl, color: notices.color, homeTab: notices.homeTab, startsAt: notices.startsAt, endsAt: notices.endsAt };
 const started = and(eq(notices.published, true), lte(notices.startsAt, sql`now()`));
+const forEveryone = isNull(notices.userId); // personal messages (a gift receipt) only go to their user's inbox
 
 // Carousel: live now.
 noticeRoutes.get("/notices", async (c) =>
-  c.json({ notices: await db.select(card).from(notices).where(and(started, gt(notices.endsAt, sql`now()`))).orderBy(asc(notices.sortOrder), desc(notices.startsAt)) }),
+  c.json({ notices: await db.select(card).from(notices).where(and(started, forEveryone, gt(notices.endsAt, sql`now()`))).orderBy(asc(notices.sortOrder), desc(notices.startsAt)) }),
 );
 
 // Inbox tile: every started inbox notice, newest first, and how many came since I last looked.
 noticeRoutes.get("/notices/inbox", async (c) => {
   const seen = c.get("user").noticesSeenAt;
-  const list = await db.select(card).from(notices).where(and(started, eq(notices.inInbox, true))).orderBy(desc(notices.startsAt)).limit(50);
+  const list = await db
+    .select(card)
+    .from(notices)
+    .where(and(started, eq(notices.inInbox, true), or(isNull(notices.userId), eq(notices.userId, c.get("user").id))))
+    .orderBy(desc(notices.startsAt))
+    .limit(50);
   return c.json({ notices: list, unread: list.filter((n) => !seen || n.startsAt > seen).length });
 });
 noticeRoutes.post("/notices/seen", async (c) => {
@@ -37,7 +43,8 @@ noticeRoutes.post("/notices/seen", async (c) => {
 // One notice in full. Unpublished or not started yet: staff only (panel links).
 noticeRoutes.get("/notices/:id", async (c) => {
   const [n] = await db.select().from(notices).where(eq(notices.id, schemas.uuid.parse(c.req.param("id"))));
-  if (!n || ((!n.published || n.startsAt > new Date()) && !c.get("user").staffRole)) throw new AppError("NOT_FOUND", 404, "No such notice");
+  const me = c.get("user");
+  if (!n || ((!n.published || n.startsAt > new Date() || (n.userId && n.userId !== me.id)) && !me.staffRole)) throw new AppError("NOT_FOUND", 404, "No such notice");
   return c.json({ id: n.id, title: n.title, body: n.body, imageUrl: n.imageUrl, color: n.color, startsAt: n.startsAt });
 });
 
@@ -63,7 +70,7 @@ async function getNotice(id: string) {
   return n;
 }
 
-noticeRoutes.get("/admin/notices", async (c) => c.json({ notices: await db.select().from(notices).orderBy(desc(notices.createdAt)).limit(200) }));
+noticeRoutes.get("/admin/notices", async (c) => c.json({ notices: await db.select().from(notices).where(forEveryone).orderBy(desc(notices.createdAt)).limit(200) }));
 
 noticeRoutes.post("/admin/notices", async (c) => {
   const b = await json(c, fields);

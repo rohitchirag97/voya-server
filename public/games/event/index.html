@@ -135,7 +135,7 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const img = (u) => (!u ? '' : /^https?:/.test(u) ? u : '/' + u.replace(/^\//, ''));
   const unit = (u, n) => (u === 'rupees' ? '₹' + fmt(n) : u === 'points' ? fmt(n) + ' pts' : fmt(n));
-  const KIND = { AVATAR_FRAME: 'frame', CHAT_BUBBLE: 'chat bubble', ENTRY_EFFECT: 'entry effect' };
+  const KIND = { AVATAR_FRAME: 'frame', CARD_DECOR: 'profile card', CHAT_BUBBLE: 'chat bubble', ENTRY_EFFECT: 'entry effect' };
   const days = (n) => (n ? ' · ' + n + 'd' : ' · forever');
   // One prize's items as chips: "50,000 coins", "Gold ring frame · 30d" with its picture, "Special ID of your choice"...
   function prizeHtml(items) {

@@ -259,13 +259,13 @@ account.patch("/me/cosmetics", async (c) => {
   return c.json({ ...publicUser(u!), ...(await decorationsOf(u!)) });
 });
 
-// My items: prize frames, bubbles and entry effects I own (with when each ends), what I'm wearing, and Special ID
+// My items: frames, profile cards, bubbles and entry effects I own (won, given, or bought) (with when each ends), what I'm wearing, and Special ID
 // vouchers waiting to be used.
 account.get("/me/items", async (c) => {
   const u = c.get("user");
   return c.json({
     items: await ownedCosmetics(u.id),
-    equipped: { avatarFrameId: u.avatarFrameId, chatBubbleId: u.chatBubbleId, entryEffectId: u.entryEffectId },
+    equipped: { avatarFrameId: u.avatarFrameId, cardDecorId: u.cardDecorId, chatBubbleId: u.chatBubbleId, entryEffectId: u.entryEffectId },
     vouchers: await openVouchers(u.id),
     specialId: u.specialId,
     specialIdExpiresAt: u.specialIdExpiresAt,

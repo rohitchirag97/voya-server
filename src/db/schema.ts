@@ -48,8 +48,10 @@ export const cosmetics = pgTable("cosmetics", {
   enabled: boolean("enabled").notNull().default(true),
   // SVIP tier needed to equip and show it (0 = anyone). A lapsed tier hides the item until earned again.
   minSvip: integer("min_svip").notNull().default(0),
-  // Prize items (admin panel > Items): only people who own one (user_cosmetics, until it expires) can wear it.
+  // Items made in the admin panel (Items): only people who own one (user_cosmetics, until it expires) can wear it.
   exclusive: boolean("exclusive").notNull().default(false),
+  forPrize: boolean("for_prize").notNull().default(false), // offered as an event prize
+  forMall: boolean("for_mall").notNull().default(false), // to be sold in the Mall (coming); hidden until then
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: createdAt(),
 });
@@ -466,6 +468,8 @@ export const badges = pgTable("badges", {
   description: text("description").notNull(),
   svg: text("svg").notNull(),
   svga: text("svga"), // animated version (games/items/<file>.svga), played instead of the svg
+  forPrize: boolean("for_prize").notNull().default(false), // offered as an event prize (admin panel > Items)
+  forMall: boolean("for_mall").notNull().default(false),
   enabled: boolean("enabled").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: createdAt(),
@@ -1066,6 +1070,8 @@ export const notices = pgTable(
     endsAt: ts("ends_at").notNull(),
     published: boolean("published").notNull().default(false),
     inInbox: boolean("in_inbox").notNull().default(false),
+    // A personal message (e.g. "You received..."): only this user sees it, in their inbox; never in the carousel.
+    userId: uuid("user_id").references(() => users.id),
     homeTab: text("home_tab").$type<HomeTab>().notNull().default("BOTH"),
     sortOrder: integer("sort_order").notNull().default(0),
     createdBy: uuid("created_by").notNull().references(() => users.id),
@@ -1114,4 +1120,19 @@ export const specialIdVouchers = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("special_id_vouchers_user").on(t.userId)],
+);
+
+// Coins and items the owner gave someone directly (admin panel > Give to user), with the reason; the receipt.
+export const adminGrants = pgTable(
+  "admin_grants",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    items: jsonb("items").$type<RewardItem[]>().notNull(),
+    reason: text("reason").notNull(),
+    grantedBy: uuid("granted_by").notNull().references(() => users.id),
+    failures: jsonb("failures").$type<string[]>().notNull().default([]),
+    createdAt: createdAt(),
+  },
+  (t) => [index("admin_grants_created").on(t.createdAt)],
 );

@@ -3713,3 +3713,56 @@ describe("prize items", () => {
     await db.execute(sql`update events set repeat = 'NONE', published = false where title like 'Prize week%'`); // the test database is reused
   });
 });
+
+describe("give to user", () => {
+  test("items are prizes and/or Mall items; only the owner gives coins and items directly, with a reason and an inbox message", async () => {
+    const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)])], "a.png", { type: "image/png" });
+    const upload = async (token: string, kind: string, fields: Record<string, string | File>) => {
+      const f = new FormData();
+      for (const [k, v] of Object.entries(fields)) f.append(k, v);
+      const r = await fetch(`${base}/v1/admin/items/${kind}`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: f });
+      return { status: r.status, body: (await r.json()) as any };
+    };
+    const boss = await signup("granter");
+    const adm = await signup("grantadm");
+    await db.execute(sql`update users set staff_role = null where staff_role = 'OWNER'`);
+    await db.execute(sql`update users set staff_role = 'OWNER' where id = ${boss.id}`);
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const lucky = await signup("lucky");
+    const other = await signup("unlucky");
+    const luckyId = (await api("GET", "/me", lucky.token)).body.publicId;
+
+    // Items: a prize card decoration, and a Mall-only frame (hidden in the app until the Mall exists).
+    const card = (await upload(adm.token, "CARD_DECOR", { name: "Starry card", image: png(), forPrize: "true" })).body.id;
+    const mallFrame = (await upload(adm.token, "AVATAR_FRAME", { name: "Mall ring", image: png(), forMall: "true" })).body.id;
+    const listed = (await api("GET", "/admin/items", adm.token)).body.items;
+    expect(listed.find((i: any) => i.id === card)).toMatchObject({ kind: "CARD_DECOR", forPrize: true, forMall: false });
+    expect(listed.find((i: any) => i.id === mallFrame)).toMatchObject({ forPrize: false, forMall: true });
+    const options = (await api("GET", "/admin/event-options", adm.token)).body.items.map((i: any) => i.id);
+    expect(options).toContain(card);
+    expect(options).not.toContain(mallFrame); // events only borrow prize items
+    expect((await api("PATCH", "/me/cosmetics", lucky.token, { avatarFrameId: mallFrame })).body.error.code).toBe("NOT_OWNED");
+
+    // Give: owner only, a reason, something to give.
+    const items = [{ type: "COINS", amount: 700 }, { type: "ITEM", id: mallFrame, days: 30 }, { type: "ITEM", id: card, days: null }];
+    expect((await api("POST", "/admin/grants", adm.token, { user: String(luckyId), reason: "Thanks for testing", items })).status).toBe(403);
+    expect((await api("POST", "/admin/grants", boss.token, { user: String(luckyId), reason: "", items })).status).toBe(400);
+    expect((await api("POST", "/admin/grants", boss.token, { user: "999", reason: "Thanks", items })).body.error.code).toBe("USER_NOT_FOUND");
+    const before = (await api("GET", "/wallet", lucky.token)).body.balance;
+    const given = await api("POST", "/admin/grants", boss.token, { user: String(luckyId), reason: "Thanks for testing", items });
+    expect(given.status).toBe(200);
+    expect(given.body).toMatchObject({ failures: [], user: { id: lucky.id } });
+    expect((await api("GET", "/wallet", lucky.token)).body.balance).toBe(before + 700);
+    expect((await api("PATCH", "/me/cosmetics", lucky.token, { avatarFrameId: mallFrame, cardDecorId: card })).status).toBe(200);
+    expect((await api("GET", "/admin/grants", boss.token)).body.grants[0]).toMatchObject({ userId: lucky.id, reason: "Thanks for testing", by: boss.handle });
+
+    // The receipt: in their inbox only, never in the carousel or anyone else's inbox.
+    const inbox = (await api("GET", "/notices/inbox", lucky.token)).body;
+    const receipt = inbox.notices.find((n: any) => n.title === "A gift from VoyaLive");
+    expect(receipt).toBeTruthy();
+    expect((await api("GET", `/notices/${receipt.id}`, lucky.token)).body.body).toContain("700 coins + Mall ring frame (30 days) + Starry card profile card");
+    expect((await api("GET", `/notices/${receipt.id}`, other.token)).status).toBe(404);
+    expect((await api("GET", "/notices/inbox", other.token)).body.notices.some((n: any) => n.id === receipt.id)).toBe(false);
+    expect((await api("GET", "/notices", lucky.token)).body.notices.some((n: any) => n.id === receipt.id)).toBe(false);
+  });
+});

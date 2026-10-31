@@ -4,17 +4,18 @@ import { join } from "node:path";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { config } from "../config";
 import { db, isUniqueViolation } from "../db";
-import { badges, cosmetics, specialIdVouchers, svipGrants, userCosmetics, users, type RewardItem } from "../db/schema";
+import { adminGrants, badges, cosmetics, notices, specialIdVouchers, svipGrants, userCosmetics, users, walletAccounts, walletLedger, type RewardItem, type User } from "../db/schema";
 import { AppError } from "../lib/errors";
 import { grantBadge } from "./badges";
 import { normalizeSpecialId } from "./specialIds";
 
-// Prize items made in the admin panel (Items): badges, avatar frames, chat bubbles and entry effects, with uploaded
-// artwork (PNG/WebP, or animated SVGA). Frames, bubbles and effects made here are exclusive: only people who won one
-// (user_cosmetics) can wear it. Also: granting every kind of prize, Special ID vouchers, and expiry.
+// Items made in the admin panel (Items): badges, avatar frames, profile card decorations, chat bubbles and entry
+// effects, with uploaded artwork (PNG/WebP, or animated SVGA), each marked as an event prize and/or a Mall item. They're
+// exclusive: only people who own one (user_cosmetics; won, given, or later bought) can wear it. Also: granting every
+// kind of item, direct grants by the owner, Special ID vouchers, and expiry.
 
 export const ITEM_FILES_DIR = () => join(config.uploadsDir, "items");
-export type ItemKind = "BADGE" | "AVATAR_FRAME" | "CHAT_BUBBLE" | "ENTRY_EFFECT";
+export type ItemKind = "BADGE" | "AVATAR_FRAME" | "CARD_DECOR" | "CHAT_BUBBLE" | "ENTRY_EFFECT";
 const now = () => new Date();
 const until = (days: number | null) => (days === null ? null : new Date(Date.now() + days * 86_400_000));
 
@@ -34,8 +35,8 @@ export async function saveItemFile(file: File, want: "image" | "svga") {
 
 // The app draws badges and frames as SVG: an uploaded picture goes in as an <image> (the app adds its server address
 // to the relative link). Frames use a 200-unit box with the photo in the middle 70%; badges a square.
-const imageSvg = (path: string, box: number) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box} ${box}"><image href="/${path}" width="${box}" height="${box}"/></svg>`;
+const imageSvg = (path: string, w: number, h = w) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><image href="/${path}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid slice"/></svg>`;
 
 export type ItemInput = {
   kind: ItemKind;
@@ -45,17 +46,20 @@ export type ItemInput = {
   svga?: File | null;
   bubble?: { from: string; to: string; border: string; text: string };
   enabled?: boolean;
+  forPrize?: boolean;
+  forMall?: boolean;
 };
 
 // Everything the panel can pick from, newest first within each kind.
 export async function listItems() {
   const [b, c] = await Promise.all([
     db.select().from(badges).orderBy(desc(badges.createdAt)),
-    db.select().from(cosmetics).where(inArray(cosmetics.kind, ["AVATAR_FRAME", "CHAT_BUBBLE", "ENTRY_EFFECT"])).orderBy(desc(cosmetics.createdAt)),
+    db.select().from(cosmetics).where(eq(cosmetics.exclusive, true)).orderBy(desc(cosmetics.createdAt)),
   ]);
+  const flags = (x: { forPrize: boolean; forMall: boolean; enabled: boolean }) => ({ forPrize: x.forPrize, forMall: x.forMall, enabled: x.enabled });
   return [
-    ...b.map((x) => ({ kind: "BADGE" as ItemKind, id: x.id, name: x.name, description: x.description, svg: x.svg, svga: x.svga, style: null, enabled: x.enabled, exclusive: true })),
-    ...c.map((x) => ({ kind: x.kind as ItemKind, id: x.id, name: x.name, description: "", svg: x.svg, svga: x.svga, style: x.style, enabled: x.enabled, exclusive: x.exclusive })),
+    ...b.map((x) => ({ kind: "BADGE" as ItemKind, id: x.id, name: x.name, description: x.description, svg: x.svg, svga: x.svga, style: null, ...flags(x) })),
+    ...c.map((x) => ({ kind: x.kind as ItemKind, id: x.id, name: x.name, description: "", svg: x.svg, svga: x.svga, style: x.style, ...flags(x) })),
   ];
 }
 
@@ -64,12 +68,13 @@ export async function createItem(i: ItemInput) {
   const id = randomUUID();
   if (i.kind === "BADGE") {
     if (!art.svg && !art.svga) throw new AppError("FILE_REQUIRED", 400, "Upload the badge's image or animation");
-    await db.insert(badges).values({ id, name: i.name, description: i.description ?? "", svg: art.svg ?? "", svga: art.svga ?? null, sortOrder: 1000 });
+    await db.insert(badges).values({ id, name: i.name, description: i.description ?? "", svg: art.svg ?? "", svga: art.svga ?? null, forPrize: !!i.forPrize, forMall: !!i.forMall, sortOrder: 1000 });
   } else {
     if (i.kind === "AVATAR_FRAME" && !art.svg && !art.svga) throw new AppError("FILE_REQUIRED", 400, "Upload the frame's image or animation");
+    if (i.kind === "CARD_DECOR" && !art.svg) throw new AppError("FILE_REQUIRED", 400, "Upload the card decoration's image");
     if (i.kind === "ENTRY_EFFECT" && !art.svga) throw new AppError("FILE_REQUIRED", 400, "Upload the entry effect's SVGA animation");
     if (i.kind === "CHAT_BUBBLE" && !i.bubble) throw new AppError("VALIDATION_ERROR", 400, "Pick the bubble's colours");
-    await db.insert(cosmetics).values({ id, kind: i.kind, name: i.name, svg: art.svg ?? "", svga: art.svga ?? null, style: bubbleStyle(i), exclusive: true, sortOrder: 1000 });
+    await db.insert(cosmetics).values({ id, kind: i.kind, name: i.name, svg: art.svg ?? "", svga: art.svga ?? null, style: bubbleStyle(i), exclusive: true, forPrize: !!i.forPrize, forMall: !!i.forMall, sortOrder: 1000 });
   }
   return id;
 }
@@ -77,16 +82,17 @@ export async function createItem(i: ItemInput) {
 export async function updateItem(kind: ItemKind, id: string, i: Omit<ItemInput, "kind">) {
   const art = await artwork({ ...i, kind });
   const files = { ...(art.svg && { svg: art.svg }), ...(art.svga && { svga: art.svga }) };
+  const flags = { ...(i.forPrize !== undefined && { forPrize: i.forPrize }), ...(i.forMall !== undefined && { forMall: i.forMall }) };
   const rows =
     kind === "BADGE"
       ? await db
           .update(badges)
-          .set({ name: i.name, ...(i.description !== undefined && { description: i.description }), ...(i.enabled !== undefined && { enabled: i.enabled }), ...files })
+          .set({ name: i.name, ...(i.description !== undefined && { description: i.description }), ...(i.enabled !== undefined && { enabled: i.enabled }), ...flags, ...files })
           .where(eq(badges.id, id))
           .returning({ id: badges.id })
       : await db
           .update(cosmetics)
-          .set({ name: i.name, ...(i.enabled !== undefined && { enabled: i.enabled }), ...(i.bubble && { style: bubbleStyle({ ...i, kind }) }), ...files })
+          .set({ name: i.name, ...(i.enabled !== undefined && { enabled: i.enabled }), ...(i.bubble && { style: bubbleStyle({ ...i, kind }) }), ...flags, ...files })
           .where(and(eq(cosmetics.id, id), eq(cosmetics.kind, kind)))
           .returning({ id: cosmetics.id });
   if (!rows.length) throw new AppError("NOT_FOUND", 404, "No such item");
@@ -95,7 +101,8 @@ export async function updateItem(kind: ItemKind, id: string, i: Omit<ItemInput, 
 async function artwork(i: ItemInput) {
   const image = i.image && i.image.size ? await saveItemFile(i.image, "image") : null;
   const svga = i.svga && i.svga.size ? await saveItemFile(i.svga, "svga") : null;
-  return { svg: image ? imageSvg(image, i.kind === "AVATAR_FRAME" ? 200 : i.kind === "CHAT_BUBBLE" ? 44 : 100) : null, svga };
+  const box = { AVATAR_FRAME: [200, 200], CARD_DECOR: [400, 160], CHAT_BUBBLE: [44, 26], BADGE: [100, 100], ENTRY_EFFECT: [100, 100] }[i.kind] as [number, number];
+  return { svg: image ? imageSvg(image, ...box) : null, svga };
 }
 const bubbleStyle = (i: ItemInput) => (i.bubble ? { gradient: [i.bubble.from, i.bubble.to], border: i.bubble.border, text: i.bubble.text } : null);
 
@@ -193,13 +200,74 @@ export async function claimSpecialId(userId: string, voucherId: string, raw: str
 
 // Every minute: take off prize items whose ownership ran out, and remove Special IDs whose time is up.
 export async function sweepExpired() {
-  const lapsed = (col: typeof users.avatarFrameId | typeof users.chatBubbleId | typeof users.entryEffectId) =>
+  const lapsed = (col: typeof users.avatarFrameId | typeof users.cardDecorId | typeof users.chatBubbleId | typeof users.entryEffectId) =>
     sql`${col} is not null and ${col} in (select id from cosmetics where exclusive)
       and not exists (select 1 from user_cosmetics uc where uc.user_id = ${users.id} and uc.cosmetic_id = ${col} and (uc.expires_at is null or uc.expires_at > now()))`;
   await db.update(users).set({ avatarFrameId: null }).where(lapsed(users.avatarFrameId));
+  await db.update(users).set({ cardDecorId: null }).where(lapsed(users.cardDecorId));
   await db.update(users).set({ chatBubbleId: null }).where(lapsed(users.chatBubbleId));
   await db.update(users).set({ entryEffectId: null }).where(lapsed(users.entryEffectId));
   await db.update(users).set({ specialId: null, specialIdExpiresAt: null }).where(and(isNotNull(users.specialIdExpiresAt), lte(users.specialIdExpiresAt, sql`now()`)));
 }
 
 export const runItemSweep = (ms = 60_000) => setInterval(() => sweepExpired().catch((e) => console.error(JSON.stringify({ level: "error", msg: "item-sweep-failed", err: String(e) }))), ms);
+
+// ---------- direct grants (owner) ----------
+
+const KIND_NAME: Record<string, string> = { AVATAR_FRAME: "frame", CARD_DECOR: "profile card", CHAT_BUBBLE: "chat bubble", ENTRY_EFFECT: "entry effect" };
+// "5,000 coins + Gold ring frame (30 days) + Special ID of your choice".
+export async function itemsText(items: RewardItem[]) {
+  const L = await itemLabels({ badges: items.flatMap((i) => (i.type === "BADGE" ? [i.id] : [])), items: items.flatMap((i) => (i.type === "ITEM" ? [i.id] : [])) });
+  const d = (n: number | null) => (n ? ` (${n} days)` : "");
+  return items
+    .map((i) =>
+      i.type === "COINS"
+        ? `${i.amount.toLocaleString("en-IN")} coins`
+        : i.type === "BADGE"
+          ? `${L.badges[i.id]?.name ?? "A"} badge${d(i.days)}`
+          : i.type === "ITEM"
+            ? `${L.items[i.id]?.name ?? "An"} ${KIND_NAME[L.items[i.id]?.kind ?? ""] ?? "item"}${d(i.days)}`
+            : i.type === "SPECIAL_ID"
+              ? `a Special ID of your choice${d(i.days)}`
+              : `SVIP${i.tier} for ${i.days} days`,
+    )
+    .join(" + ");
+}
+
+// The owner gives coins and/or items to one person, with a reason: coins go to the wallet with the grant record in one
+// transaction, then each item is granted; the person gets a message in their inbox (Notices). Logged in admin_grants.
+export async function giveToUser(actor: User, userId: string, items: RewardItem[], reason: string) {
+  const coins = items.reduce((n, i) => n + (i.type === "COINS" ? i.amount : 0), 0);
+  const grant = await db.transaction(async (tx) => {
+    const [g] = await tx.insert(adminGrants).values({ userId, items, reason, grantedBy: actor.id }).returning();
+    if (coins > 0) {
+      await tx.insert(walletAccounts).values({ userId, balance: 0 }).onConflictDoNothing();
+      await tx.update(walletAccounts).set({ balance: sql`${walletAccounts.balance} + ${coins}`, version: sql`${walletAccounts.version} + 1` }).where(eq(walletAccounts.userId, userId));
+      await tx.insert(walletLedger).values({ userId, entryType: "ADMIN_GRANT", amount: coins, referenceType: "ADMIN_GRANT", referenceId: String(g!.id) });
+    }
+    return g!;
+  });
+  const failures: string[] = [];
+  for (const item of items) if (item.type !== "COINS") await grantItem(userId, item, `grant:${grant.id}`).catch(() => failures.push(item.type.toLowerCase()));
+  if (failures.length) await db.update(adminGrants).set({ failures }).where(eq(adminGrants.id, grant.id));
+  const now = new Date();
+  await db.insert(notices).values({
+    title: "A gift from VoyaLive",
+    body: `You received ${await itemsText(items)}.\n\n${reason}\n\nCoins are in your wallet; frames, bubbles and effects are in My items.`,
+    startsAt: now,
+    endsAt: new Date(now.getTime() + 365 * 86_400_000),
+    published: true,
+    inInbox: true,
+    userId,
+    createdBy: actor.id,
+  });
+  return { id: grant.id, failures };
+}
+
+export const recentGrants = () =>
+  db
+    .select({ id: adminGrants.id, items: adminGrants.items, reason: adminGrants.reason, failures: adminGrants.failures, createdAt: adminGrants.createdAt, userId: adminGrants.userId, userName: users.displayName, publicId: users.publicId, by: sql<string | null>`(select display_name from users g where g.id = ${adminGrants.grantedBy})` })
+    .from(adminGrants)
+    .innerJoin(users, eq(users.id, adminGrants.userId))
+    .orderBy(desc(adminGrants.id))
+    .limit(100);
