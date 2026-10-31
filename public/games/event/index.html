@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Event</title>
+<style>
+  /* One event's page, drawn from its settings (admin panel > Events): /games/event/?id=<eventId> inside the app
+     (room/EventSheet + screens: the app hands over a login token), or with window.VOYA_DATA set (panel preview). */
+  :root {
+    --brand: #08c9d9; /* replaced by the event's colour */
+    --bg: #f5f7f9; --surface: #ffffff; --line: #e2e8ee; --ink: #0f1b2d; --muted: #6b7785;
+    --gold: #e8920c; --silver: #8a99a8; --bronze: #b4682f; --done: #10b981;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow-x: clip; }
+  .hero { position: relative; min-height: 180px; background: var(--brand); color: #fff; padding: 20px 16px 22px; display: flex; flex-direction: column; justify-content: flex-end; }
+  .hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .hero .shade { position: absolute; inset: 0; background: linear-gradient(transparent 35%, rgba(0, 0, 0, 0.55)); }
+  .hero > * { position: relative; }
+  h1 { margin: 0; font-size: 24px; line-height: 1.15; overflow-wrap: break-word; min-width: 0; }
+  .when { margin-top: 6px; font-size: 13px; font-weight: 700; opacity: 0.95; }
+  main { padding: 14px 16px 40px; display: grid; gap: 14px; max-width: 640px; margin: 0 auto; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
+  .card h2 { margin: 0 0 10px; font-size: 16px; }
+  .desc { white-space: pre-line; margin: 0; }
+  .tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 10px; }
+  .tab { flex: none; border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .tab[aria-selected="true"] { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .tab:focus-visible, .rules summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  ol { list-style: none; margin: 0; padding: 0; }
+  .row { display: grid; grid-template-columns: 30px 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: 0; }
+  .rank { font-weight: 900; text-align: center; color: var(--muted); }
+  .r1 .rank { color: var(--gold); } .r2 .rank { color: var(--silver); } .r3 .rank { color: var(--bronze); }
+  .pic { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--line); }
+  .name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .val { font-weight: 800; font-variant-numeric: tabular-nums; }
+  .prize { color: var(--muted); font-size: 12px; text-align: right; }
+  .mine { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--brand) 12%, white); font-size: 14px; font-weight: 700; }
+  .empty { color: var(--muted); margin: 6px 0; }
+  .task { padding: 10px 0; border-top: 1px solid var(--line); }
+  .task:first-of-type { border-top: 0; }
+  .task-top { display: flex; justify-content: space-between; gap: 10px; font-weight: 700; }
+  .bar { height: 8px; border-radius: 4px; background: var(--line); margin: 8px 0 4px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--brand); border-radius: 4px; }
+  .task.done .bar > i { background: var(--done); }
+  .task-sub { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; }
+  .badge-done { color: var(--done); font-weight: 800; }
+  .rules summary { cursor: pointer; font-weight: 800; }
+  .rules p { white-space: pre-line; margin: 10px 0 0; color: var(--muted); }
+  .state { padding: 60px 16px; text-align: center; color: var(--muted); }
+  @media (prefers-reduced-motion: no-preference) { .bar > i { transition: transform 0.6s ease; } }
+</style>
+</head>
+<body>
+<div id="app"><p class="state">Loading…</p></div>
+<script>
+  const app = document.getElementById('app');
+  const id = new URLSearchParams(location.search).get('id');
+  const fmt = (n) => Math.round(n).toLocaleString('en-IN');
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const img = (u) => (!u ? '' : /^https?:/.test(u) ? u : '/' + u.replace(/^\//, ''));
+  const unit = (u, n) => (u === 'rupees' ? '₹' + fmt(n) : fmt(n) + ' coins');
+  const reward = (r) => [r.coins ? fmt(r.coins) + ' coins' : '', r.badgeId ? 'badge' + (r.badgeDays ? ' (' + r.badgeDays + ' days)' : '') : ''].filter(Boolean).join(' + ');
+
+  function when(d) {
+    const end = new Date(d.endsAt), start = new Date(d.startsAt), now = Date.now();
+    const left = (t) => {
+      const s = Math.max(0, Math.floor((t - now) / 1000));
+      const days = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+      return days ? days + 'd ' + h + 'h' : h ? h + 'h ' + m + 'm' : m + 'm';
+    };
+    if (d.phase === 'upcoming') return 'Starts in ' + left(start.getTime());
+    if (d.phase === 'live') return 'Ends in ' + left(end.getTime());
+    if (d.phase === 'draft') return 'Draft: only staff can see this';
+    return 'Ended ' + end.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  }
+
+  let tab = 0;
+  function render(d) {
+    document.documentElement.style.setProperty('--brand', d.page.color || '#08c9d9');
+    document.title = d.title;
+    const b = d.boards[tab];
+    const prizeFor = (rank) => b.rewards.find((r) => r.from <= rank && rank <= r.to);
+    const boardHtml = !b ? '' : `
+      <section class="card" aria-labelledby="lb">
+        <h2 id="lb">Leaderboard</h2>
+        ${d.boards.length > 1 ? `<div class="tabs" role="tablist">${d.boards.map((x, i) => `<button class="tab" role="tab" aria-selected="${i === tab}" data-tab="${i}">${esc(x.title)}</button>`).join('')}</div>` : `<p class="sub" style="margin:-4px 0 8px">${esc(b.title)}</p>`}
+        ${b.rows.length ? `<ol>${b.rows.map((r) => {
+          const p = prizeFor(r.rank);
+          const name = r.title ?? r.displayName ?? 'Someone';
+          const sub = r.title ? 'Host: ' + (r.owner ?? '') : '';
+          return `<li class="row r${r.rank}"><span class="rank">${r.rank}</span><img class="pic" alt="" src="${esc(img(r.avatarUrl ?? r.coverUrl))}" onerror="this.style.visibility='hidden'">
+            <span style="min-width:0"><span class="name">${esc(name)}</span>${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span>
+            <span><span class="val">${unit(b.unit, r.value)}</span>${p ? `<span class="prize" style="display:block">${esc(reward(p))}</span>` : ''}</span></li>`;
+        }).join('')}</ol>` : '<p class="empty">No one yet. Be the first!</p>'}
+        ${b.mine ? `<div class="mine">${b.mine.rank ? 'You are #' + b.mine.rank : 'You are not in the top ' + b.rows.length + ' yet'}: ${unit(b.unit, b.mine.value)}</div>` : ''}
+      </section>`;
+    const tasksHtml = !d.tasks.length ? '' : `
+      <section class="card" aria-labelledby="tk">
+        <h2 id="tk">Tasks</h2>
+        ${d.tasks.map((t) => {
+          const pct = Math.min(100, (t.value / t.target) * 100);
+          const state = t.done ? (d.rewardsPaid ? 'Reward sent' : 'Completed: reward after the event') : unit(t.unit, t.value) + ' / ' + unit(t.unit, t.target);
+          return `<div class="task${t.done ? ' done' : ''}">
+            <div class="task-top"><span>${esc(t.title)}${t.daily ? ' <span class="sub" style="display:inline">(daily)</span>' : ''}</span><span class="prize">${esc(reward(t.reward))}</span></div>
+            <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}"><i style="width:${pct}%"></i></div>
+            <div class="task-sub"><span class="${t.done ? 'badge-done' : ''}">${esc(state)}</span></div>
+          </div>`;
+        }).join('')}
+      </section>`;
+    app.innerHTML = `
+      <header class="hero">${d.page.headerUrl ? `<img alt="" src="${esc(img(d.page.headerUrl))}"><div class="shade"></div>` : ''}
+        <h1>${esc(d.title)}</h1><div class="when">${esc(when(d))}</div></header>
+      <main>
+        ${d.page.description ? `<section class="card"><p class="desc">${esc(d.page.description)}</p></section>` : ''}
+        ${boardHtml}${tasksHtml}
+        ${d.page.rules ? `<details class="card rules"><summary>Rules</summary><p>${esc(d.page.rules)}</p></details>` : ''}
+      </main>`;
+    app.querySelectorAll('[data-tab]').forEach((el) => el.addEventListener('click', () => { tab = Number(el.dataset.tab); render(d); }));
+  }
+
+  // In the app: ask for a login token, then load (and refresh every 30 s while open).
+  let token = null;
+  async function load() {
+    try {
+      const r = await fetch('/v1/events/' + encodeURIComponent(id), { headers: { authorization: 'Bearer ' + token } });
+      if (r.status === 401) return ask();
+      if (!r.ok) throw new Error();
+      render(await r.json());
+    } catch (e) { if (!app.querySelector('main')) app.innerHTML = '<p class="state">This event couldn\'t be loaded.</p>'; }
+  }
+  const ask = () => window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'token' }));
+  window.voyaToken = (t) => { token = t; load(); };
+
+  if (window.VOYA_DATA) render(window.VOYA_DATA);
+  else if (!id) app.innerHTML = '<p class="state">No event</p>';
+  else { ask(); setInterval(() => token && load(), 30000); }
+</script>
+</body>
+</html>

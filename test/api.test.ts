@@ -3507,3 +3507,57 @@ describe("support chats", () => {
     expect((await api("GET", `/support-desk/threads/${vip.threadId}`, boss.token)).body.messages[0].body).toBe("VIP question");
   });
 });
+
+describe("events", () => {
+  test("admins run events: live banners, leaderboards and tasks count the window, event gifts show only while live, payouts once", async () => {
+    const adm = await signup("eventer");
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const { host, roomId } = await liveRoom();
+    const fan = await joined(roomId, "fan");
+    const cat = (await api("POST", "/admin/gift-categories", adm.token, { name: "Festive gifts" })).body;
+    await db.execute(sql`update gift_catalog set category_id = ${cat.id} where id = 'star'`);
+    const giftBox = async () => (await api("GET", "/gifts", fan.token)).body.map((g: any) => g.id);
+    expect(await giftBox()).toContain("star"); // not tied to an event yet
+
+    const now = Date.now();
+    const config = {
+      page: { headerUrl: null, color: "#08C9D9", description: "Light it up", rules: "Gifts count during the event." },
+      boards: [{ title: "Top Gifters", metric: "GIFTS_SENT", eventGiftsOnly: false, size: 10, rewards: [{ from: 1, to: 1, coins: 500 }] }],
+      tasks: [{ title: "Send 500 coins of Diwali gifts", metric: "GIFTS_SENT", eventGiftsOnly: true, target: 500, daily: false, reward: { coins: 50 } }],
+    };
+    const body = { title: "Diwali Week", startsAt: new Date(now).toISOString(), endsAt: new Date(now + 3_600_000).toISOString(), published: false, bannerHome: true, bannerRoom: true, sortOrder: 0, giftCategoryId: cat.id, config };
+    expect((await api("POST", "/admin/events", fan.token, body)).status).toBe(403);
+    const made = await api("POST", "/admin/events", adm.token, body);
+    expect(made.status).toBe(201);
+    const id = made.body.id;
+    expect(made.body.config.boards[0].id).toBeTruthy();
+    expect((await api("GET", "/events", fan.token)).body.events.some((e: any) => e.id === id)).toBe(false); // draft
+    expect(await giftBox()).not.toContain("star"); // event gifts hidden while the event isn't live
+    expect((await api("GET", `/events/${id}`, fan.token)).status).toBe(404);
+
+    expect((await api("PATCH", `/admin/events/${id}`, adm.token, { published: true })).body.published).toBe(true);
+    expect((await api("GET", "/events", fan.token)).body.events.some((e: any) => e.id === id)).toBe(true);
+    expect(await giftBox()).toContain("star");
+
+    const send = (giftId: string, key: string) => api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: host.id, giftId, quantity: 1 }, { "Idempotency-Key": key });
+    expect((await send("star", "ev-1")).status).toBe(200); // 500 coins, a Diwali gift
+    expect((await send("chai", "ev-2")).status).toBe(200); // 100 coins, not a Diwali gift
+    const page = (await api("GET", `/events/${id}`, fan.token)).body;
+    expect(page.phase).toBe("live");
+    expect(page.boards[0].rows[0]).toMatchObject({ rank: 1, value: 600, userId: fan.id });
+    expect(page.boards[0].mine).toEqual({ rank: 1, value: 600 });
+    expect(page.tasks[0]).toMatchObject({ value: 500, target: 500, done: true });
+
+    // Payouts: only after the end, approved once.
+    expect((await api("POST", `/admin/events/${id}/payouts/approve`, adm.token)).body.error.code).toBe("EVENT_NOT_ENDED");
+    await db.execute(sql`update events set ends_at = now() where id = ${id}`);
+    const preview = (await api("GET", `/admin/events/${id}/payouts`, adm.token)).body;
+    expect(preview.prizes.map((p: any) => p.why).sort()).toEqual(["Send 500 coins of Diwali gifts", "Top Gifters: rank 1"]);
+    const before = (await api("GET", "/wallet", fan.token)).body.balance;
+    expect((await api("POST", `/admin/events/${id}/payouts/approve`, adm.token)).body.paid).toBe(2);
+    expect((await api("GET", "/wallet", fan.token)).body.balance).toBe(before + 550);
+    expect((await api("POST", `/admin/events/${id}/payouts/approve`, adm.token)).body.paid).toBe(0); // never twice
+    expect(await giftBox()).not.toContain("star"); // ended: event gifts gone again
+    await db.execute(sql`update gift_catalog set category_id = 1 where id = 'star'`); // the test database is reused
+  });
+});

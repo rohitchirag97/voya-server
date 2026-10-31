@@ -25,15 +25,15 @@ const page = (title: string, head: string, body: string) => `<!doctype html><htm
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: system-ui, sans-serif;
-    background: radial-gradient(circle at 30% 10%, #3b1e7a, #0a0716 70%); color: #fff; }
+    background: radial-gradient(circle at 30% 10%, #0b3a47, #070d16 70%); color: #fff; }
   .card { width: min(92vw, 380px); text-align: center; padding: 28px 22px; border-radius: 24px; background: rgba(255,255,255,0.07);
     border: 1px solid rgba(255,255,255,0.14); }
-  .cover { width: 112px; height: 112px; border-radius: 24px; object-fit: cover; background: linear-gradient(135deg, #ff3d8b, #8b5cf6); }
-  h1 { font-size: 22px; margin: 16px 0 6px; } p { color: #a59cc9; margin: 0 0 20px; line-height: 1.4; }
+  .cover { width: 112px; height: 112px; border-radius: 24px; object-fit: cover; background: #077f8c; }
+  h1 { font-size: 22px; margin: 16px 0 6px; } p { color: #93a3b8; margin: 0 0 20px; line-height: 1.4; }
   a.btn { display: block; padding: 14px; border-radius: 999px; font-weight: 800; text-decoration: none; color: #fff; margin-top: 10px;
-    background: linear-gradient(90deg, #ff3d8b, #8b5cf6); }
+    background: #077f8c; }
   a.ghost { background: transparent; border: 1px solid rgba(255,255,255,0.25); }
-  .brand { margin-top: 18px; font-size: 12px; color: #a59cc9; letter-spacing: 1px; }
+  .brand { margin-top: 18px; font-size: 12px; color: #93a3b8; letter-spacing: 1px; }
 </style></head><body><div class="card">${body}<div class="brand">VOYALIVE</div></div></body></html>`;
 
 links.get("/r/:roomId", async (c) => {

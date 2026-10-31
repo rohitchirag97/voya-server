@@ -3,7 +3,9 @@ import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { requestId } from "hono/request-id";
 import { join } from "node:path";
-import { GIFT_FILE_NAME, GIFT_FILES_DIR } from "./services/giftAdmin";
+import { GIFT_FILES_DIR } from "./services/giftAdmin";
+import { EVENT_FILES_DIR } from "./services/events";
+import { eventRoutes } from "./routes/events";
 import type { Env } from "./http";
 import { io } from "./io";
 import { toSafeError } from "./lib/errors";
@@ -50,12 +52,14 @@ app.get("/v1/salary-policy", (c) =>
 app.route("/", links); // shareable room links (/r/:roomId) and the install page (/download)
 // HTML5 mini-games, opened in a WebView over the room. The socket client comes from the installed socket.io, so versions always match.
 app.get("/games/socket.io.min.js", () => new Response(Bun.file(`${import.meta.dir}/../node_modules/socket.io/client-dist/socket.io.min.js`)));
-// Gift icons and animations added in the admin panel (services/giftAdmin.ts). Each upload has a fresh name: cached forever.
-app.get("/games/gifts/:name", async (c) => {
+// Files added in the admin panel: gift icons and animations (services/giftAdmin.ts), event banners and headers
+// (services/events.ts). Each upload has a fresh name: cached forever.
+const UPLOAD_NAME = /^[0-9a-f-]{36}\.(png|jpg|webp|svga)$/;
+app.get("/games/:dir{gifts|events}/:name", async (c) => {
   const name = c.req.param("name");
-  const f = Bun.file(join(GIFT_FILES_DIR(), name));
-  if (!GIFT_FILE_NAME.test(name) || !(await f.exists())) return c.notFound();
-  const type = { png: "image/png", webp: "image/webp", svga: "application/octet-stream" }[name.split(".").pop()!]!;
+  const f = Bun.file(join(c.req.param("dir") === "gifts" ? GIFT_FILES_DIR() : EVENT_FILES_DIR(), name));
+  if (!UPLOAD_NAME.test(name) || !(await f.exists())) return c.notFound();
+  const type = { png: "image/png", jpg: "image/jpeg", webp: "image/webp", svga: "application/octet-stream" }[name.split(".").pop()!]!;
   return new Response(f, { headers: { "content-type": type, "cache-control": "public, max-age=31536000, immutable" } });
 });
 app.use(
@@ -70,6 +74,7 @@ app.use(
   }),
 );
 app.route("/v1", account);
+app.route("/v1", eventRoutes); // before roomRoutes, whose "*" auth would run a second time
 app.route("/v1", admin); // before roomRoutes, whose "*" auth would run a second time
 app.route("/v1", postRoutes); // before roomRoutes, whose "*" auth would cover the public /uploads too
 app.route("/v1", roomRoutes);

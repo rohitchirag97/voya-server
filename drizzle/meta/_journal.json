@@ -477,6 +477,13 @@
       "when": 1793426008265,
       "tag": "0067_support_chats",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1793432687850,
+      "tag": "0068_events",
+      "breakpoints": true
     }
   ]
 }

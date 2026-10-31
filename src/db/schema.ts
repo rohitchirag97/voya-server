@@ -971,3 +971,50 @@ export const supportMessages = pgTable(
   },
   (t) => [uniqueIndex("support_messages_client").on(t.senderId, t.clientMessageId), index("support_messages_thread").on(t.threadId, t.id)],
 );
+
+// Events: time-limited campaigns made in the admin panel; any number can run at once, each with its own banner, page,
+// leaderboards, tasks and (optionally) a gift category that shows only while it's live. Everything about an event is
+// data (config), so new events need no app update. Live = published and now within [startsAt, endsAt).
+export type EventReward = { coins?: number; badgeId?: string; badgeDays?: number | null };
+export type EventMetric = "GIFTS_SENT" | "GIFTS_RECEIVED" | "ROOM_GIFTS" | "RECHARGE";
+export type EventConfig = {
+  page: { headerUrl: string | null; color: string; description: string; rules: string };
+  // Leaderboards: what they count (coins of gifts, or recharge rupees), only this event's gifts or all, ranks shown,
+  // and rewards by rank range.
+  boards: { id: string; title: string; metric: EventMetric; eventGiftsOnly: boolean; size: number; rewards: (EventReward & { from: number; to: number })[] }[];
+  // Tasks: a per-user target (coins of gifts, or recharge rupees) over the event, or each day (India time) if daily.
+  tasks: { id: string; title: string; metric: Exclude<EventMetric, "ROOM_GIFTS">; eventGiftsOnly: boolean; target: number; daily: boolean; reward: EventReward }[];
+};
+export const events = pgTable(
+  "events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    startsAt: ts("starts_at").notNull(),
+    endsAt: ts("ends_at").notNull(),
+    published: boolean("published").notNull().default(false), // drafts are seen by staff only
+    bannerUrl: text("banner_url"), // games/events/<file>
+    bannerHome: boolean("banner_home").notNull().default(true),
+    bannerRoom: boolean("banner_room").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    giftCategoryId: integer("gift_category_id").references(() => giftCategories.id), // event gifts: shown only while live
+    config: jsonb("config").$type<EventConfig>().notNull(),
+    paidOutAt: ts("paid_out_at"), // rewards approved
+    createdAt: createdAt(),
+  },
+  (t) => [index("events_window").on(t.published, t.startsAt, t.endsAt), check("event_window", sql`${t.endsAt} > ${t.startsAt}`)],
+);
+// Rewards given out when staff approved an event's payouts; one row per user per prize (source), so nothing pays twice.
+export const eventPayouts = pgTable(
+  "event_payouts",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    eventId: uuid("event_id").notNull().references(() => events.id),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    source: text("source").notNull(), // "board:<id>:<rank>" or "task:<id>" / "task:<id>:<YYYY-MM-DD>"
+    reward: jsonb("reward").$type<EventReward>().notNull(),
+    approvedBy: uuid("approved_by").notNull().references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("event_payouts_once").on(t.eventId, t.userId, t.source)],
+);

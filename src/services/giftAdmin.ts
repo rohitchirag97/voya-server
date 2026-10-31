@@ -13,7 +13,6 @@ import { AppError } from "../lib/errors";
 // "games/..." form the app already shows and plays (a replaced file gets a new name, so phones never keep a stale copy).
 
 export const GIFT_FILES_DIR = () => join(config.uploadsDir, "gifts");
-export const GIFT_FILE_NAME = /^[0-9a-f-]{36}\.(png|webp|svga)$/;
 const MAX_ICON_BYTES = 1024 * 1024;
 const MAX_EFFECT_BYTES = 15 * 1024 * 1024;
 

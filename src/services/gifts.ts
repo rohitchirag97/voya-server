@@ -13,13 +13,17 @@ import { creditGifts } from "./diamonds";
 export type GiftInput = { recipientUserId: string; giftId: string; quantity: number };
 type GiftTx = typeof giftTransactions.$inferSelect;
 
+// A category tied to events shows only while one of them is live (event gifts).
+const outsideEvents = sql`(not exists (select 1 from events e where e.gift_category_id = ${giftCategories.id})
+  or exists (select 1 from events e where e.gift_category_id = ${giftCategories.id} and e.published and e.starts_at <= now() and now() < e.ends_at))`;
+
 // The gift box: shown gifts in shown categories (each gift carries its categoryId; the tabs come from listCategories).
 export const listGifts = () =>
   db
     .select({ gift: giftCatalog })
     .from(giftCatalog)
     .innerJoin(giftCategories, eq(giftCategories.id, giftCatalog.categoryId))
-    .where(and(eq(giftCatalog.enabled, true), eq(giftCategories.enabled, true)))
+    .where(and(eq(giftCatalog.enabled, true), eq(giftCategories.enabled, true), outsideEvents))
     .orderBy(asc(giftCatalog.sortOrder))
     .then((rows) => rows.map((r) => r.gift));
 
@@ -29,7 +33,7 @@ export const listCategories = () =>
     .selectDistinct({ id: giftCategories.id, name: giftCategories.name, sortOrder: giftCategories.sortOrder })
     .from(giftCategories)
     .innerJoin(giftCatalog, and(eq(giftCatalog.categoryId, giftCategories.id), eq(giftCatalog.enabled, true)))
-    .where(eq(giftCategories.enabled, true))
+    .where(and(eq(giftCategories.enabled, true), outsideEvents))
     .orderBy(asc(giftCategories.sortOrder), asc(giftCategories.id));
 
 export async function getBalance(userId: string) {
