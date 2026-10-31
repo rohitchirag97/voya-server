@@ -203,6 +203,7 @@ roomRoutes.post("/rooms/:roomId/gifts", async (c) =>
 );
 
 roomRoutes.get("/gifts", async (c) => c.json(await gifts.listGifts()));
+roomRoutes.get("/gift-categories", async (c) => c.json(await gifts.listCategories()));
 roomRoutes.get("/wallet", async (c) => {
   const id = c.get("user").id;
   return c.json({ balance: await gifts.getBalance(id), diamonds: (await diamonds.diamondBalance(id)).balance });

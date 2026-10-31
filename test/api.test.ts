@@ -2194,6 +2194,20 @@ describe("admin gift catalog", () => {
     expect(listed.changes).toHaveLength(2); // created, then edited
     expect((await send("PATCH", `/admin/gifts/${id}`, mod.token, { coinPrice: "1" })).status).toBe(403);
     expect((await send("PATCH", `/admin/gifts/nope`, adm.token, { coinPrice: "1" })).status).toBe(404);
+
+    // Categories: new gifts land in Classic (1); admins add categories and move gifts; a hidden category hides its gifts.
+    expect(listed.categoryId).toBe(1);
+    expect((await api("POST", "/admin/gift-categories", mod.token, { name: "Festival" })).status).toBe(403);
+    const fest = await api("POST", "/admin/gift-categories", adm.token, { name: "Festival", sortOrder: 0 });
+    expect(fest.status).toBe(201);
+    expect((await send("PATCH", `/admin/gifts/${id}`, adm.token, { categoryId: "999999" })).status).toBe(404);
+    expect((await send("PATCH", `/admin/gifts/${id}`, adm.token, { categoryId: String(fest.body.id) })).body.categoryId).toBe(fest.body.id);
+    const tabs = async () => (await api("GET", "/gift-categories", mod.token)).body.map((c: any) => c.name);
+    expect((await tabs())[0]).toBe("Festival"); // first by sortOrder; only categories with shown gifts
+    expect((await api("GET", "/admin/gift-categories", adm.token)).body.categories.find((c: any) => c.id === fest.body.id).gifts).toBe(1);
+    expect((await api("PATCH", `/admin/gift-categories/${fest.body.id}`, adm.token, { enabled: false, name: "Diwali" })).body).toMatchObject({ enabled: false, name: "Diwali" });
+    expect(await tabs()).not.toContain("Diwali");
+    expect(await visible()).toBe(false);
   });
 });
 

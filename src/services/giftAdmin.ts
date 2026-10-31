@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { asc, count, desc, eq, inArray } from "drizzle-orm";
 import { config } from "../config";
 import { db } from "../db";
-import { giftCatalog, giftChanges, users, type User } from "../db/schema";
+import { giftCatalog, giftCategories, giftChanges, users, type User } from "../db/schema";
 import { AppError } from "../lib/errors";
 
 // The admin panel's gift catalog: add gifts, change prices and limits, replace art, hide/show. Every change is logged.
@@ -17,7 +17,7 @@ export const GIFT_FILE_NAME = /^[0-9a-f-]{36}\.(png|webp|svga)$/;
 const MAX_ICON_BYTES = 1024 * 1024;
 const MAX_EFFECT_BYTES = 15 * 1024 * 1024;
 
-export type GiftFields = { name?: string; coinPrice?: number; maxQuantity?: number; sortOrder?: number; enabled?: boolean };
+export type GiftFields = { name?: string; coinPrice?: number; maxQuantity?: number; sortOrder?: number; enabled?: boolean; categoryId?: number };
 export type GiftFiles = { icon?: File; effect?: File };
 
 async function iconExt(file: File) {
@@ -64,9 +64,16 @@ export async function listAllGifts() {
   return gifts.map((g) => ({ ...g, changes: log.filter((c) => c.giftId === g.id).slice(0, 20) }));
 }
 
+async function assertCategory(id: number | undefined) {
+  if (id === undefined) return;
+  const [c] = await db.select({ id: giftCategories.id }).from(giftCategories).where(eq(giftCategories.id, id));
+  if (!c) throw new AppError("NOT_FOUND", 404, "No such category");
+}
+
 // New gifts start hidden, so the animation can be previewed before anyone can send it.
 export async function createGift(actor: User, fields: Required<Omit<GiftFields, "enabled">>, files: GiftFiles) {
   if (!files.icon) throw new AppError("FILE_REQUIRED", 400, "Choose an icon");
+  await assertCategory(fields.categoryId);
   const iconName = await save(files.icon, await iconExt(files.icon));
   let effect: string | null = null;
   if (files.effect) {
@@ -78,7 +85,7 @@ export async function createGift(actor: User, fields: Required<Omit<GiftFields, 
   return db.transaction(async (tx) => {
     const [gift] = await tx.insert(giftCatalog).values(row).returning();
     const changes = Object.fromEntries(
-      (["name", "coinPrice", "maxQuantity", "sortOrder", "assetUrl", "effect"] as const).filter((k) => row[k] != null).map((k) => [k, [null, row[k]]]),
+      (["name", "categoryId", "coinPrice", "maxQuantity", "sortOrder", "assetUrl", "effect"] as const).filter((k) => row[k] != null).map((k) => [k, [null, row[k]]]),
     ) as Record<string, [unknown, unknown]>;
     await tx.insert(giftChanges).values({ giftId: id, actorId: actor.id, changes });
     return gift!;
@@ -86,6 +93,7 @@ export async function createGift(actor: User, fields: Required<Omit<GiftFields, 
 }
 
 export async function updateGift(actor: User, id: string, fields: GiftFields, files: GiftFiles) {
+  await assertCategory(fields.categoryId);
   const next: Partial<typeof giftCatalog.$inferInsert> = { ...fields };
   if (files.icon) next.assetUrl = `games/gifts/${await save(files.icon, await iconExt(files.icon))}`;
   if (files.effect) {
@@ -102,4 +110,26 @@ export async function updateGift(actor: User, id: string, fields: GiftFields, fi
     await tx.insert(giftChanges).values({ giftId: id, actorId: actor.id, changes });
     return saved!;
   });
+}
+
+// ---------- categories ----------
+
+// Every category (hidden ones too), in order, with how many gifts each holds.
+export const listAllCategories = () =>
+  db
+    .select({ id: giftCategories.id, name: giftCategories.name, sortOrder: giftCategories.sortOrder, enabled: giftCategories.enabled, gifts: count(giftCatalog.id) })
+    .from(giftCategories)
+    .leftJoin(giftCatalog, eq(giftCatalog.categoryId, giftCategories.id))
+    .groupBy(giftCategories.id)
+    .orderBy(asc(giftCategories.sortOrder), asc(giftCategories.id));
+
+export async function createCategory(name: string, sortOrder: number) {
+  const [c] = await db.insert(giftCategories).values({ name, sortOrder }).returning();
+  return c!;
+}
+
+export async function updateCategory(id: number, fields: { name?: string; sortOrder?: number; enabled?: boolean }) {
+  const [c] = await db.update(giftCategories).set(fields).where(eq(giftCategories.id, id)).returning();
+  if (!c) throw new AppError("NOT_FOUND", 404, "No such category");
+  return c;
 }

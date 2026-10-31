@@ -12,6 +12,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  serial,
   text,
   timestamp,
   uniqueIndex,
@@ -286,6 +287,15 @@ export const directMessages = pgTable(
   ],
 );
 
+// Gift box tabs, managed in the admin panel: shown in sortOrder; a hidden category hides its gifts from the box.
+export const giftCategories = pgTable("gift_categories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: createdAt(),
+});
+
 export const giftCatalog = pgTable(
   "gift_catalog",
   {
@@ -299,6 +309,7 @@ export const giftCatalog = pgTable(
     svg: text("svg"), // optional artwork (SVG markup); emoji fallback in the app when null
     animation: text("animation"), // motion preset the app plays when sent, e.g. "launch"; "pop" if null + svg
     effect: text("effect"), // SVGA (path under /games/fx) played full screen once when sent; replaces the svg motion
+    categoryId: integer("category_id").notNull().default(1).references(() => giftCategories.id), // 1 = Classic
     createdAt: createdAt(),
   },
   (t) => [check("gift_price_positive", sql`${t.coinPrice} > 0`)],

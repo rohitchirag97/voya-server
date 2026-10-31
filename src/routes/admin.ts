@@ -163,11 +163,12 @@ const giftFields = z.object({
   maxQuantity: z.coerce.number().int().min(1).max(999).optional(),
   sortOrder: z.coerce.number().int().min(0).max(100_000).optional(),
   enabled: z.enum(["true", "false"]).transform((v) => v === "true").optional(),
+  categoryId: z.coerce.number().int().positive().optional(),
 });
 async function giftForm(c: Context<Env>) {
   const form = await c.req.formData().catch(() => null);
   if (!form) throw new AppError("VALIDATION_ERROR", 400, "Send the gift as a form");
-  const text = Object.fromEntries(["name", "coinPrice", "maxQuantity", "sortOrder", "enabled"].flatMap((k) => {
+  const text = Object.fromEntries(["name", "coinPrice", "maxQuantity", "sortOrder", "enabled", "categoryId"].flatMap((k) => {
     const v = form.get(k);
     return typeof v === "string" && v.trim() !== "" ? [[k, v]] : [];
   }));
@@ -182,12 +183,31 @@ admin.get("/admin/gifts", async (c) => c.json({ gifts: await giftAdmin.listAllGi
 
 admin.post("/admin/gifts", async (c) => {
   const { fields, files } = await giftForm(c);
-  const { name, coinPrice, maxQuantity = 99, sortOrder = 100 } = fields;
+  const { name, coinPrice, maxQuantity = 99, sortOrder = 100, categoryId = 1 } = fields;
   if (!name || !coinPrice) throw new AppError("VALIDATION_ERROR", 400, "A gift needs a name and a price");
-  return c.json(await giftAdmin.createGift(c.get("user"), { name, coinPrice, maxQuantity, sortOrder }, files), 201);
+  return c.json(await giftAdmin.createGift(c.get("user"), { name, coinPrice, maxQuantity, sortOrder, categoryId }, files), 201);
 });
 
 admin.patch("/admin/gifts/:giftId", async (c) => {
   const { fields, files } = await giftForm(c);
   return c.json(await giftAdmin.updateGift(c.get("user"), z.string().min(1).max(64).parse(c.req.param("giftId")), fields, files));
+});
+
+// Gift box tabs: add, rename, reorder, hide (JSON).
+const categoryFields = z.object({
+  name: z.string().trim().min(1).max(20).optional(),
+  sortOrder: z.number().int().min(0).max(100_000).optional(),
+  enabled: z.boolean().optional(),
+});
+
+admin.get("/admin/gift-categories", async (c) => c.json({ categories: await giftAdmin.listAllCategories() }));
+
+admin.post("/admin/gift-categories", async (c) => {
+  const b = await json(c, categoryFields.required({ name: true }));
+  return c.json(await giftAdmin.createCategory(b.name, b.sortOrder ?? 100), 201);
+});
+
+admin.patch("/admin/gift-categories/:id", async (c) => {
+  const b = await json(c, categoryFields);
+  return c.json(await giftAdmin.updateCategory(z.coerce.number().int().positive().parse(c.req.param("id")), b));
 });

@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { db, isUniqueViolation } from "../db";
-import { giftCatalog, giftTransactions, roomParticipants, rooms, roomSeats, users, walletAccounts, walletLedger, type User } from "../db/schema";
+import { giftCatalog, giftCategories, giftTransactions, roomParticipants, rooms, roomSeats, users, walletAccounts, walletLedger, type User } from "../db/schema";
 import { emitToRoom } from "../io";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
@@ -13,8 +13,24 @@ import { creditGifts } from "./diamonds";
 export type GiftInput = { recipientUserId: string; giftId: string; quantity: number };
 type GiftTx = typeof giftTransactions.$inferSelect;
 
+// The gift box: shown gifts in shown categories (each gift carries its categoryId; the tabs come from listCategories).
 export const listGifts = () =>
-  db.select().from(giftCatalog).where(eq(giftCatalog.enabled, true)).orderBy(asc(giftCatalog.sortOrder));
+  db
+    .select({ gift: giftCatalog })
+    .from(giftCatalog)
+    .innerJoin(giftCategories, eq(giftCategories.id, giftCatalog.categoryId))
+    .where(and(eq(giftCatalog.enabled, true), eq(giftCategories.enabled, true)))
+    .orderBy(asc(giftCatalog.sortOrder))
+    .then((rows) => rows.map((r) => r.gift));
+
+// The gift box tabs, in order: shown categories that have at least one shown gift.
+export const listCategories = () =>
+  db
+    .selectDistinct({ id: giftCategories.id, name: giftCategories.name, sortOrder: giftCategories.sortOrder })
+    .from(giftCategories)
+    .innerJoin(giftCatalog, and(eq(giftCatalog.categoryId, giftCategories.id), eq(giftCatalog.enabled, true)))
+    .where(eq(giftCategories.enabled, true))
+    .orderBy(asc(giftCategories.sortOrder), asc(giftCategories.id));
 
 export async function getBalance(userId: string) {
   const [w] = await db.select({ balance: walletAccounts.balance }).from(walletAccounts).where(eq(walletAccounts.userId, userId));
