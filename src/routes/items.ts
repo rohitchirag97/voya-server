@@ -24,6 +24,7 @@ const fields = z.object({
   enabled: z.enum(["true", "false"]).optional(),
   forPrize: z.enum(["true", "false"]).optional(),
   forMall: z.enum(["true", "false"]).optional(),
+  internal: z.enum(["true", "false"]).optional(),
   from: colour.optional(),
   to: colour.optional(),
   border: colour.optional(),
@@ -35,7 +36,7 @@ export async function itemForm(c: { req: { formData: () => Promise<FormData> } }
   const form = await c.req.formData().catch(() => null);
   if (!form) throw new AppError("VALIDATION_ERROR", 400, "Send the item as a form");
   const str = (k: string) => (typeof form.get(k) === "string" ? (form.get(k) as string) : undefined);
-  const parsed = fields.safeParse({ name: str("name"), description: str("description"), enabled: str("enabled"), forPrize: str("forPrize"), forMall: str("forMall"), from: str("from"), to: str("to"), border: str("border"), text: str("text") });
+  const parsed = fields.safeParse({ name: str("name"), description: str("description"), enabled: str("enabled"), forPrize: str("forPrize"), forMall: str("forMall"), internal: str("internal"), from: str("from"), to: str("to"), border: str("border"), text: str("text") });
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", 400, parsed.error.issues[0]?.message ?? "Check the item's details");
   const f = parsed.data;
   const file = (k: string) => (form.get(k) instanceof File ? (form.get(k) as File) : null);
@@ -45,6 +46,7 @@ export async function itemForm(c: { req: { formData: () => Promise<FormData> } }
     enabled: f.enabled === undefined ? undefined : f.enabled === "true",
     forPrize: f.forPrize === undefined ? undefined : f.forPrize === "true",
     forMall: f.forMall === undefined ? undefined : f.forMall === "true",
+    internal: f.internal === undefined ? undefined : f.internal === "true",
     bubble: f.from && f.to && f.border && f.text ? { from: f.from, to: f.to, border: f.border, text: f.text } : undefined,
     image: file("image"),
     svga: file("svga"),

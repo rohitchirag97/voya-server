@@ -19,14 +19,31 @@ export type ItemKind = "BADGE" | "AVATAR_FRAME" | "CARD_DECOR" | "CHAT_BUBBLE" |
 const now = () => new Date();
 const until = (days: number | null) => (days === null ? null : new Date(Date.now() + days * 86_400_000));
 
-// PNG/WebP up to 2 MB, SVGA up to 15 MB; fresh names, served at /games/items/<name>.
+// What a file really is, from its first bytes (its name and the box it was chosen in can be wrong).
+async function fileType(file: File) {
+  const h = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  const text = String.fromCharCode(...h);
+  if (h[0] === 0x89 && h[1] === 0x50) return "png";
+  if (h[0] === 0xff && h[1] === 0xd8) return "jpg";
+  if (text.slice(8, 12) === "WEBP") return "webp";
+  if ((h[0] === 0x50 && h[1] === 0x4b) || h[0] === 0x78) return "svga"; // SVGA 1 (zip) or SVGA 2 (zlib)
+  if (text.startsWith("GIF")) return "gif";
+  if (text.trimStart().startsWith("<")) return "svg";
+  return null;
+}
+const NOT_OK: Record<string, string> = {
+  gif: "That file is a GIF. Use a PNG, WebP or JPEG picture, or an SVGA for animation.",
+  svg: "That file is an SVG drawing. Export it as a PNG (or an SVGA for animation).",
+};
+
+// Pictures (PNG, WebP, JPEG) up to 2 MB, SVGA animations up to 15 MB; fresh names, served at /games/items/<name>.
+// `want` is what the caller needs; a picture where an animation is needed (or the other way round) is refused.
 export async function saveItemFile(file: File, want: "image" | "svga") {
-  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
-  const ext =
-    head[0] === 0x89 && head[1] === 0x50 ? "png" : String.fromCharCode(...head.slice(8, 12)) === "WEBP" ? "webp" : head[0] === 0x50 && head[1] === 0x4b ? "svga" : head[0] === 0x78 ? "svga" : null;
-  if (want === "image" && ext !== "png" && ext !== "webp") throw new AppError("BAD_MEDIA", 400, "Artwork must be a PNG or WebP image");
-  if (want === "svga" && ext !== "svga") throw new AppError("BAD_MEDIA", 400, "Animation must be an SVGA file");
-  if (file.size > (want === "image" ? 2 : 15) * 1024 * 1024) throw new AppError("MEDIA_TOO_LARGE", 413, want === "image" ? "Image is too large (max 2 MB)" : "Animation is too large (max 15 MB)");
+  const ext = await fileType(file);
+  if (!ext || NOT_OK[ext]) throw new AppError("BAD_MEDIA", 400, (ext && NOT_OK[ext]) || "That file isn't a picture (PNG, WebP, JPEG) or an SVGA animation");
+  if (want === "image" && ext === "svga") throw new AppError("BAD_MEDIA", 400, "That's an SVGA animation. Choose it under Animation, not Picture.");
+  if (want === "svga" && ext !== "svga") throw new AppError("BAD_MEDIA", 400, "That's a picture, not an SVGA animation");
+  if (file.size > (want === "image" ? 2 : 15) * 1024 * 1024) throw new AppError("MEDIA_TOO_LARGE", 413, want === "image" ? "Picture is too large (max 2 MB)" : "Animation is too large (max 15 MB)");
   const name = `${randomUUID()}.${ext}`;
   await mkdir(ITEM_FILES_DIR(), { recursive: true });
   await Bun.write(join(ITEM_FILES_DIR(), name), file);
@@ -48,6 +65,7 @@ export type ItemInput = {
   enabled?: boolean;
   forPrize?: boolean;
   forMall?: boolean;
+  internal?: boolean; // never a prize or in the Mall: wins over forPrize/forMall
   minSvip?: number; // an SVIP item (admin panel > SVIP): free to wear from this tier up, never owned
 };
 
@@ -57,25 +75,29 @@ export async function listItems() {
     db.select().from(badges).orderBy(desc(badges.createdAt)),
     db.select().from(cosmetics).where(eq(cosmetics.exclusive, true)).orderBy(desc(cosmetics.createdAt)),
   ]);
-  const flags = (x: { forPrize: boolean; forMall: boolean; enabled: boolean }) => ({ forPrize: x.forPrize, forMall: x.forMall, enabled: x.enabled });
+  const flags = (x: { forPrize: boolean; forMall: boolean; internal: boolean; enabled: boolean }) => ({ forPrize: x.forPrize, forMall: x.forMall, internal: x.internal, enabled: x.enabled });
   return [
     ...b.map((x) => ({ kind: "BADGE" as ItemKind, id: x.id, name: x.name, description: x.description, svg: x.svg, svga: x.svga, style: null, ...flags(x) })),
     ...c.map((x) => ({ kind: x.kind as ItemKind, id: x.id, name: x.name, description: "", svg: x.svg, svga: x.svga, style: x.style, ...flags(x) })),
   ];
 }
 
+// Internal-only items can't also be prizes or Mall items.
+const placement = (i: Pick<ItemInput, "forPrize" | "forMall" | "internal">) =>
+  i.internal ? { internal: true, forPrize: false, forMall: false } : { internal: false, forPrize: !!i.forPrize, forMall: !!i.forMall };
+
 export async function createItem(i: ItemInput) {
   const art = await artwork(i);
   const id = randomUUID();
   if (i.kind === "BADGE") {
     if (!art.svg && !art.svga) throw new AppError("FILE_REQUIRED", 400, "Upload the badge's image or animation");
-    await db.insert(badges).values({ id, name: i.name, description: i.description ?? "", svg: art.svg ?? "", svga: art.svga ?? null, forPrize: !!i.forPrize, forMall: !!i.forMall, sortOrder: 1000 });
+    await db.insert(badges).values({ id, name: i.name, description: i.description ?? "", svg: art.svg ?? "", svga: art.svga ?? null, ...placement(i), sortOrder: 1000 });
   } else {
     if (i.kind === "AVATAR_FRAME" && !art.svg && !art.svga) throw new AppError("FILE_REQUIRED", 400, "Upload the frame's image or animation");
     if (i.kind === "CARD_DECOR" && !art.svg) throw new AppError("FILE_REQUIRED", 400, "Upload the card decoration's image");
     if (i.kind === "ENTRY_EFFECT" && !art.svga) throw new AppError("FILE_REQUIRED", 400, "Upload the entry effect's SVGA animation");
     if (i.kind === "CHAT_BUBBLE" && !i.bubble) throw new AppError("VALIDATION_ERROR", 400, "Pick the bubble's colours");
-    await db.insert(cosmetics).values({ id, kind: i.kind, name: i.name, svg: art.svg ?? "", svga: art.svga ?? null, style: bubbleStyle(i), exclusive: !i.minSvip, minSvip: i.minSvip ?? 0, forPrize: !!i.forPrize, forMall: !!i.forMall, sortOrder: 1000 });
+    await db.insert(cosmetics).values({ id, kind: i.kind, name: i.name, svg: art.svg ?? "", svga: art.svga ?? null, style: bubbleStyle(i), exclusive: !i.minSvip, minSvip: i.minSvip ?? 0, ...placement(i), sortOrder: 1000 });
   }
   return id;
 }
@@ -83,7 +105,7 @@ export async function createItem(i: ItemInput) {
 export async function updateItem(kind: ItemKind, id: string, i: Omit<ItemInput, "kind">) {
   const art = await artwork({ ...i, kind });
   const files = { ...(art.svg && { svg: art.svg }), ...(art.svga && { svga: art.svga }) };
-  const flags = { ...(i.forPrize !== undefined && { forPrize: i.forPrize }), ...(i.forMall !== undefined && { forMall: i.forMall }) };
+  const flags = i.forPrize !== undefined || i.forMall !== undefined || i.internal !== undefined ? placement(i) : {};
   const rows =
     kind === "BADGE"
       ? await db
@@ -99,9 +121,16 @@ export async function updateItem(kind: ItemKind, id: string, i: Omit<ItemInput, 
   if (!rows.length) throw new AppError("NOT_FOUND", 404, "No such item");
 }
 
+// The item's files, sorted by what each really is: an SVGA chosen as the picture is used as the animation, and a
+// picture chosen as the animation is used as the picture.
 async function artwork(i: ItemInput) {
-  const image = i.image && i.image.size ? await saveItemFile(i.image, "image") : null;
-  const svga = i.svga && i.svga.size ? await saveItemFile(i.svga, "svga") : null;
+  const files = [i.image, i.svga].filter((f): f is File => !!f && f.size > 0);
+  const kinds = await Promise.all(files.map(fileType));
+  const pic = files.find((_, k) => kinds[k] !== "svga");
+  const anim = files.find((_, k) => kinds[k] === "svga");
+  if (i.kind === "ENTRY_EFFECT" && pic && !anim) throw new AppError("BAD_MEDIA", 400, "An entry effect needs an SVGA animation, not a picture");
+  const image = pic ? await saveItemFile(pic, "image") : null;
+  const svga = anim ? await saveItemFile(anim, "svga") : null;
   const box = { AVATAR_FRAME: [200, 200], CARD_DECOR: [400, 160], CHAT_BUBBLE: [44, 26], BADGE: [100, 100], ENTRY_EFFECT: [100, 100] }[i.kind] as [number, number];
   return { svg: image ? imageSvg(image, ...box) : null, svga };
 }

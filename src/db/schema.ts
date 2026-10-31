@@ -52,6 +52,8 @@ export const cosmetics = pgTable("cosmetics", {
   exclusive: boolean("exclusive").notNull().default(false),
   forPrize: boolean("for_prize").notNull().default(false), // offered as an event prize
   forMall: boolean("for_mall").notNull().default(false), // to be sold in the Mall (coming); hidden until then
+  // Internal only (e.g. staff frames): never an event prize or in the Mall; only given by staff (Give to user, Roles).
+  internal: boolean("internal").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: createdAt(),
 });
@@ -471,6 +473,7 @@ export const badges = pgTable("badges", {
   svga: text("svga"), // animated version (games/items/<file>.svga), played instead of the svg
   forPrize: boolean("for_prize").notNull().default(false), // offered as an event prize (admin panel > Items)
   forMall: boolean("for_mall").notNull().default(false),
+  internal: boolean("internal").notNull().default(false), // never a prize or in the Mall; only given by staff
   enabled: boolean("enabled").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: createdAt(),

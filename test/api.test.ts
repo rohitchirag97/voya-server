@@ -3632,7 +3632,10 @@ describe("prize items", () => {
     // Items: admins upload artwork; a picture goes in as an <image> the app can draw.
     expect((await upload(fan.token, "AVATAR_FRAME", { name: "Gold ring", image: png() })).status).toBe(403);
     expect((await upload(adm.token, "ENTRY_EFFECT", { name: "No file" })).body.error.code).toBe("FILE_REQUIRED");
-    expect((await upload(adm.token, "AVATAR_FRAME", { name: "Bad", image: svga() })).body.error.code).toBe("BAD_MEDIA");
+    const gif = new File([new TextEncoder().encode("GIF89a" + " ".repeat(40))], "a.gif");
+    expect((await upload(adm.token, "AVATAR_FRAME", { name: "Bad", image: gif })).body.error.message).toContain("GIF");
+    const mixed = (await upload(adm.token, "AVATAR_FRAME", { name: "Mixed up", image: svga() })).body.id; // an SVGA in the picture box
+    expect((await api("GET", "/admin/items", adm.token)).body.items.find((i: any) => i.id === mixed).svga).toMatch(/\.svga$/);
     const frame = (await upload(adm.token, "AVATAR_FRAME", { name: "Gold ring", image: png() })).body.id;
     const effect = (await upload(adm.token, "ENTRY_EFFECT", { name: "Dragon", svga: svga() })).body.id;
     const badge = (await upload(adm.token, "BADGE", { name: "Diwali King", description: "Won Diwali", image: png() })).body.id;
@@ -3734,6 +3737,8 @@ describe("give to user", () => {
 
     // Items: a prize card decoration, and a Mall-only frame (hidden in the app until the Mall exists).
     const card = (await upload(adm.token, "CARD_DECOR", { name: "Starry card", image: png(), forPrize: "true" })).body.id;
+    // Internal only: never a prize or a Mall item, whatever else is ticked; still given directly.
+    const staffFrame = (await upload(adm.token, "AVATAR_FRAME", { name: "Staff ring", image: png(), forPrize: "true", forMall: "true", internal: "true" })).body.id;
     const mallFrame = (await upload(adm.token, "AVATAR_FRAME", { name: "Mall ring", image: png(), forMall: "true" })).body.id;
     const listed = (await api("GET", "/admin/items", adm.token)).body.items;
     expect(listed.find((i: any) => i.id === card)).toMatchObject({ kind: "CARD_DECOR", forPrize: true, forMall: false });
@@ -3741,6 +3746,8 @@ describe("give to user", () => {
     const options = (await api("GET", "/admin/event-options", adm.token)).body.items.map((i: any) => i.id);
     expect(options).toContain(card);
     expect(options).not.toContain(mallFrame); // events only borrow prize items
+    expect(options).not.toContain(staffFrame);
+    expect((await api("GET", "/admin/items", adm.token)).body.items.find((i: any) => i.id === staffFrame)).toMatchObject({ internal: true, forPrize: false, forMall: false });
     expect((await api("PATCH", "/me/cosmetics", lucky.token, { avatarFrameId: mallFrame })).body.error.code).toBe("NOT_OWNED");
 
     // Give: owner only, a reason, something to give.
