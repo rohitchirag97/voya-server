@@ -3461,3 +3461,49 @@ describe("blocking and rooms", () => {
     expect((await api("POST", `/rooms/${roomId}/join`, guest.token)).status).toBe(200);
   });
 });
+
+describe("support chats", () => {
+  test("users write to support; any staff answers General, only owner/admin answer SVIP; replies carry the staff name", async () => {
+    const user = await signup("asker");
+    const helper = await signup("helper");
+    const boss = await signup("boss");
+    await db.execute(sql`update users set staff_role = 'SUPPORT' where id = ${helper.id}`);
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${boss.id}`);
+
+    // Everyone has General; SVIP only while SVIP.
+    expect((await api("GET", "/support", user.token)).body.chats.map((c: any) => c.desk)).toEqual(["GENERAL"]);
+    expect((await api("POST", "/support/svip/messages", user.token, { body: "hi", clientMessageId: "s0" })).body.error.code).toBe("SVIP_ONLY");
+
+    const live = nextEvent(socketFor(helper.token), "support:new");
+    await new Promise((r) => setTimeout(r, 300)); // socket joined its user channel
+    const asked = await api("POST", "/support/general/messages", user.token, { body: "Where are my coins?", clientMessageId: "q1" });
+    expect(asked.status).toBe(201);
+    expect((await api("POST", "/support/general/messages", user.token, { body: "Where are my coins?", clientMessageId: "q1" })).status).toBe(200); // retry
+    expect((await live).message.body).toBe("Where are my coins?");
+
+    // Staff queue: waiting first; a normal user can't open the desk.
+    expect((await api("GET", "/support-desk", user.token)).status).toBe(403);
+    expect((await api("GET", "/support-desk", helper.token)).body.desks.map((d: any) => d.desk)).toEqual(["GENERAL"]);
+    const queue = (await api("GET", "/support-desk/general", helper.token)).body.threads;
+    const thread = queue.find((t: any) => t.user.userId === user.id);
+    expect(thread).toMatchObject({ open: true, lastMessage: { body: "Where are my coins?", fromStaff: false } });
+
+    const reply = await api("POST", `/support-desk/threads/${thread.threadId}/messages`, helper.token, { body: "Checking now", clientMessageId: "r1" });
+    expect(reply.body).toMatchObject({ fromStaff: true, senderName: helper.handle });
+    expect((await api("GET", "/support-desk/general", boss.token)).body.threads.find((t: any) => t.threadId === thread.threadId)).toMatchObject({ open: false, lastStaff: helper.handle });
+    expect((await api("GET", "/support", user.token)).body.chats[0]).toMatchObject({ unread: 1, lastMessage: { body: "Checking now" } });
+    const mine = await api("GET", "/support/general/messages", user.token);
+    expect(mine.body.messages.map((m: any) => m.body)).toEqual(["Checking now", "Where are my coins?"]);
+    expect((await api("GET", "/support", user.token)).body.chats[0].unread).toBe(0); // opening read it
+
+    // SVIP desk: the user becomes SVIP; support staff can't see it, admins can.
+    await db.execute(sql`insert into recharges (user_id, package_id, coins, price_paise, provider, idempotency_key) values (${user.id}, 'test', 1, 1000000, 'DEV', ${crypto.randomUUID()})`);
+    expect((await api("GET", "/support", user.token)).body.chats.map((c: any) => c.desk)).toEqual(["GENERAL", "SVIP"]);
+    expect((await api("POST", "/support/svip/messages", user.token, { body: "VIP question", clientMessageId: "v1" })).status).toBe(201);
+    expect((await api("GET", "/support-desk/svip", helper.token)).status).toBe(403);
+    const vip = (await api("GET", "/support-desk/svip", boss.token)).body.threads.find((t: any) => t.user.userId === user.id);
+    expect(vip.open).toBe(true);
+    expect((await api("GET", `/support-desk/threads/${vip.threadId}`, helper.token)).status).toBe(403);
+    expect((await api("GET", `/support-desk/threads/${vip.threadId}`, boss.token)).body.messages[0].body).toBe("VIP question");
+  });
+});

@@ -470,6 +470,13 @@
       "when": 1793422516644,
       "tag": "0066_gift_categories",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1793426008265,
+      "tag": "0067_support_chats",
+      "breakpoints": true
     }
   ]
 }

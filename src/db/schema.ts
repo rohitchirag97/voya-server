@@ -940,3 +940,34 @@ export const giftChanges = pgTable(
   },
   (t) => [index("gift_changes_gift").on(t.giftId, t.createdAt)],
 );
+
+// Support chats, kept on the server (unlike DMs) so every staff member with access sees the whole conversation.
+// One thread per user per desk: GENERAL (all staff answer) and SVIP (active SVIP users; owner and admins answer).
+export const supportDesk = pgEnum("support_desk", ["GENERAL", "SVIP"]);
+export const supportThreads = pgTable(
+  "support_threads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    desk: supportDesk("desk").notNull(),
+    open: boolean("open").notNull().default(true), // waiting for staff: the user wrote last
+    lastMessageAt: ts("last_message_at").notNull().defaultNow(),
+    lastStaffId: uuid("last_staff_id").references(() => users.id), // who answered last
+    userLastReadId: bigint("user_last_read_id", { mode: "number" }).notNull().default(0), // staff replies after this are unread
+  },
+  (t) => [uniqueIndex("support_threads_user_desk").on(t.userId, t.desk), index("support_threads_queue").on(t.desk, t.open, t.lastMessageAt)],
+);
+export const supportMessages = pgTable(
+  "support_messages",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    threadId: uuid("thread_id").notNull().references(() => supportThreads.id),
+    senderId: uuid("sender_id").notNull().references(() => users.id),
+    fromStaff: boolean("from_staff").notNull(),
+    body: text("body").notNull(),
+    imageUrl: text("image_url"),
+    clientMessageId: text("client_message_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("support_messages_client").on(t.senderId, t.clientMessageId), index("support_messages_thread").on(t.threadId, t.id)],
+);

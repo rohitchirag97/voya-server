@@ -21,6 +21,7 @@ import { familyRoutes } from "./routes/families";
 import { agencyRoutes } from "./routes/agencies";
 import { postRoutes } from "./routes/posts";
 import { roomRoutes } from "./routes/rooms";
+import { support } from "./routes/support";
 import "./socket";
 
 export const app = new Hono<Env>();
@@ -73,6 +74,7 @@ app.route("/v1", admin); // before roomRoutes, whose "*" auth would run a second
 app.route("/v1", postRoutes); // before roomRoutes, whose "*" auth would cover the public /uploads too
 app.route("/v1", roomRoutes);
 app.route("/v1", dm);
+app.route("/v1", support);
 app.route("/v1", coinSellerRoutes);
 app.route("/v1", cpRoutes);
 app.route("/v1", familyRoutes);
