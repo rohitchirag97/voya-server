@@ -39,7 +39,7 @@ const configSchema = z.object({
         metric: z.enum(["GIFTS_SENT", "GIFTS_RECEIVED", "ROOM_GIFTS", "RECHARGE"]),
         eventGiftsOnly: z.boolean(),
         size: z.number().int().min(1).max(100),
-        rewards: z.array(reward.extend({ from: z.number().int().min(1), to: z.number().int().min(1) })).max(20),
+        rewards: z.array(reward.extend({ from: z.number().int().min(1), to: z.number().int().min(1), min: z.number().int().min(0).max(1_000_000_000).optional() })).max(20),
       }),
     )
     .max(6),

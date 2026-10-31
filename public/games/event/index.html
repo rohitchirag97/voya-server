@@ -41,7 +41,7 @@
   .tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 14px; scrollbar-width: none; }
   .tab { flex: none; border: 1px solid var(--glass-line); background: transparent; color: var(--muted); border-radius: 999px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
   .tab[aria-selected="true"] { background: var(--brand); border-color: var(--brand); color: #04121a; box-shadow: 0 0 14px color-mix(in srgb, var(--brand) 60%, transparent); }
-  .tab:focus-visible, .rules summary:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .tab:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   .board-name { margin: -6px 0 12px; color: var(--muted); font-size: 13px; font-weight: 700; }
 
   /* podium: 2 - 1 - 3 */
@@ -66,7 +66,6 @@
   .name { display: block; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sub { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .val { display: block; font-weight: 900; text-align: right; font-variant-numeric: tabular-nums; }
-  .prize { display: block; color: var(--gold); font-size: 11px; font-weight: 700; text-align: right; }
   .mine { margin-top: 12px; display: flex; justify-content: space-between; gap: 10px; padding: 11px 14px; border-radius: 14px; border: 1px solid var(--brand); background: color-mix(in srgb, var(--brand) 16%, transparent); font-size: 14px; font-weight: 800; }
   .mine span:last-child { font-variant-numeric: tabular-nums; }
   .empty-note { color: var(--muted); margin: 4px 0 0; text-align: center; }
@@ -82,24 +81,45 @@
   .task-sub { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .task.done .task-sub { color: var(--done); font-weight: 800; }
 
-  .rules summary { cursor: pointer; font-weight: 900; list-style: none; display: flex; justify-content: space-between; }
-  .rules summary::after { content: "+"; color: var(--brand); font-size: 20px; line-height: 1; }
-  .rules[open] summary::after { content: "−"; }
-  .rules p { white-space: pre-line; margin: 10px 0 0; color: var(--muted); }
   .state { padding: 80px 16px; text-align: center; color: var(--muted); }
 
+  /* header icons: Rewards and Rules, each opening its own page over the event */
+  .icons { position: absolute; top: 12px; right: 12px; display: flex; gap: 10px; z-index: 2; }
+  .ibtn { display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: 0; padding: 0; color: #fff; font: inherit; font-size: 11px; font-weight: 800; cursor: pointer; }
+  .ibtn span { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: rgba(7, 13, 22, 0.6); border: 1px solid var(--brand); box-shadow: 0 0 14px color-mix(in srgb, var(--brand) 50%, transparent); }
+  .ibtn svg { width: 22px; height: 22px; }
+  .ibtn:focus-visible, .back:focus-visible { outline: 2px solid #fff; outline-offset: 3px; border-radius: 12px; }
+  .sheet { position: fixed; inset: 0; z-index: 10; overflow-y: auto; background:
+    radial-gradient(120% 50% at 50% -10%, color-mix(in srgb, var(--brand) 40%, transparent), transparent 70%), var(--bg); }
+  .sheet[hidden] { display: none; }
+  .sheet-top { position: sticky; top: 0; display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: rgba(7, 13, 22, 0.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--glass-line); }
+  .back { background: none; border: 0; color: #fff; font-size: 30px; line-height: 1; padding: 0 6px; cursor: pointer; }
+  .sheet-top h2 { margin: 0; font-size: 18px; font-weight: 900; }
+  .sheet main { padding-top: 14px; }
+  .prize-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.035); }
+  .prize-row + .prize-row { margin-top: 6px; }
+  .prize-row .who { font-weight: 800; min-width: 0; }
+  .prize-row .coin { text-align: right; }
+  .medal-1 { color: var(--gold); } .medal-2 { color: var(--silver); } .medal-3 { color: var(--bronze); }
+  .need { display: block; color: var(--muted); font-size: 11px; font-weight: 700; }
+  .short { margin: 8px 2px 0; color: var(--gold); font-size: 13px; font-weight: 700; }
+  .step-rank { font-size: 15px; font-weight: 900; color: var(--m); }
+
   @media (prefers-reduced-motion: no-preference) {
+    .sheet:not([hidden]) { animation: rise 0.22s ease-out; }
     .bar > i { transition: width 0.6s ease; }
     .spark { animation: twinkle 2.4s ease-in-out infinite; }
     .spark.s2 { animation-delay: 0.8s; } .spark.s3 { animation-delay: 1.6s; }
     .p1 .ring { animation: glow 2.6s ease-in-out infinite; }
   }
+  @keyframes rise { from { transform: translateY(24px); opacity: 0; } }
   @keyframes twinkle { 50% { opacity: 0.2; transform: scale(0.6); } }
   @keyframes glow { 50% { box-shadow: 0 0 30px var(--gold); } }
 </style>
 </head>
 <body>
 <div id="app"><p class="state">Loading…</p></div>
+<div id="sheet" class="sheet" role="dialog" aria-modal="true" hidden></div>
 <script>
   const app = document.getElementById('app');
   const id = new URLSearchParams(location.search).get('id');
@@ -108,6 +128,8 @@
   const img = (u) => (!u ? '' : /^https?:/.test(u) ? u : '/' + u.replace(/^\//, ''));
   const unit = (u, n) => (u === 'rupees' ? '₹' + fmt(n) : fmt(n));
   const reward = (r) => [r.coins ? fmt(r.coins) + ' coins' : '', r.badgeId ? 'badge' + (r.badgeDays ? ' (' + r.badgeDays + 'd)' : '') : ''].filter(Boolean).join(' + ');
+  const ICON_GIFT = '<svg viewBox="0 0 24 24" fill="none" stroke="#ffc94d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v8h14v-8M12 8v12M12 8S10.5 3.5 8 4.5 9 8 12 8zm0 0s1.5-4.5 4-3.5S15 8 12 8z"/></svg>';
+  const ICON_RULES = '<svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></svg>';
   const CROWN = '<svg class="crown" viewBox="0 0 34 26" aria-hidden="true"><path fill="#ffc94d" d="M2 8l8 7 7-13 7 13 8-7-3 16H5z"/><circle cx="2" cy="7" r="2.2" fill="#ffe29a"/><circle cx="17" cy="2.4" r="2.4" fill="#ffe29a"/><circle cx="32" cy="7" r="2.2" fill="#ffe29a"/></svg>';
 
   // The countdown ticks every second.
@@ -131,20 +153,19 @@
     document.title = d.title;
     const b = d.boards[tab];
     const boardHtml = !b ? '' : (() => {
-      const prizeFor = (rank) => b.rewards.find((r) => r.from <= rank && rank <= r.to);
       const label = (r) => ({ name: r.title ?? r.displayName ?? 'Someone', sub: r.title ? 'Host: ' + (r.owner ?? '') : '', pic: img(r.avatarUrl ?? r.coverUrl) });
       const spot = (rank) => {
-        const r = b.rows[rank - 1], p = prizeFor(rank);
-        if (!r) return `<div class="spot p${rank} empty"><div class="ring"><div class="none"></div><span class="medal">${rank}</span></div><div class="who" style="color:var(--muted)">Open</div><div class="score">&nbsp;</div><div class="step">${p ? esc(reward(p)) : ''}</div></div>`;
+        const r = b.rows[rank - 1], step = `<div class="step"><span class="step-rank">${['', '1st', '2nd', '3rd'][rank]}</span></div>`;
+        if (!r) return `<div class="spot p${rank} empty"><div class="ring"><div class="none"></div><span class="medal">${rank}</span></div><div class="who" style="color:var(--muted)">Open</div><div class="score">&nbsp;</div>${step}</div>`;
         const l = label(r);
         return `<div class="spot p${rank}"><div class="ring">${rank === 1 ? CROWN : ''}<img alt="" src="${esc(l.pic)}" onerror="this.style.visibility='hidden'"><span class="medal">${rank}</span></div>
-          <div class="who">${esc(l.name)}</div><div class="score">${unit(b.unit, r.value)}</div><div class="step">${p ? esc(reward(p)) : ''}</div></div>`;
+          <div class="who">${esc(l.name)}</div><div class="score">${unit(b.unit, r.value)}</div>${step}</div>`;
       };
       const rest = b.rows.slice(3).map((r) => {
-        const l = label(r), p = prizeFor(r.rank);
+        const l = label(r);
         return `<li class="row"><span class="rank">${r.rank}</span><img class="pic" alt="" src="${esc(l.pic)}" onerror="this.style.visibility='hidden'">
           <span style="min-width:0"><span class="name">${esc(l.name)}</span>${l.sub ? `<span class="sub">${esc(l.sub)}</span>` : ''}</span>
-          <span><span class="val">${unit(b.unit, r.value)}</span>${p ? `<span class="prize">${esc(reward(p))}</span>` : ''}</span></li>`;
+          <span class="val">${unit(b.unit, r.value)}</span></li>`;
       }).join('');
       return `
       <section class="card" aria-labelledby="lb">
@@ -152,7 +173,7 @@
         ${d.boards.length > 1 ? `<div class="tabs" role="tablist">${d.boards.map((x, i) => `<button class="tab" role="tab" aria-selected="${i === tab}" data-tab="${i}">${esc(x.title)}</button>`).join('')}</div>` : `<p class="board-name">${esc(b.title)}</p>`}
         <div class="podium">${spot(2)}${spot(1)}${spot(3)}</div>
         ${b.rows.length ? (rest ? `<ol>${rest}</ol>` : '') : '<p class="empty-note">No one yet. Be the first!</p>'}
-        ${b.mine ? `<div class="mine"><span>${b.mine.rank ? 'You are #' + b.mine.rank : 'Not in the top ' + b.rows.length + ' yet'}</span><span>${unit(b.unit, b.mine.value)}</span></div>` : ''}
+        ${b.mine ? `<div class="mine"><span>${b.mine.rank ? 'You are #' + b.mine.rank : 'Not in the top ' + b.rows.length + ' yet'}</span><span>${unit(b.unit, b.mine.value)}</span></div>${short(b)}` : ''}
       </section>`;
     })();
     const tasksHtml = !d.tasks.length ? '' : `
@@ -162,7 +183,7 @@
           const pct = Math.min(100, (t.value / t.target) * 100);
           const state = t.done ? (d.rewardsPaid ? '✓ Reward sent' : '✓ Completed: reward after the event') : unit(t.unit, t.value) + ' / ' + unit(t.unit, t.target);
           return `<div class="task${t.done ? ' done' : ''}">
-            <div class="task-top"><span>${esc(t.title)}${t.daily ? ' <span class="daily">daily</span>' : ''}</span><span class="coin">${esc(reward(t.reward))}</span></div>
+            <div class="task-top"><span>${esc(t.title)}${t.daily ? ' <span class="daily">daily</span>' : ''}</span></div>
             <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}"><i style="width:${pct}%"></i></div>
             <div class="task-sub">${esc(state)}</div>
           </div>`;
@@ -171,14 +192,52 @@
     app.innerHTML = `
       <header class="hero">${d.page.headerUrl ? `<img alt="" src="${esc(img(d.page.headerUrl))}"><div class="shade"></div>` : ''}
         <i class="spark" style="left:12%;top:22%"></i><i class="spark s2" style="right:14%;top:30%"></i><i class="spark s3" style="left:24%;bottom:38%"></i><i class="spark s3" style="right:22%;top:12%"></i>
+        <div class="icons">
+          ${hasRewards(d) ? `<button class="ibtn" data-open="rewards"><span>${ICON_GIFT}</span>Rewards</button>` : ''}
+          ${d.page.description || d.page.rules || d.boards.some((b) => b.rewards.some((r) => r.min)) ? `<button class="ibtn" data-open="rules"><span>${ICON_RULES}</span>Rules</button>` : ''}
+        </div>
         <h1>${esc(d.title)}</h1><div class="clock" id="clock">${when(d)}</div></header>
-      <main>
-        ${d.page.description ? `<section class="card"><p class="desc">${esc(d.page.description)}</p></section>` : ''}
-        ${boardHtml}${tasksHtml}
-        ${d.page.rules ? `<details class="card rules"><summary>Rules</summary><p>${esc(d.page.rules)}</p></details>` : ''}
-      </main>`;
+      <main>${boardHtml}${tasksHtml}</main>`;
     app.querySelectorAll('[data-tab]').forEach((el) => el.addEventListener('click', () => { tab = Number(el.dataset.tab); render(d); }));
+    app.querySelectorAll('[data-open]').forEach((el) => el.addEventListener('click', () => openSheet(el.dataset.open)));
   }
+
+  // In a prize rank but under that prize's minimum: say how far to go (the amount itself is on the Rules page).
+  function short(b) {
+    const r = b.mine.rank && b.rewards.find((x) => x.from <= b.mine.rank && b.mine.rank <= x.to);
+    return r && r.min && b.mine.value < r.min ? `<p class="short">Reach ${unit(b.unit, r.min)} to win this rank's prize</p>` : '';
+  }
+  const minText = (b, r) => (r.min ? unit(b.unit, r.min) + '+' : '');
+
+  // Rewards and Rules: full pages over the event (their own element, so the 30-second refresh doesn't reset them).
+  const hasRewards = (d) => d.boards.some((b) => b.rewards.length) || d.tasks.some((t) => t.reward.coins || t.reward.badgeId);
+  const sheet = document.getElementById('sheet');
+  const rankText = (r) => (r.from === r.to ? '#' + r.from : '#' + r.from + ' to #' + r.to);
+  function openSheet(kind) {
+    const d = data;
+    const body = kind === 'rewards'
+      ? d.boards.filter((b) => b.rewards.length).map((b) => `
+          <section class="card"><h2>${esc(b.title)}</h2>
+            ${b.rewards.map((r) => `<div class="prize-row"><span class="who medal-${r.from}">${rankText(r)}${r.min ? `<span class="need">needs ${minText(b, r)}</span>` : ''}</span><span class="coin">${esc(reward(r))}</span></div>`).join('')}
+          </section>`).join('') +
+        (d.tasks.some((t) => t.reward.coins || t.reward.badgeId) ? `
+          <section class="card"><h2>Tasks</h2>
+            ${d.tasks.filter((t) => t.reward.coins || t.reward.badgeId).map((t) => `<div class="prize-row"><span class="who">${esc(t.title)}${t.daily ? ' <span class="daily">daily</span>' : ''}</span><span class="coin">${esc(reward(t.reward))}</span></div>`).join('')}
+          </section>` : '') +
+        '<p class="empty-note">Rewards are sent after the event ends.</p>'
+      : (d.page.description ? `<section class="card"><h2>About</h2><p class="desc">${esc(d.page.description)}</p></section>` : '') +
+        (d.page.rules ? `<section class="card"><h2>Rules</h2><p class="desc">${esc(d.page.rules)}</p></section>` : '') +
+        (d.boards.some((b) => b.rewards.some((r) => r.min)) ? `<section class="card"><h2>Minimum to win</h2>
+          <p class="desc" style="margin-bottom:10px">A rank wins its prize only if it reaches the minimum below. Below it, that prize isn't given.</p>
+          ${d.boards.filter((b) => b.rewards.some((r) => r.min)).map((b) => `<p class="board-name" style="margin:10px 0 6px">${esc(b.title)}</p>` +
+            b.rewards.filter((r) => r.min).map((r) => `<div class="prize-row"><span class="who medal-${r.from}">${rankText(r)}</span><span class="val">${minText(b, r)}</span></div>`).join('')).join('')}
+        </section>` : '');
+    sheet.innerHTML = `<div class="sheet-top"><button class="back" aria-label="Back">‹</button><h2>${kind === 'rewards' ? 'Rewards' : 'Rules'}</h2></div><main>${body}</main>`;
+    sheet.hidden = false;
+    sheet.scrollTop = 0;
+    sheet.querySelector('.back').addEventListener('click', closeSheet);
+  }
+  function closeSheet() { sheet.hidden = true; sheet.innerHTML = ''; }
   setInterval(() => { const c = document.getElementById('clock'); if (c && data) c.innerHTML = when(data); }, 1000);
 
   // In the app: ask for a login token, then load (and refresh every 30 s while open).

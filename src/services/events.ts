@@ -138,7 +138,7 @@ export async function winners(e: Event): Promise<Prize[]> {
     rows.forEach((r, i) => {
       const rank = i + 1;
       const reward = b.rewards.find((x) => x.from <= rank && rank <= x.to);
-      if (reward && r.value > 0) out.push({ userId: r.key, source: `board:${b.id}:${rank}`, reward: { coins: reward.coins, badgeId: reward.badgeId, badgeDays: reward.badgeDays }, why: `${b.title}: rank ${rank}` });
+      if (reward && r.value > 0 && r.value >= (reward.min ?? 0)) out.push({ userId: r.key, source: `board:${b.id}:${rank}`, reward: { coins: reward.coins, badgeId: reward.badgeId, badgeDays: reward.badgeDays }, why: `${b.title}: rank ${rank}` });
     });
   }
   for (const t of e.config.tasks) {

@@ -3552,6 +3552,11 @@ describe("events", () => {
     // Payouts: only after the end, approved once.
     expect((await api("POST", `/admin/events/${id}/payouts/approve`, adm.token)).body.error.code).toBe("EVENT_NOT_ENDED");
     await db.execute(sql`update events set ends_at = now() where id = ${id}`);
+    // A rank below its prize's minimum wins nothing.
+    const withMin = (min: number) => ({ ...config, boards: [{ ...config.boards[0], rewards: [{ from: 1, to: 1, coins: 500, min }] }] });
+    await api("PATCH", `/admin/events/${id}`, adm.token, { config: withMin(1_000_000_000) });
+    expect((await api("GET", `/admin/events/${id}/payouts`, adm.token)).body.prizes.map((p: any) => p.why)).toEqual(["Send 500 coins of Diwali gifts"]);
+    await api("PATCH", `/admin/events/${id}`, adm.token, { config: withMin(1) });
     const preview = (await api("GET", `/admin/events/${id}/payouts`, adm.token)).body;
     expect(preview.prizes.map((p: any) => p.why).sort()).toEqual(["Send 500 coins of Diwali gifts", "Top Gifters: rank 1"]);
     const before = (await api("GET", "/wallet", fan.token)).body.balance;

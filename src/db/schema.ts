@@ -984,8 +984,8 @@ export type EventMetric = "GIFTS_SENT" | "GIFTS_RECEIVED" | "ROOM_GIFTS" | "RECH
 export type EventConfig = {
   page: { headerUrl: string | null; color: string; description: string; rules: string };
   // Leaderboards: what they count (coins of gifts, or coins received from recharges), only this event's gifts or all, ranks shown,
-  // and rewards by rank range.
-  boards: { id: string; title: string; metric: EventMetric; eventGiftsOnly: boolean; size: number; rewards: (EventReward & { from: number; to: number })[] }[];
+  // and rewards by rank range; `min`: the score a rank needs to win its prize (so a tiny total can't take a top prize).
+  boards: { id: string; title: string; metric: EventMetric; eventGiftsOnly: boolean; size: number; rewards: (EventReward & { from: number; to: number; min?: number })[] }[];
   // Tasks: a per-user target (coins of gifts, or coins received from recharges) over the event, or each day (India time) if daily.
   tasks: { id: string; title: string; metric: Exclude<EventMetric, "ROOM_GIFTS">; eventGiftsOnly: boolean; target: number; daily: boolean; reward: EventReward }[];
 };
