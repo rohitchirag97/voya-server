@@ -6,52 +6,96 @@
 <title>Event</title>
 <style>
   /* One event's page, drawn from its settings (admin panel > Events): /games/event/?id=<eventId> inside the app
-     (room/EventSheet + screens: the app hands over a login token), or with window.VOYA_DATA set (panel preview). */
+     (screens/EventScreen: the app hands over a login token), or with window.VOYA_DATA set (panel preview).
+     Night stage: the room's navy, the event's colour glowing behind the header, a top-3 podium. */
   :root {
     --brand: #08c9d9; /* replaced by the event's colour */
-    --bg: #f5f7f9; --surface: #ffffff; --line: #e2e8ee; --ink: #0f1b2d; --muted: #6b7785;
-    --gold: #e8920c; --silver: #8a99a8; --bronze: #b4682f; --done: #10b981;
+    --bg: #070d16; --glass: rgba(255, 255, 255, 0.05); --glass-line: rgba(255, 255, 255, 0.1);
+    --ink: #ffffff; --muted: #93a3b8; --track: rgba(255, 255, 255, 0.1);
+    --gold: #ffc94d; --silver: #cfd8e3; --bronze: #e08a4f; --done: #34d399;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow-x: clip; }
-  .hero { position: relative; min-height: 180px; background: var(--brand); color: #fff; padding: 20px 16px 22px; display: flex; flex-direction: column; justify-content: flex-end; }
+  body { min-height: 100vh; background:
+    radial-gradient(120% 60% at 50% -10%, color-mix(in srgb, var(--brand) 55%, transparent), transparent 70%),
+    radial-gradient(80% 40% at 100% 45%, color-mix(in srgb, var(--brand) 14%, transparent), transparent 70%),
+    var(--bg); background-repeat: no-repeat; }
+
+  .hero { position: relative; min-height: 210px; padding: 28px 16px 24px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; text-align: center; overflow: hidden; }
   .hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  .hero .shade { position: absolute; inset: 0; background: linear-gradient(transparent 35%, rgba(0, 0, 0, 0.55)); }
+  .hero .shade { position: absolute; inset: 0; background: linear-gradient(rgba(7, 13, 22, 0.1), rgba(7, 13, 22, 0.35) 45%, var(--bg)); }
   .hero > * { position: relative; }
-  h1 { margin: 0; font-size: 24px; line-height: 1.15; overflow-wrap: break-word; min-width: 0; }
-  .when { margin-top: 6px; font-size: 13px; font-weight: 700; opacity: 0.95; }
-  main { padding: 14px 16px 40px; display: grid; gap: 14px; max-width: 640px; margin: 0 auto; }
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
-  .card h2 { margin: 0 0 10px; font-size: 16px; }
-  .desc { white-space: pre-line; margin: 0; }
-  .tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 10px; }
-  .tab { flex: none; border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
-  .tab[aria-selected="true"] { background: var(--brand); border-color: var(--brand); color: #fff; }
-  .tab:focus-visible, .rules summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  ol { list-style: none; margin: 0; padding: 0; }
-  .row { display: grid; grid-template-columns: 30px 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
-  .row:first-child { border-top: 0; }
-  .rank { font-weight: 900; text-align: center; color: var(--muted); }
-  .r1 .rank { color: var(--gold); } .r2 .rank { color: var(--silver); } .r3 .rank { color: var(--bronze); }
-  .pic { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--line); }
-  .name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .val { font-weight: 800; font-variant-numeric: tabular-nums; }
-  .prize { color: var(--muted); font-size: 12px; text-align: right; }
-  .mine { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--brand) 12%, white); font-size: 14px; font-weight: 700; }
-  .empty { color: var(--muted); margin: 6px 0; }
-  .task { padding: 10px 0; border-top: 1px solid var(--line); }
-  .task:first-of-type { border-top: 0; }
-  .task-top { display: flex; justify-content: space-between; gap: 10px; font-weight: 700; }
-  .bar { height: 8px; border-radius: 4px; background: var(--line); margin: 8px 0 4px; overflow: hidden; }
-  .bar > i { display: block; height: 100%; background: var(--brand); border-radius: 4px; }
-  .task.done .bar > i { background: var(--done); }
-  .task-sub { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; }
-  .badge-done { color: var(--done); font-weight: 800; }
-  .rules summary { cursor: pointer; font-weight: 800; }
+  .spark { position: absolute; width: 14px; height: 14px; background: #fff; clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%); opacity: 0.85; }
+  .spark.s2 { width: 9px; height: 9px; background: var(--gold); }
+  .spark.s3 { width: 7px; height: 7px; opacity: 0.6; }
+  h1 { margin: 0; font-size: 30px; line-height: 1.1; font-weight: 900; text-shadow: 0 0 24px color-mix(in srgb, var(--brand) 80%, transparent), 0 2px 10px rgba(0, 0, 0, 0.6); overflow-wrap: break-word; min-width: 0; max-width: 100%; }
+  .clock { margin-top: 12px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; background: rgba(7, 13, 22, 0.7); border: 1px solid var(--brand); box-shadow: 0 0 16px color-mix(in srgb, var(--brand) 45%, transparent); font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .clock b { color: var(--gold); }
+
+  main { padding: 6px 14px 40px; display: grid; gap: 14px; max-width: 640px; margin: 0 auto; }
+  .card { background: var(--glass); border: 1px solid var(--glass-line); border-radius: 20px; padding: 16px 14px; backdrop-filter: blur(6px); }
+  .card h2 { margin: 0 0 12px; font-size: 17px; font-weight: 900; display: flex; align-items: center; gap: 8px; }
+  .card h2::before { content: ""; width: 4px; height: 16px; border-radius: 2px; background: var(--brand); box-shadow: 0 0 10px var(--brand); }
+  .desc { white-space: pre-line; margin: 0; color: #dbe4ee; }
+
+  .tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 14px; scrollbar-width: none; }
+  .tab { flex: none; border: 1px solid var(--glass-line); background: transparent; color: var(--muted); border-radius: 999px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+  .tab[aria-selected="true"] { background: var(--brand); border-color: var(--brand); color: #04121a; box-shadow: 0 0 14px color-mix(in srgb, var(--brand) 60%, transparent); }
+  .tab:focus-visible, .rules summary:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .board-name { margin: -6px 0 12px; color: var(--muted); font-size: 13px; font-weight: 700; }
+
+  /* podium: 2 - 1 - 3 */
+  .podium { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 8px; margin: 8px 0 6px; }
+  .spot { --m: var(--gold); display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; }
+  .spot.p2 { --m: var(--silver); } .spot.p3 { --m: var(--bronze); }
+  .ring { position: relative; width: 64px; height: 64px; border-radius: 50%; padding: 3px; background: var(--m); box-shadow: 0 0 18px color-mix(in srgb, var(--m) 70%, transparent); }
+  .p1 .ring { width: 84px; height: 84px; }
+  .ring img, .ring .none { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; background: #18263a; border: 2px solid var(--bg); }
+  .crown { position: absolute; left: 50%; top: -24px; transform: translateX(-50%); width: 34px; height: 26px; filter: drop-shadow(0 0 8px var(--gold)); }
+  .medal { position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; background: var(--m); color: #1a1205; font-size: 12px; font-weight: 900; display: grid; place-items: center; border: 2px solid var(--bg); }
+  .spot .who { margin-top: 14px; font-size: 13px; font-weight: 800; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .spot .score { font-size: 13px; font-weight: 900; color: var(--m); font-variant-numeric: tabular-nums; }
+  .step { margin-top: 8px; width: 100%; border-radius: 12px 12px 4px 4px; background: linear-gradient(color-mix(in srgb, var(--m) 30%, transparent), transparent); border-top: 2px solid var(--m); padding: 6px 4px; font-size: 11px; color: #e6edf5; font-weight: 700; min-height: 30px; overflow-wrap: anywhere; }
+  .p1 .step { min-height: 58px; } .p2 .step { min-height: 40px; }
+  .spot.empty .ring { background: var(--track); box-shadow: none; }
+
+  ol { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+  .row { display: grid; grid-template-columns: 26px 38px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 14px; background: rgba(255, 255, 255, 0.035); }
+  .rank { font-weight: 900; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pic { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; background: #18263a; }
+  .name { display: block; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .val { display: block; font-weight: 900; text-align: right; font-variant-numeric: tabular-nums; }
+  .prize { display: block; color: var(--gold); font-size: 11px; font-weight: 700; text-align: right; }
+  .mine { margin-top: 12px; display: flex; justify-content: space-between; gap: 10px; padding: 11px 14px; border-radius: 14px; border: 1px solid var(--brand); background: color-mix(in srgb, var(--brand) 16%, transparent); font-size: 14px; font-weight: 800; }
+  .mine span:last-child { font-variant-numeric: tabular-nums; }
+  .empty-note { color: var(--muted); margin: 4px 0 0; text-align: center; }
+
+  .task { padding: 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.035); }
+  .task + .task { margin-top: 8px; }
+  .task-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; font-weight: 800; }
+  .coin { flex: none; padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, var(--gold) 16%, transparent); border: 1px solid color-mix(in srgb, var(--gold) 50%, transparent); color: var(--gold); font-size: 12px; font-weight: 800; }
+  .daily { color: var(--muted); font-size: 12px; font-weight: 700; }
+  .bar { height: 10px; border-radius: 5px; background: var(--track); margin: 10px 0 6px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 5px; background: var(--brand); box-shadow: 0 0 10px var(--brand); }
+  .task.done .bar > i { background: var(--done); box-shadow: 0 0 10px var(--done); }
+  .task-sub { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .task.done .task-sub { color: var(--done); font-weight: 800; }
+
+  .rules summary { cursor: pointer; font-weight: 900; list-style: none; display: flex; justify-content: space-between; }
+  .rules summary::after { content: "+"; color: var(--brand); font-size: 20px; line-height: 1; }
+  .rules[open] summary::after { content: "−"; }
   .rules p { white-space: pre-line; margin: 10px 0 0; color: var(--muted); }
-  .state { padding: 60px 16px; text-align: center; color: var(--muted); }
-  @media (prefers-reduced-motion: no-preference) { .bar > i { transition: transform 0.6s ease; } }
+  .state { padding: 80px 16px; text-align: center; color: var(--muted); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .bar > i { transition: width 0.6s ease; }
+    .spark { animation: twinkle 2.4s ease-in-out infinite; }
+    .spark.s2 { animation-delay: 0.8s; } .spark.s3 { animation-delay: 1.6s; }
+    .p1 .ring { animation: glow 2.6s ease-in-out infinite; }
+  }
+  @keyframes twinkle { 50% { opacity: 0.2; transform: scale(0.6); } }
+  @keyframes glow { 50% { box-shadow: 0 0 30px var(--gold); } }
 </style>
 </head>
 <body>
@@ -62,58 +106,72 @@
   const fmt = (n) => Math.round(n).toLocaleString('en-IN');
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const img = (u) => (!u ? '' : /^https?:/.test(u) ? u : '/' + u.replace(/^\//, ''));
-  const unit = (u, n) => (u === 'rupees' ? '₹' + fmt(n) : fmt(n) + ' coins');
-  const reward = (r) => [r.coins ? fmt(r.coins) + ' coins' : '', r.badgeId ? 'badge' + (r.badgeDays ? ' (' + r.badgeDays + ' days)' : '') : ''].filter(Boolean).join(' + ');
+  const unit = (u, n) => (u === 'rupees' ? '₹' + fmt(n) : fmt(n));
+  const reward = (r) => [r.coins ? fmt(r.coins) + ' coins' : '', r.badgeId ? 'badge' + (r.badgeDays ? ' (' + r.badgeDays + 'd)' : '') : ''].filter(Boolean).join(' + ');
+  const CROWN = '<svg class="crown" viewBox="0 0 34 26" aria-hidden="true"><path fill="#ffc94d" d="M2 8l8 7 7-13 7 13 8-7-3 16H5z"/><circle cx="2" cy="7" r="2.2" fill="#ffe29a"/><circle cx="17" cy="2.4" r="2.4" fill="#ffe29a"/><circle cx="32" cy="7" r="2.2" fill="#ffe29a"/></svg>';
 
+  // The countdown ticks every second.
   function when(d) {
-    const end = new Date(d.endsAt), start = new Date(d.startsAt), now = Date.now();
     const left = (t) => {
-      const s = Math.max(0, Math.floor((t - now) / 1000));
-      const days = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
-      return days ? days + 'd ' + h + 'h' : h ? h + 'h ' + m + 'm' : m + 'm';
+      const s = Math.max(0, Math.floor((t - Date.now()) / 1000));
+      const days = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+      const p = (n) => String(n).padStart(2, '0');
+      return (days ? days + 'd ' : '') + p(h) + ':' + p(m) + ':' + p(sec);
     };
-    if (d.phase === 'upcoming') return 'Starts in ' + left(start.getTime());
-    if (d.phase === 'live') return 'Ends in ' + left(end.getTime());
+    if (d.phase === 'upcoming') return 'Starts in <b>' + left(new Date(d.startsAt).getTime()) + '</b>';
+    if (d.phase === 'live') return 'Ends in <b>' + left(new Date(d.endsAt).getTime()) + '</b>';
     if (d.phase === 'draft') return 'Draft: only staff can see this';
-    return 'Ended ' + end.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    return 'Ended ' + new Date(d.endsAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
   }
 
-  let tab = 0;
+  let tab = 0, data = null;
   function render(d) {
+    data = d;
     document.documentElement.style.setProperty('--brand', d.page.color || '#08c9d9');
     document.title = d.title;
     const b = d.boards[tab];
-    const prizeFor = (rank) => b.rewards.find((r) => r.from <= rank && rank <= r.to);
-    const boardHtml = !b ? '' : `
+    const boardHtml = !b ? '' : (() => {
+      const prizeFor = (rank) => b.rewards.find((r) => r.from <= rank && rank <= r.to);
+      const label = (r) => ({ name: r.title ?? r.displayName ?? 'Someone', sub: r.title ? 'Host: ' + (r.owner ?? '') : '', pic: img(r.avatarUrl ?? r.coverUrl) });
+      const spot = (rank) => {
+        const r = b.rows[rank - 1], p = prizeFor(rank);
+        if (!r) return `<div class="spot p${rank} empty"><div class="ring"><div class="none"></div><span class="medal">${rank}</span></div><div class="who" style="color:var(--muted)">Open</div><div class="score">&nbsp;</div><div class="step">${p ? esc(reward(p)) : ''}</div></div>`;
+        const l = label(r);
+        return `<div class="spot p${rank}"><div class="ring">${rank === 1 ? CROWN : ''}<img alt="" src="${esc(l.pic)}" onerror="this.style.visibility='hidden'"><span class="medal">${rank}</span></div>
+          <div class="who">${esc(l.name)}</div><div class="score">${unit(b.unit, r.value)}</div><div class="step">${p ? esc(reward(p)) : ''}</div></div>`;
+      };
+      const rest = b.rows.slice(3).map((r) => {
+        const l = label(r), p = prizeFor(r.rank);
+        return `<li class="row"><span class="rank">${r.rank}</span><img class="pic" alt="" src="${esc(l.pic)}" onerror="this.style.visibility='hidden'">
+          <span style="min-width:0"><span class="name">${esc(l.name)}</span>${l.sub ? `<span class="sub">${esc(l.sub)}</span>` : ''}</span>
+          <span><span class="val">${unit(b.unit, r.value)}</span>${p ? `<span class="prize">${esc(reward(p))}</span>` : ''}</span></li>`;
+      }).join('');
+      return `
       <section class="card" aria-labelledby="lb">
         <h2 id="lb">Leaderboard</h2>
-        ${d.boards.length > 1 ? `<div class="tabs" role="tablist">${d.boards.map((x, i) => `<button class="tab" role="tab" aria-selected="${i === tab}" data-tab="${i}">${esc(x.title)}</button>`).join('')}</div>` : `<p class="sub" style="margin:-4px 0 8px">${esc(b.title)}</p>`}
-        ${b.rows.length ? `<ol>${b.rows.map((r) => {
-          const p = prizeFor(r.rank);
-          const name = r.title ?? r.displayName ?? 'Someone';
-          const sub = r.title ? 'Host: ' + (r.owner ?? '') : '';
-          return `<li class="row r${r.rank}"><span class="rank">${r.rank}</span><img class="pic" alt="" src="${esc(img(r.avatarUrl ?? r.coverUrl))}" onerror="this.style.visibility='hidden'">
-            <span style="min-width:0"><span class="name">${esc(name)}</span>${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span>
-            <span><span class="val">${unit(b.unit, r.value)}</span>${p ? `<span class="prize" style="display:block">${esc(reward(p))}</span>` : ''}</span></li>`;
-        }).join('')}</ol>` : '<p class="empty">No one yet. Be the first!</p>'}
-        ${b.mine ? `<div class="mine">${b.mine.rank ? 'You are #' + b.mine.rank : 'You are not in the top ' + b.rows.length + ' yet'}: ${unit(b.unit, b.mine.value)}</div>` : ''}
+        ${d.boards.length > 1 ? `<div class="tabs" role="tablist">${d.boards.map((x, i) => `<button class="tab" role="tab" aria-selected="${i === tab}" data-tab="${i}">${esc(x.title)}</button>`).join('')}</div>` : `<p class="board-name">${esc(b.title)}</p>`}
+        <div class="podium">${spot(2)}${spot(1)}${spot(3)}</div>
+        ${b.rows.length ? (rest ? `<ol>${rest}</ol>` : '') : '<p class="empty-note">No one yet. Be the first!</p>'}
+        ${b.mine ? `<div class="mine"><span>${b.mine.rank ? 'You are #' + b.mine.rank : 'Not in the top ' + b.rows.length + ' yet'}</span><span>${unit(b.unit, b.mine.value)}</span></div>` : ''}
       </section>`;
+    })();
     const tasksHtml = !d.tasks.length ? '' : `
       <section class="card" aria-labelledby="tk">
         <h2 id="tk">Tasks</h2>
         ${d.tasks.map((t) => {
           const pct = Math.min(100, (t.value / t.target) * 100);
-          const state = t.done ? (d.rewardsPaid ? 'Reward sent' : 'Completed: reward after the event') : unit(t.unit, t.value) + ' / ' + unit(t.unit, t.target);
+          const state = t.done ? (d.rewardsPaid ? '✓ Reward sent' : '✓ Completed: reward after the event') : unit(t.unit, t.value) + ' / ' + unit(t.unit, t.target);
           return `<div class="task${t.done ? ' done' : ''}">
-            <div class="task-top"><span>${esc(t.title)}${t.daily ? ' <span class="sub" style="display:inline">(daily)</span>' : ''}</span><span class="prize">${esc(reward(t.reward))}</span></div>
+            <div class="task-top"><span>${esc(t.title)}${t.daily ? ' <span class="daily">daily</span>' : ''}</span><span class="coin">${esc(reward(t.reward))}</span></div>
             <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}"><i style="width:${pct}%"></i></div>
-            <div class="task-sub"><span class="${t.done ? 'badge-done' : ''}">${esc(state)}</span></div>
+            <div class="task-sub">${esc(state)}</div>
           </div>`;
         }).join('')}
       </section>`;
     app.innerHTML = `
       <header class="hero">${d.page.headerUrl ? `<img alt="" src="${esc(img(d.page.headerUrl))}"><div class="shade"></div>` : ''}
-        <h1>${esc(d.title)}</h1><div class="when">${esc(when(d))}</div></header>
+        <i class="spark" style="left:12%;top:22%"></i><i class="spark s2" style="right:14%;top:30%"></i><i class="spark s3" style="left:24%;bottom:38%"></i><i class="spark s3" style="right:22%;top:12%"></i>
+        <h1>${esc(d.title)}</h1><div class="clock" id="clock">${when(d)}</div></header>
       <main>
         ${d.page.description ? `<section class="card"><p class="desc">${esc(d.page.description)}</p></section>` : ''}
         ${boardHtml}${tasksHtml}
@@ -121,6 +179,7 @@
       </main>`;
     app.querySelectorAll('[data-tab]').forEach((el) => el.addEventListener('click', () => { tab = Number(el.dataset.tab); render(d); }));
   }
+  setInterval(() => { const c = document.getElementById('clock'); if (c && data) c.innerHTML = when(data); }, 1000);
 
   // In the app: ask for a login token, then load (and refresh every 30 s while open).
   let token = null;
