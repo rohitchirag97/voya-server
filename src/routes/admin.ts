@@ -1,5 +1,5 @@
 import { eq, ilike, or, sql } from "drizzle-orm";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { db } from "../db";
 import { coinSellers, staffRole, users, walletAccounts } from "../db/schema";
@@ -9,6 +9,7 @@ import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
 import * as agencies from "../services/agencies";
 import * as cash from "../services/cash";
+import * as giftAdmin from "../services/giftAdmin";
 import * as salaries from "../services/salaries";
 import { findUserByRef } from "../services/auth";
 import { userSummary } from "../services/rooms";
@@ -151,4 +152,42 @@ admin.post("/admin/coin-sellers/:userId/mint", async (c) => {
   const b = await json(c, z.object({ amount: schemas.coins, idempotencyKey: schemas.idempotencyKey }));
   rateLimit(`mint:${c.get("user").id}`, 60, 60_000);
   return c.json(await mint(c.get("user"), schemas.uuid.parse(c.req.param("userId")), b.amount, b.idempotencyKey));
+});
+
+// ---------- gift catalog ----------
+// Multipart forms: the fields below as text, plus optional files "icon" (PNG/WebP) and "effect" (SVGA 2.x).
+
+const giftFields = z.object({
+  name: z.string().trim().min(1).max(24).optional(),
+  coinPrice: z.coerce.number().int().min(1).max(10_000_000).optional(),
+  maxQuantity: z.coerce.number().int().min(1).max(999).optional(),
+  sortOrder: z.coerce.number().int().min(0).max(100_000).optional(),
+  enabled: z.enum(["true", "false"]).transform((v) => v === "true").optional(),
+});
+async function giftForm(c: Context<Env>) {
+  const form = await c.req.formData().catch(() => null);
+  if (!form) throw new AppError("VALIDATION_ERROR", 400, "Send the gift as a form");
+  const text = Object.fromEntries(["name", "coinPrice", "maxQuantity", "sortOrder", "enabled"].flatMap((k) => {
+    const v = form.get(k);
+    return typeof v === "string" && v.trim() !== "" ? [[k, v]] : [];
+  }));
+  const file = (k: string) => {
+    const v = form.get(k);
+    return v instanceof File && v.size ? v : undefined;
+  };
+  return { fields: giftFields.parse(text), files: { icon: file("icon"), effect: file("effect") } };
+}
+
+admin.get("/admin/gifts", async (c) => c.json({ gifts: await giftAdmin.listAllGifts() }));
+
+admin.post("/admin/gifts", async (c) => {
+  const { fields, files } = await giftForm(c);
+  const { name, coinPrice, maxQuantity = 99, sortOrder = 100 } = fields;
+  if (!name || !coinPrice) throw new AppError("VALIDATION_ERROR", 400, "A gift needs a name and a price");
+  return c.json(await giftAdmin.createGift(c.get("user"), { name, coinPrice, maxQuantity, sortOrder }, files), 201);
+});
+
+admin.patch("/admin/gifts/:giftId", async (c) => {
+  const { fields, files } = await giftForm(c);
+  return c.json(await giftAdmin.updateGift(c.get("user"), z.string().min(1).max(64).parse(c.req.param("giftId")), fields, files));
 });

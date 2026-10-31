@@ -156,14 +156,16 @@ async function assertCanEnter(user: User, room: Room, password: string | undefin
 }
 
 // ---------- charisma counter ----------
-// While on, each person's charisma = coins of the gifts they received in this room since it was started (per person,
-// so it follows them if they change seats). Off = null. Starting again begins from zero.
+// While on, each seated person's charisma = coins of the gifts they received in this room since it was started, or
+// since they sat down if later: leaving the seat (or the room) and coming back starts them from zero. Moving to another
+// seat keeps it (claimSeat carries assignedAt over). Off = null. Starting again begins from zero.
 async function charismaState(roomId: string, startedAt: Date | null) {
   if (!startedAt) return null;
   const rows = await db
     .select({ userId: giftTransactions.recipientId, coins: sql<number>`sum(${giftTransactions.coinsDebited})::float8` })
     .from(giftTransactions)
-    .where(and(eq(giftTransactions.roomId, roomId), gte(giftTransactions.createdAt, startedAt)))
+    .innerJoin(roomSeats, and(eq(roomSeats.roomId, roomId), eq(roomSeats.occupantUserId, giftTransactions.recipientId)))
+    .where(and(eq(giftTransactions.roomId, roomId), gte(giftTransactions.createdAt, startedAt), gte(giftTransactions.createdAt, roomSeats.assignedAt)))
     .groupBy(giftTransactions.recipientId);
   return { startedAt, totals: Object.fromEntries(rows.map((r) => [r.userId, r.coins])) as Record<string, number> };
 }
@@ -538,6 +540,7 @@ export async function systemMessage(roomId: string, body: string, payload: Recor
 
 async function broadcastSeats(roomId: string, roomVersion: number) {
   emitToRoom(roomId, "room:seat:state", { roomId, roomVersion, seats: await getSeats(roomId) });
+  await refreshCharisma(roomId).catch(() => {}); // someone left or sat down: their charisma starts over
 }
 
 // Live PK starting: co-hosts (seats 1-3) step off so the battle is host vs host; each gets a "room:unseated" notice.
@@ -710,7 +713,7 @@ export async function claimSeat(user: User, roomId: string, seatIndex: number, {
         streamId: streamIdFor(room, user.id),
         micMuted: current?.micMuted ?? false,
         modMuted: current?.modMuted ?? false,
-        assignedAt: new Date(),
+        assignedAt: current?.assignedAt ?? new Date(), // a move keeps the seat time (and so the charisma)
         updatedAt: new Date(),
       })
       .where(

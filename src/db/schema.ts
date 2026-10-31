@@ -916,3 +916,16 @@ export const dmReads = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.peerId] })],
 );
+
+// Admin panel edits to the gift catalog: who changed which fields, from what to what ({ field: [before, after] }).
+export const giftChanges = pgTable(
+  "gift_changes",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    giftId: text("gift_id").notNull().references(() => giftCatalog.id),
+    actorId: uuid("actor_id").notNull().references(() => users.id),
+    changes: jsonb("changes").$type<Record<string, [unknown, unknown]>>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("gift_changes_gift").on(t.giftId, t.createdAt)],
+);

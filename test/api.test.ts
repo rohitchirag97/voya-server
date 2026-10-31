@@ -2133,6 +2133,68 @@ describe("charisma counter", () => {
     expect(msgs.some((b: string) => b.endsWith("stopped the charisma counter"))).toBe(true);
     expect(msgs.some((b: string) => b.endsWith("reset the charisma counter to 0"))).toBe(true);
   });
+
+  test("a person's charisma survives a seat move but starts from zero when they leave the seat and come back", async () => {
+    const { host, roomId } = await liveRoom();
+    const fan = await joined(roomId, "fan");
+    const singer = await joined(roomId, "singer");
+    const totals = async () => (await api("GET", `/rooms/${roomId}`, fan.token)).body.charisma.totals;
+    await api("POST", `/rooms/${roomId}/charisma`, host.token, { on: true });
+    await api("POST", `/rooms/${roomId}/seats/1/claim`, singer.token);
+    const gift = (key: string) =>
+      api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: singer.id, giftId: "chai", quantity: 1 }, { "Idempotency-Key": key });
+    expect((await gift("s-1")).status).toBe(200);
+    expect(await totals()).toEqual({ [singer.id]: 100 });
+
+    await api("POST", `/rooms/${roomId}/seats/2/claim`, singer.token); // moving seats keeps it
+    expect(await totals()).toEqual({ [singer.id]: 100 });
+
+    await api("POST", `/rooms/${roomId}/seats/2/release`, singer.token);
+    expect(await totals()).toEqual({});
+    await api("POST", `/rooms/${roomId}/seats/1/claim`, singer.token); // back on a seat: from zero
+    expect(await totals()).toEqual({});
+    expect((await gift("s-2")).status).toBe(200);
+    expect(await totals()).toEqual({ [singer.id]: 100 });
+  });
+});
+
+describe("admin gift catalog", () => {
+  test("admins add gifts (hidden until shown), change price and art with a log; moderators can't; bad files are refused", async () => {
+    const adm = await signup("gifter");
+    const mod = await signup("helper");
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    await db.execute(sql`update users set staff_role = 'MODERATOR' where id = ${mod.id}`);
+    const send = (method: string, path: string, token: string, f: Record<string, string | File>) => {
+      const form = new FormData();
+      for (const [k, v] of Object.entries(f)) form.append(k, v);
+      return fetch(`${base}/v1${path}`, { method, headers: { authorization: `Bearer ${token}` }, body: form }).then(async (r) => ({ status: r.status, body: (await r.json()) as any }));
+    };
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)])], "i.png");
+    const svga = new File([Bun.file(`${import.meta.dir}/../public/games/fx/gift/pink-lips.svga`)], "e.svga");
+
+    expect((await send("POST", "/admin/gifts", mod.token, { name: "Moon", coinPrice: "500", icon: png })).status).toBe(403);
+    expect((await send("POST", "/admin/gifts", adm.token, { name: "Moon", coinPrice: "500" })).body.error.code).toBe("FILE_REQUIRED");
+    expect((await send("POST", "/admin/gifts", adm.token, { name: "Moon", coinPrice: "500", icon: png, effect: new File([new Uint8Array([0x50, 0x4b, 3, 4])], "old.svga") })).body.error.code).toBe("BAD_MEDIA");
+
+    const made = await send("POST", "/admin/gifts", adm.token, { name: "Moon Light", coinPrice: "500", maxQuantity: "10", icon: png, effect: svga });
+    expect(made.status).toBe(201);
+    const id = made.body.id;
+    expect(made.body).toMatchObject({ name: "Moon Light", coinPrice: 500, maxQuantity: 10, enabled: false });
+    expect(made.body.assetUrl).toMatch(/^games\/gifts\/[0-9a-f-]+\.png$/);
+    expect((await fetch(`${base}/${made.body.assetUrl}`)).status).toBe(200);
+    expect((await fetch(`${base}${made.body.effect}`)).status).toBe(200);
+    const visible = async () => (await api("GET", "/gifts", mod.token)).body.some((g: any) => g.id === id);
+    expect(await visible()).toBe(false); // hidden until shown
+
+    const shown = await send("PATCH", `/admin/gifts/${id}`, adm.token, { enabled: "true", coinPrice: "800" });
+    expect(shown.body).toMatchObject({ enabled: true, coinPrice: 800 });
+    expect(await visible()).toBe(true);
+    const listed = (await api("GET", "/admin/gifts", adm.token)).body.gifts.find((g: any) => g.id === id);
+    expect(listed.changes[0]).toMatchObject({ by: adm.handle, changes: { enabled: [false, true], coinPrice: [500, 800] } });
+    expect(listed.changes).toHaveLength(2); // created, then edited
+    expect((await send("PATCH", `/admin/gifts/${id}`, mod.token, { coinPrice: "1" })).status).toBe(403);
+    expect((await send("PATCH", `/admin/gifts/nope`, adm.token, { coinPrice: "1" })).status).toBe(404);
+  });
 });
 
 describe("room settings", () => {

@@ -2,6 +2,8 @@ import { Server as Engine } from "@socket.io/bun-engine";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { requestId } from "hono/request-id";
+import { join } from "node:path";
+import { GIFT_FILE_NAME, GIFT_FILES_DIR } from "./services/giftAdmin";
 import type { Env } from "./http";
 import { io } from "./io";
 import { toSafeError } from "./lib/errors";
@@ -47,6 +49,14 @@ app.get("/v1/salary-policy", (c) =>
 app.route("/", links); // shareable room links (/r/:roomId) and the install page (/download)
 // HTML5 mini-games, opened in a WebView over the room. The socket client comes from the installed socket.io, so versions always match.
 app.get("/games/socket.io.min.js", () => new Response(Bun.file(`${import.meta.dir}/../node_modules/socket.io/client-dist/socket.io.min.js`)));
+// Gift icons and animations added in the admin panel (services/giftAdmin.ts). Each upload has a fresh name: cached forever.
+app.get("/games/gifts/:name", async (c) => {
+  const name = c.req.param("name");
+  const f = Bun.file(join(GIFT_FILES_DIR(), name));
+  if (!GIFT_FILE_NAME.test(name) || !(await f.exists())) return c.notFound();
+  const type = { png: "image/png", webp: "image/webp", svga: "application/octet-stream" }[name.split(".").pop()!]!;
+  return new Response(f, { headers: { "content-type": type, "cache-control": "public, max-age=31536000, immutable" } });
+});
 app.use(
   "/games/*",
   serveStatic({

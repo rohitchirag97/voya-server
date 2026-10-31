@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gift preview</title>
+<style>
+  /* Admin panel gift preview (client: admin/gifts): /games/fx/preview.html?play=/games/gifts/<file>.svga.
+     Plays the animation once with its sound on Play (browsers only allow sound after a click). */
+  :root { --bg: #14121a; --ink: #fff; --accent: #ff6a3d; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 600 14px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #fx { position: absolute; inset: 0; }
+  #go { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); border: 0; border-radius: 999px; padding: 10px 22px;
+    background: var(--accent); color: var(--ink); font: inherit; cursor: pointer; }
+  #go:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  #msg { position: absolute; top: 12px; left: 0; right: 0; text-align: center; opacity: 0.7; }
+</style>
+<script src="lib/svga.min.js"></script>
+</head>
+<body>
+<div id="fx"></div>
+<p id="msg"></p>
+<button id="go" type="button" disabled>Loading…</button>
+<script>
+  const url = new URLSearchParams(location.search).get('play');
+  const go = document.getElementById('go');
+  const msg = document.getElementById('msg');
+  const player = new SVGA.Player('#fx');
+  player.loops = 1;
+  player.clearsAfterStop = false;
+  player.setContentMode('AspectFit');
+
+  // The sound inside the file: SVGAPlayer-Web ignores it, so it's read here. SVGA 2 = zlib-compressed protobuf; MP3s sit
+  // in `images` (field 3) and `audios` (field 5) says when each starts.
+  const varint = (b, o) => { let r = 0, s = 0, x; do { x = b[o++]; r += (x & 0x7f) * 2 ** s; s += 7; } while (x & 0x80); return [r, o]; };
+  const fields = (b) => {
+    const out = []; let o = 0;
+    while (o < b.length) {
+      let k; [k, o] = varint(b, o); const f = k >> 3, t = k & 7;
+      if (t === 0) { let v; [v, o] = varint(b, o); out.push([f, v]); }
+      else if (t === 2) { let n; [n, o] = varint(b, o); out.push([f, b.subarray(o, o + n)]); o += n; }
+      else if (t === 5) { o += 4; } else if (t === 1) { o += 8; } else break;
+    }
+    return out;
+  };
+  const text = (b) => new TextDecoder().decode(b);
+  const soundsOf = async () => {
+    try {
+      const raw = new Response((await fetch(url)).body.pipeThrough(new DecompressionStream('deflate')));
+      const movie = fields(new Uint8Array(await raw.arrayBuffer()));
+      const auds = movie.filter(([n]) => n === 5).map(([, v]) => Object.fromEntries(fields(v)));
+      const fps = Object.fromEntries(fields(movie.find(([n]) => n === 2)[1]))[3] || 20;
+      const files = Object.fromEntries(movie.filter(([n]) => n === 3).map(([, v]) => { const e = Object.fromEntries(fields(v)); return [text(e[1]), e[2]]; }));
+      return auds.filter((a) => files[text(a[1])]).map((a) => ({
+        src: URL.createObjectURL(new Blob([files[text(a[1])]], { type: 'audio/mpeg' })),
+        at: ((a[2] || 0) / fps) * 1000,
+        from: (a[4] || 0) / 1000,
+      }));
+    } catch (e) { return []; }
+  };
+
+  let sounds = [];
+  let timers = [];
+  const playing = [];
+  const stopSound = () => { timers.forEach(clearTimeout); timers = []; playing.splice(0).forEach((a) => a.pause()); };
+  player.onFinished(() => { stopSound(); go.disabled = false; go.textContent = 'Play again'; });
+  go.onclick = () => {
+    stopSound();
+    go.disabled = true;
+    player.startAnimation();
+    for (const s of sounds) timers.push(setTimeout(() => { const a = new Audio(s.src); a.currentTime = s.from; a.play().catch(() => {}); playing.push(a); }, s.at));
+  };
+
+  if (!url || !url.startsWith('/games/')) { msg.textContent = 'No animation'; go.hidden = true; }
+  else {
+    Promise.all([new Promise((ok, fail) => new SVGA.Parser('#fx').load(url, ok, fail)), soundsOf()]).then(([item, s]) => {
+      player.setVideoItem(item);
+      sounds = s;
+      msg.textContent = s.length ? 'With sound' : 'No sound in this file';
+      go.disabled = false;
+      go.textContent = 'Play';
+    }, () => { msg.textContent = "This animation couldn't be loaded"; go.hidden = true; });
+  }
+</script>
+</body>
+</html>
