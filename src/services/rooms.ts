@@ -16,7 +16,9 @@ import { pushDm } from "./dmPush";
 const ZEGO_TOKEN_TTL_S = 3600;
 type Room = typeof rooms.$inferSelect;
 const levelSql = sql<number>`(select coalesce(max(${levelThresholds.level}), 0) from ${levelThresholds} where ${levelThresholds.xpRequired} <= ${users.xp})`.mapWith(Number);
-export const userSummary = { userId: users.id, displayName: users.displayName, avatarUrl: avatarSql, gender: users.gender, level: levelSql, staffRole: users.staffRole, svip: svipSql, frameId: frameSql };
+export const userSummary = { userId: users.id, displayName: users.displayName, avatarUrl: avatarSql, gender: users.gender, level: levelSql, staffRole: users.staffRole, svip: svipSql, frameId: frameSql, seatMedal: users.showSeatMedal };
+// Someone's Special ID as others see it: hidden if they chose so in Style.
+export const shownSpecialId = sql<string | null>`(case when ${users.hideSpecialId} then null else ${users.specialId} end)`;
 
 // ZEGO stream IDs allow [A-Za-z0-9_-]; one per publisher per room.
 export const streamIdFor = (room: Room, userId: string) => `${room.zegoRoomId}_${userId.replaceAll("-", "")}`;
@@ -62,7 +64,7 @@ export async function getSnapshot(roomId: string) {
       .where(and(eq(roomParticipants.roomId, roomId), isNull(roomParticipants.leftAt))),
     db.select({ userId: roomAdmins.userId }).from(roomAdmins).where(eq(roomAdmins.roomId, roomId)),
     // Whose room this is, even when they aren't in it (the side panel shows it).
-    db.select({ ...userSummary, publicId: users.publicId, specialId: users.specialId }).from(users).where(eq(users.id, room.hostUserId)),
+    db.select({ ...userSummary, publicId: users.publicId, specialId: shownSpecialId }).from(users).where(eq(users.id, room.hostUserId)),
   ]);
   return {
     roomId: room.id,
@@ -181,10 +183,10 @@ export async function setCharisma(actor: User, roomId: string, on: boolean) {
   const { startedAt, reset } = await db.transaction(async (tx) => {
     const room = await lockRoom(tx, roomId);
     await assertAdmin(tx, room, actor.id);
-    const next = on ? new Date() : null;
-    await tx.update(rooms).set({ charismaStartedAt: next }).where(eq(rooms.id, roomId));
+    // The database clock, like the gifts it is compared with (the server's clock can be a little off).
+    const [row] = await tx.update(rooms).set({ charismaStartedAt: on ? sql`now()` : null }).where(eq(rooms.id, roomId)).returning({ startedAt: rooms.charismaStartedAt });
     await bumpVersion(tx, roomId);
-    return { startedAt: next, reset: on && !!room.charismaStartedAt };
+    return { startedAt: row!.startedAt, reset: on && !!room.charismaStartedAt };
   });
   const charisma = await charismaState(roomId, startedAt);
   emitToRoom(roomId, "room:charisma", { roomId, charisma });
@@ -597,12 +599,11 @@ export async function createRoom(user: User, input: { title: string; category?: 
         .insert(rooms)
         .values({ ...input, hostUserId: user.id, status: "LIVE", startedAt: new Date(), zegoRoomId: `${input.kind === "LIVE" ? "l" : "r"}_${crypto.randomUUID().replaceAll("-", "")}` })
         .returning();
-      const now = new Date();
       await tx.insert(roomSeats).values(
         seatPositions(input.seatCount).map((p) => ({
           roomId: room!.id,
           ...p,
-          ...(p.seatIndex === 0 && { occupantUserId: user.id, streamId: streamIdFor(room!, user.id), assignedAt: now }),
+          ...(p.seatIndex === 0 && { occupantUserId: user.id, streamId: streamIdFor(room!, user.id), assignedAt: sql`now()` }),
         })),
       );
       await tx.insert(roomParticipants).values({ roomId: room!.id, userId: user.id, role: "HOST" });
@@ -663,8 +664,8 @@ export async function joinRoom(user: User, roomId: string, password?: string) {
 // The animation of the entry effect someone has on (a prize item; services/items.ts takes it off when it expires).
 async function entryEffectOf(user: User) {
   if (!user.entryEffectId) return null;
-  const [c] = await db.select({ svga: cosmetics.svga }).from(cosmetics).where(and(eq(cosmetics.id, user.entryEffectId), eq(cosmetics.enabled, true)));
-  return c?.svga ?? null;
+  const [c] = await db.select({ svga: cosmetics.svga, svg: cosmetics.svg }).from(cosmetics).where(and(eq(cosmetics.id, user.entryEffectId), eq(cosmetics.enabled, true)));
+  return c?.svga ?? c?.svg.match(/href="\/([^"]+)"/)?.[1] ?? null; // the SVGA, or the uploaded picture
 }
 
 // The "X joined" notice: on entering, and again when someone comes back after their connection dropped.
@@ -726,7 +727,7 @@ export async function claimSeat(user: User, roomId: string, seatIndex: number, {
         streamId: streamIdFor(room, user.id),
         micMuted: current?.micMuted ?? false,
         modMuted: current?.modMuted ?? false,
-        assignedAt: current?.assignedAt ?? new Date(), // a move keeps the seat time (and so the charisma)
+        assignedAt: current?.assignedAt ?? sql`now()`, // a move keeps the seat time (and so the charisma); database clock, like gifts
         updatedAt: new Date(),
       })
       .where(

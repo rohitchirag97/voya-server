@@ -9,6 +9,8 @@
      .svga under /games/fx; it plays once (loops = 1), clears, and says 'done' so the app sends the next one. */
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
   #fx { position: absolute; inset: 0; }
+  /* A picture instead of an SVGA (an entry effect or gift effect uploaded as PNG/WebP): shown where the SVGA would be. */
+  #still { position: absolute; left: 0; width: 100%; object-fit: contain; display: none; opacity: 0; transition: opacity 0.3s; }
   /* An entry banner's name, over the middle of its bubble (placed in script; the file's own text slot is too small). */
   #name {
     position: absolute; display: none; align-items: center; justify-content: center;
@@ -22,6 +24,7 @@
 <body>
 <div id="fx"></div>
 <div id="name"></div>
+<img id="still" alt="" />
 <script>
   const tell = (msg) => window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(msg));
   const player = new SVGA.Player('#fx');
@@ -31,6 +34,7 @@
   player.setContentMode('AspectFit');
   const box = document.getElementById('fx');
   const nameTag = document.getElementById('name');
+  const still = document.getElementById('still');
   // Entry banners sit over the room chat (lower half), so Ludo or video mode at the top never hides them.
   const BANNER_TOP = 0.62; // the band's top edge, as a share of the screen height
   const BANNER_MS = 3000; // entry banners show for 3 s (the files run ~5 s), then fade out quickly
@@ -104,6 +108,28 @@
         setTimeout(() => { player.stopAnimation(true); finish(id); }, 300);
       }, BANNER_MS);
     };
+    // A picture: shown in the same place (the banner band, or full screen) for a moment, the name over its middle.
+    if (/\.(png|webp|jpe?g)(\?|$)/i.test(url)) {
+      const top = banner ? window.innerHeight * BANNER_TOP : 0;
+      const height = banner ? (window.innerWidth * 200) / 750 : window.innerHeight;
+      still.style.cssText = `display: block; top: ${top}px; height: ${height}px;`;
+      still.onload = () => {
+        if (id !== current) return;
+        still.style.opacity = '1';
+        if (banner) {
+          nameTag.textContent = banner.name;
+          nameTag.style.cssText = `display: flex; left: 0; width: 100%; top: ${top}px; height: ${height}px; font-size: ${fitSize(banner.name, 26, 420) * (window.innerWidth / 750)}px;`;
+        }
+        cut = setTimeout(() => {
+          still.style.opacity = '0';
+          nameTag.style.display = 'none';
+          setTimeout(() => { still.style.display = 'none'; finish(id); }, 300);
+        }, BANNER_MS);
+      };
+      still.onerror = () => { still.style.display = 'none'; finish(id); };
+      still.src = url;
+      return;
+    }
     parser.load(url, play, () => finish(id));
   };
   tell({ type: 'ready' });

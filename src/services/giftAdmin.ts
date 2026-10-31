@@ -28,7 +28,7 @@ async function iconExt(file: File) {
 }
 
 // An SVGA 2.x file: zlib-compressed protobuf starting with its params. 1.x files (zip archives) aren't played by the app.
-async function checkEffect(file: File) {
+export async function checkEffect(file: File) {
   if (file.size > MAX_EFFECT_BYTES) throw new AppError("MEDIA_TOO_LARGE", 413, "Animation is too large (max 15 MB)");
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) throw new AppError("BAD_MEDIA", 400, "This is an SVGA 1.x file. Export it as SVGA 2.x");
@@ -40,6 +40,30 @@ async function checkEffect(file: File) {
   }
   // Every SVGA 2 movie carries fields 1 (version) and/or 2 (params) as length-delimited values up front.
   if (!movie.length || ![0x0a, 0x12].includes(movie[0]!)) throw new AppError("BAD_MEDIA", 400, "Animation must be an .svga file (SVGA 2.x)");
+}
+
+// Gift files sorted by what each really is, whichever box it was chosen in: the picture is the gift box icon; the
+// effect is the SVGA, or a second picture (shown full screen for a moment). Pictures: PNG or WebP.
+async function sortFiles(files: GiftFiles) {
+  const list = [files.icon, files.effect].filter((f): f is File => !!f);
+  const isPicture = async (f: File) => {
+    const b = new Uint8Array(await f.slice(0, 12).arrayBuffer());
+    return (b[0] === 0x89 && b[1] === 0x50) || String.fromCharCode(...b.slice(8, 12)) === "WEBP";
+  };
+  const kinds = await Promise.all(list.map(isPicture));
+  const pictures = list.filter((_, k) => kinds[k]);
+  const anim = list.find((_, k) => !kinds[k]);
+  return { icon: pictures[0], effect: anim ?? pictures[1] };
+}
+async function saveEffect(file: File) {
+  const b = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  const picture = (b[0] === 0x89 && b[1] === 0x50) || String.fromCharCode(...b.slice(8, 12)) === "WEBP";
+  if (picture) {
+    if (file.size > MAX_EFFECT_BYTES) throw new AppError("MEDIA_TOO_LARGE", 413, "Effect is too large (max 15 MB)");
+    return `/games/gifts/${await save(file, b[0] === 0x89 ? "png" : "webp")}`;
+  }
+  await checkEffect(file);
+  return `/games/gifts/${await save(file, "svga")}`;
 }
 
 async function save(file: File, ext: string) {
@@ -70,15 +94,12 @@ async function assertCategory(id: number | undefined) {
 }
 
 // New gifts start hidden, so the animation can be previewed before anyone can send it.
-export async function createGift(actor: User, fields: Required<Omit<GiftFields, "enabled">>, files: GiftFiles) {
-  if (!files.icon) throw new AppError("FILE_REQUIRED", 400, "Choose an icon");
+export async function createGift(actor: User, fields: Required<Omit<GiftFields, "enabled">>, chosen: GiftFiles) {
+  const files = await sortFiles(chosen);
+  if (!files.icon) throw new AppError("FILE_REQUIRED", 400, chosen.icon || chosen.effect ? "Add a PNG or WebP picture too: it's the gift's icon in the gift box" : "Choose an icon");
   await assertCategory(fields.categoryId);
   const iconName = await save(files.icon, await iconExt(files.icon));
-  let effect: string | null = null;
-  if (files.effect) {
-    await checkEffect(files.effect);
-    effect = `/games/gifts/${await save(files.effect, "svga")}`;
-  }
+  const effect = files.effect ? await saveEffect(files.effect) : null;
   const id = `${fields.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 24) || "gift"}_${randomUUID().slice(0, 6)}`;
   const row = { id, ...fields, assetUrl: `games/gifts/${iconName}`, effect, enabled: false };
   return db.transaction(async (tx) => {
@@ -91,14 +112,13 @@ export async function createGift(actor: User, fields: Required<Omit<GiftFields, 
   });
 }
 
-export async function updateGift(actor: User, id: string, fields: GiftFields, files: GiftFiles) {
+export async function updateGift(actor: User, id: string, fields: GiftFields, chosen: GiftFiles) {
   await assertCategory(fields.categoryId);
   const next: Partial<typeof giftCatalog.$inferInsert> = { ...fields };
+  // One picture alone replaces the icon if it was chosen as the icon, else the effect.
+  const files: GiftFiles = chosen.icon && !chosen.effect ? await sortFiles({ icon: chosen.icon }) : !chosen.icon && chosen.effect ? { effect: chosen.effect } : await sortFiles(chosen);
   if (files.icon) next.assetUrl = `games/gifts/${await save(files.icon, await iconExt(files.icon))}`;
-  if (files.effect) {
-    await checkEffect(files.effect);
-    next.effect = `/games/gifts/${await save(files.effect, "svga")}`;
-  }
+  if (files.effect) next.effect = await saveEffect(files.effect);
   return db.transaction(async (tx) => {
     const [gift] = await tx.select().from(giftCatalog).where(eq(giftCatalog.id, id)).for("update");
     if (!gift) throw new AppError("NOT_FOUND", 404, "No such gift");

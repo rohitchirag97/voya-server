@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { inflateSync } from "node:zlib";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
@@ -7,6 +8,7 @@ import { db, isUniqueViolation } from "../db";
 import { adminGrants, badges, cosmetics, notices, specialIdVouchers, svipGrants, userCosmetics, users, walletAccounts, walletLedger, type RewardItem, type User } from "../db/schema";
 import { AppError } from "../lib/errors";
 import { grantBadge } from "./badges";
+import { checkEffect } from "./giftAdmin";
 import { normalizeSpecialId } from "./specialIds";
 
 // Items made in the admin panel (Items): badges, avatar frames, profile card decorations, chat bubbles and entry
@@ -43,11 +45,78 @@ export async function saveItemFile(file: File, want: "image" | "svga") {
   if (!ext || NOT_OK[ext]) throw new AppError("BAD_MEDIA", 400, (ext && NOT_OK[ext]) || "That file isn't a picture (PNG, WebP, JPEG) or an SVGA animation");
   if (want === "image" && ext === "svga") throw new AppError("BAD_MEDIA", 400, "That's an SVGA animation. Choose it under Animation, not Picture.");
   if (want === "svga" && ext !== "svga") throw new AppError("BAD_MEDIA", 400, "That's a picture, not an SVGA animation");
+  if (want === "svga") await checkEffect(file); // SVGA 2.x only (the app can't play 1.x)
   if (file.size > (want === "image" ? 2 : 15) * 1024 * 1024) throw new AppError("MEDIA_TOO_LARGE", 413, want === "image" ? "Picture is too large (max 2 MB)" : "Animation is too large (max 15 MB)");
   const name = `${randomUUID()}.${ext}`;
   await mkdir(ITEM_FILES_DIR(), { recursive: true });
   await Bun.write(join(ITEM_FILES_DIR(), name), file);
   return `games/items/${name}`;
+}
+
+// A picture's or animation's own width and height, read from the file (PNG, JPEG, WebP, SVGA 2.x); null if unknown.
+// Badges keep their shape (they're often wide), so the app needs it.
+export async function artSize(file: File): Promise<{ w: number; h: number } | null> {
+  const b = new Uint8Array(await file.arrayBuffer());
+  const u16 = (i: number) => (b[i]! << 8) | b[i + 1]!;
+  const u32 = (i: number) => ((b[i]! << 24) >>> 0) + (b[i + 1]! << 16) + (b[i + 2]! << 8) + b[i + 3]!;
+  const le16 = (i: number) => b[i]! | (b[i + 1]! << 8);
+  const le24 = (i: number) => b[i]! | (b[i + 1]! << 8) | (b[i + 2]! << 16);
+  if (b[0] === 0x89 && b[1] === 0x50) return { w: u32(16), h: u32(20) }; // PNG IHDR
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    // JPEG: walk the markers to the frame header (SOF0-15, not DHT/JPG/DAC).
+    for (let i = 2; i + 9 < b.length; ) {
+      if (b[i] !== 0xff) return null;
+      const m = b[i + 1]!;
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { w: u16(i + 7), h: u16(i + 5) };
+      i += 2 + u16(i + 2);
+    }
+    return null;
+  }
+  if (String.fromCharCode(...b.slice(8, 12)) === "WEBP") {
+    const chunk = String.fromCharCode(...b.slice(12, 16));
+    if (chunk === "VP8X") return { w: le24(24) + 1, h: le24(27) + 1 };
+    if (chunk === "VP8L") {
+      const bits = b[21]! | (b[22]! << 8) | (b[23]! << 16) | (b[24]! << 24);
+      return { w: (bits & 0x3fff) + 1, h: ((bits >> 14) & 0x3fff) + 1 };
+    }
+    if (chunk === "VP8 ") return { w: le16(26) & 0x3fff, h: le16(28) & 0x3fff };
+    return null;
+  }
+  try {
+    // SVGA 2.x: MovieEntity.params (field 2) holds viewBoxWidth (field 1) and viewBoxHeight (field 2) as floats.
+    const m = new Uint8Array(inflateSync(b));
+    const varint = (i: number) => {
+      let v = 0, shift = 0, x;
+      do { x = m[i++]!; v += (x & 0x7f) * 2 ** shift; shift += 7; } while (x & 0x80);
+      return [v, i] as const;
+    };
+    for (let i = 0; i < m.length; ) {
+      const [key, a] = varint(i);
+      const field = key >> 3, type = key & 7;
+      if (type === 2) {
+        const [len, start] = varint(a);
+        if (field === 2) {
+          const view = new DataView(m.buffer, m.byteOffset + start, len);
+          let w = 0, h = 0;
+          for (let j = 0; j < len; ) {
+            const k = view.getUint8(j);
+            if ((k & 7) === 5) {
+              const f = view.getFloat32(j + 1, true);
+              if (k >> 3 === 1) w = f;
+              if (k >> 3 === 2) h = f;
+              j += 5;
+            } else if ((k & 7) === 0) { j++; while (view.getUint8(j++) & 0x80); } else break;
+          }
+          return w > 0 && h > 0 ? { w, h } : null;
+        }
+        i = start + len;
+      } else if (type === 0) i = varint(a)[1];
+      else if (type === 5) i = a + 4;
+      else if (type === 1) i = a + 8;
+      else return null;
+    }
+  } catch {}
+  return null;
 }
 
 // The app draws badges and frames as SVG: an uploaded picture goes in as an <image> (the app adds its server address
@@ -94,8 +163,7 @@ export async function createItem(i: ItemInput) {
     await db.insert(badges).values({ id, name: i.name, description: i.description ?? "", svg: art.svg ?? "", svga: art.svga ?? null, ...placement(i), sortOrder: 1000 });
   } else {
     if (i.kind === "AVATAR_FRAME" && !art.svg && !art.svga) throw new AppError("FILE_REQUIRED", 400, "Upload the frame's image or animation");
-    if (i.kind === "CARD_DECOR" && !art.svg) throw new AppError("FILE_REQUIRED", 400, "Upload the card decoration's image");
-    if (i.kind === "ENTRY_EFFECT" && !art.svga) throw new AppError("FILE_REQUIRED", 400, "Upload the entry effect's SVGA animation");
+    if ((i.kind === "CARD_DECOR" || i.kind === "ENTRY_EFFECT") && !art.svg && !art.svga) throw new AppError("FILE_REQUIRED", 400, "Upload its artwork (SVGA, PNG or WebP)");
     if (i.kind === "CHAT_BUBBLE" && !i.bubble) throw new AppError("VALIDATION_ERROR", 400, "Pick the bubble's colours");
     await db.insert(cosmetics).values({ id, kind: i.kind, name: i.name, svg: art.svg ?? "", svga: art.svga ?? null, style: bubbleStyle(i), exclusive: !i.minSvip, minSvip: i.minSvip ?? 0, ...placement(i), sortOrder: 1000 });
   }
@@ -128,10 +196,20 @@ async function artwork(i: ItemInput) {
   const kinds = await Promise.all(files.map(fileType));
   const pic = files.find((_, k) => kinds[k] !== "svga");
   const anim = files.find((_, k) => kinds[k] === "svga");
-  if (i.kind === "ENTRY_EFFECT" && pic && !anim) throw new AppError("BAD_MEDIA", 400, "An entry effect needs an SVGA animation, not a picture");
   const image = pic ? await saveItemFile(pic, "image") : null;
   const svga = anim ? await saveItemFile(anim, "svga") : null;
   const box = { AVATAR_FRAME: [200, 200], CARD_DECOR: [400, 160], CHAT_BUBBLE: [44, 26], BADGE: [100, 100], ENTRY_EFFECT: [100, 100] }[i.kind] as [number, number];
+  if (i.kind === "BADGE") {
+    // Badges keep their own shape (often wide): 100 high, as wide as the art; the picture is never cropped.
+    const size = (pic && (await artSize(pic))) || (anim && (await artSize(anim)));
+    const w = size ? Math.round(Math.min(5, Math.max(0.2, size.w / size.h)) * 100) : 100;
+    const svg = image
+      ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 100"><image href="/${image}" width="${w}" height="100" preserveAspectRatio="xMidYMid meet"/></svg>`
+      : svga
+        ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 100"/>` // only carries the shape
+        : null;
+    return { svg, svga };
+  }
   return { svg: image ? imageSvg(image, ...box) : null, svga };
 }
 const bubbleStyle = (i: ItemInput) => (i.bubble ? { gradient: [i.bubble.from, i.bubble.to], border: i.bubble.border, text: i.bubble.text } : null);

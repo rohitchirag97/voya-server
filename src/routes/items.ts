@@ -31,7 +31,8 @@ const fields = z.object({
   text: colour.optional(),
 });
 
-// Multipart: name, description (badges), enabled, bubble colours (from, to, border, text), files "image" and "svga".
+// Multipart: name, description (badges), flags, bubble colours (from, to, border, text), and up to two files ("art", or
+// the older "image" / "svga"): an SVGA, a PNG/WebP/JPEG picture, or one of each.
 export async function itemForm(c: { req: { formData: () => Promise<FormData> } }) {
   const form = await c.req.formData().catch(() => null);
   if (!form) throw new AppError("VALIDATION_ERROR", 400, "Send the item as a form");
@@ -39,7 +40,7 @@ export async function itemForm(c: { req: { formData: () => Promise<FormData> } }
   const parsed = fields.safeParse({ name: str("name"), description: str("description"), enabled: str("enabled"), forPrize: str("forPrize"), forMall: str("forMall"), internal: str("internal"), from: str("from"), to: str("to"), border: str("border"), text: str("text") });
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", 400, parsed.error.issues[0]?.message ?? "Check the item's details");
   const f = parsed.data;
-  const file = (k: string) => (form.get(k) instanceof File ? (form.get(k) as File) : null);
+  const files = ["art", "image", "svga"].flatMap((k) => form.getAll(k)).filter((f): f is File => f instanceof File && f.size > 0);
   return {
     name: f.name,
     description: f.description,
@@ -48,8 +49,9 @@ export async function itemForm(c: { req: { formData: () => Promise<FormData> } }
     forMall: f.forMall === undefined ? undefined : f.forMall === "true",
     internal: f.internal === undefined ? undefined : f.internal === "true",
     bubble: f.from && f.to && f.border && f.text ? { from: f.from, to: f.to, border: f.border, text: f.text } : undefined,
-    image: file("image"),
-    svga: file("svga"),
+    // Sorted into picture and animation by what they really are (services/items.ts artwork).
+    image: files[0] ?? null,
+    svga: files[1] ?? null,
   };
 }
 

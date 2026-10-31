@@ -17,7 +17,7 @@ import { weeklyGiftStats } from "../services/gifts";
 import { onBlock, relationshipsOf } from "../services/cp";
 import { myFamily } from "../services/families";
 import { pushDm } from "../services/dmPush";
-import { ejectBlocked, userSummary } from "../services/rooms";
+import { ejectBlocked, shownSpecialId, userSummary } from "../services/rooms";
 import { cosmeticMinSvip, SVIP_PERKS, svipOf, svipStatus, visibleAvatar, wearable } from "../services/svip";
 import { claimSpecialId, openVouchers, ownedCosmetics, ownsCosmetic } from "../services/items";
 import { permissionsOf, publicRoles } from "../services/roles";
@@ -264,6 +264,13 @@ account.patch("/me/cosmetics", async (c) => {
   return c.json({ ...publicUser(u!), ...(await decorationsOf(u!)) });
 });
 
+// Style switches: hide my Special ID from others; show my SVIP seat medal or not.
+account.patch("/me/style", async (c) => {
+  const b = await json(c, z.object({ hideSpecialId: z.boolean().optional(), showSeatMedal: z.boolean().optional() }));
+  const [u] = await db.update(users).set({ ...b, updatedAt: new Date() }).where(eq(users.id, c.get("user").id)).returning();
+  return c.json({ hideSpecialId: u!.hideSpecialId, showSeatMedal: u!.showSeatMedal });
+});
+
 // My items: frames, profile cards, bubbles and entry effects I own (won, given, or bought) (with when each ends), what I'm wearing, and Special ID
 // vouchers waiting to be used.
 account.get("/me/items", async (c) => {
@@ -286,7 +293,7 @@ account.get("/users/search", async (c) => {
   const q = z.object({ q: z.string().trim().regex(/^[A-Za-z0-9]{3,10}$/, "Enter an ID") }).parse(c.req.query()).q;
   rateLimit(`search:${c.get("user").id}`, 30, 60_000);
   const rows = await db
-    .select({ ...userSummary, publicId: users.publicId, specialId: users.specialId })
+    .select({ ...userSummary, publicId: users.publicId, specialId: shownSpecialId })
     .from(users)
     .where(or(/^\d{10}$/.test(q) ? eq(users.publicId, Number(q)) : undefined, eq(users.specialId, q.toUpperCase())));
   return c.json({ users: rows });
@@ -337,6 +344,8 @@ async function profileOf(u: typeof users.$inferSelect, me: string) {
   ]);
   return {
     ...publicUser(u),
+    specialId: u.hideSpecialId && id !== me ? null : u.specialId, // hidden from others if they chose so
+    ...(id === me && { hideSpecialId: u.hideSpecialId, showSeatMedal: u.showSeatMedal }),
     avatarUrl: visibleAvatar(u.avatarUrl, svip), // a GIF only while they have SVIP3+
     followers: followers!.n,
     following: following!.n,
@@ -366,7 +375,7 @@ async function profileOf(u: typeof users.$inferSelect, me: string) {
 const pageQuery = z.object({ cursor: z.iso.datetime().optional(), limit: z.coerce.number().int().min(1).max(50).default(30) });
 const iFollow = (me: string) => sql<boolean>`exists(select 1 from ${follows} f2 where f2.follower_id = ${me} and f2.followed_id = ${users.id})`;
 const followsMe = (me: string) => sql<boolean>`exists(select 1 from ${follows} f3 where f3.follower_id = ${users.id} and f3.followed_id = ${me})`;
-const personCols = (me: string) => ({ ...userSummary, publicId: users.publicId, specialId: users.specialId, isFollowing: iFollow(me), followsMe: followsMe(me) });
+const personCols = (me: string) => ({ ...userSummary, publicId: users.publicId, specialId: shownSpecialId, isFollowing: iFollow(me), followsMe: followsMe(me) });
 const page = <T extends { at: Date }>(rows: T[], limit: number) => ({
   people: rows.slice(0, limit),
   nextCursor: rows.length > limit ? rows[limit - 1]!.at.toISOString() : null,

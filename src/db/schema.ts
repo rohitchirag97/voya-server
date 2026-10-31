@@ -84,6 +84,9 @@ export const users = pgTable(
     // Premium short ID: 3-9 capital letters/digits (stored uppercase), granted by staff. Never clashes with a 10-digit public id.
     specialId: text("special_id").unique(),
     specialIdExpiresAt: ts("special_id_expires_at"), // a Special ID won for N days; null = keeps it
+    // Style choices: hide my Special ID from others (it still finds me in search), and my SVIP seat medal on or off.
+    hideSpecialId: boolean("hide_special_id").notNull().default(false),
+    showSeatMedal: boolean("show_seat_medal").notNull().default(true),
     // Staff role (null = regular user): a staff_roles id. "OWNER" is the owner's fixed role; the others are made in the
     // admin panel > Roles. Drives what they can do (services/roles.ts) and how they look (tick, badge, frame).
     staffRole: text("staff_role").references((): AnyPgColumn => staffRoles.id),

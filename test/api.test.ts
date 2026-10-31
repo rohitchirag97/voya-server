@@ -1,3 +1,4 @@
+import { deflateSync } from "node:zlib";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { createDecipheriv, createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
@@ -3609,7 +3610,7 @@ describe("notices", () => {
 
 describe("prize items", () => {
   const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)])], "a.png", { type: "image/png" });
-  const svga = () => new File([new Uint8Array([0x78, 0x9c, ...new Array(64).fill(1)])], "a.svga");
+  const svga = () => new File([deflateSync(new Uint8Array([0x0a, 0x03, 0x32, 0x2e, 0x30]))], "a.svga");
   const form = (fields: Record<string, string | File>) => {
     const f = new FormData();
     for (const [k, v] of Object.entries(fields)) f.append(k, v);
@@ -3842,7 +3843,7 @@ describe("staff roles", () => {
 
 describe("svip designs", () => {
   test("the app reads SVIP animations from the server; the panel replaces them and adds tier-only items", async () => {
-    const svga = () => new File([new Uint8Array([0x78, 0x9c, ...new Array(64).fill(1)])], "a.svga");
+    const svga = () => new File([deflateSync(new Uint8Array([0x0a, 0x03, 0x32, 0x2e, 0x30]))], "a.svga");
     const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)])], "a.png", { type: "image/png" });
     const send = async (token: string, method: string, path: string, fields: Record<string, string | File>) => {
       const f = new FormData();
@@ -3879,5 +3880,50 @@ describe("svip designs", () => {
     await db.execute(sql`update svip_assets set svga = 'games/fx/svip/entry/1.svga' where kind = 'entry' and tier = 1`);
     await db.execute(sql`insert into svip_assets (kind, tier, svga) values ('name', 4, 'games/fx/svip/name/4.svga') on conflict do nothing`);
     await db.execute(sql`update cosmetics set name = 'SVIP2 Frame', svga = 'games/fx/svip/frame/2.svga' where id = 'svip2_frame'`);
+  });
+});
+
+describe("any artwork", () => {
+  test("items and gifts take SVGA, PNG or WebP in any box; a picture can be an effect", async () => {
+    const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)])], "a.png", { type: "image/png" });
+    const svga = () => new File([deflateSync(new Uint8Array([0x0a, 0x03, 0x32, 0x2e, 0x30]))], "a.svga");
+    const old = () => new File([new Uint8Array([0x50, 0x4b, 3, 4, ...new Array(20).fill(0)])], "old.svga");
+    const send = async (token: string, method: string, path: string, fields: Record<string, string | File | File[]>) => {
+      const f = new FormData();
+      for (const [k, v] of Object.entries(fields)) for (const x of Array.isArray(v) ? v : [v]) f.append(k, x);
+      const r = await fetch(`${base}/v1${path}`, { method, headers: { authorization: `Bearer ${token}` }, body: f });
+      return { status: r.status, body: (await r.json()) as any };
+    };
+    const adm = await signup("artadm");
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const item = async (id: string) => (await api("GET", "/admin/items", adm.token)).body.items.find((i: any) => i.id === id);
+
+    // One "art" box: a picture entry effect, an animated profile card, a frame with both, and old SVGA 1.x refused.
+    const entry = (await send(adm.token, "POST", "/admin/items/ENTRY_EFFECT", { name: "Still entry", art: png() })).body.id;
+    expect((await item(entry)).svg).toContain("<image");
+    const card = (await send(adm.token, "POST", "/admin/items/CARD_DECOR", { name: "Moving card", art: svga() })).body.id;
+    expect((await item(card)).svga).toMatch(/\.svga$/);
+    const frame = (await send(adm.token, "POST", "/admin/items/AVATAR_FRAME", { name: "Both", art: [svga(), png()] })).body.id;
+    expect(await item(frame)).toMatchObject({ svga: expect.stringMatching(/\.svga$/), svg: expect.stringContaining("<image") });
+    expect((await send(adm.token, "POST", "/admin/items/AVATAR_FRAME", { name: "Old", art: old() })).body.error.message).toContain("1.x");
+
+    // Badges keep their own shape: a 300×100 PNG and a 400×100 SVGA come out wide, uncropped.
+    const ihdr = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 1, 44, 0, 0, 0, 100, ...new Array(40).fill(0)]);
+    const wide = (await send(adm.token, "POST", "/admin/items/BADGE", { name: "Wide", art: new File([ihdr], "w.png") })).body.id;
+    expect((await item(wide)).svg).toContain('viewBox="0 0 300 100"');
+    const params = new Uint8Array(10);
+    const v = new DataView(params.buffer);
+    v.setUint8(0, 0x0d); v.setFloat32(1, 400, true); v.setUint8(5, 0x15); v.setFloat32(6, 100, true);
+    const movie = deflateSync(new Uint8Array([0x0a, 0x03, 0x32, 0x2e, 0x30, 0x12, params.length, ...params]));
+    const wideAnim = (await send(adm.token, "POST", "/admin/items/BADGE", { name: "Wide anim", art: new File([movie], "w.svga") })).body.id;
+    expect(await item(wideAnim)).toMatchObject({ svga: expect.stringMatching(/\.svga$/), svg: expect.stringContaining('viewBox="0 0 400 100"') });
+
+    // Gifts: an SVGA chosen as the icon is the effect; the icon must still be a picture; a picture can be the effect.
+    expect((await send(adm.token, "POST", "/admin/gifts", { name: "Only anim", coinPrice: "10", icon: svga() })).body.error.message).toContain("gift box");
+    const swapped = (await send(adm.token, "POST", "/admin/gifts", { name: "Swapped", coinPrice: "10", icon: svga(), effect: png() })).body;
+    expect(swapped.assetUrl).toMatch(/\.png$/);
+    expect(swapped.effect).toMatch(/\.svga$/);
+    const still = (await send(adm.token, "POST", "/admin/gifts", { name: "Still fx", coinPrice: "10", icon: png(), effect: png() })).body;
+    expect(still.effect).toMatch(/^\/games\/gifts\/.+\.png$/);
   });
 });
