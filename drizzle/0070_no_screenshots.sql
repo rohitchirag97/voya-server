@@ -1,0 +1,1 @@
+ALTER TABLE "rooms" ADD COLUMN "no_screenshots" boolean DEFAULT false NOT NULL;

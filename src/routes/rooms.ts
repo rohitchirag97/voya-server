@@ -59,6 +59,7 @@ const settingsSchema = z
     background: z.enum(rooms.ROOM_BACKGROUNDS),
     showEntry: z.boolean(),
     giftAnimations: z.boolean(),
+    noScreenshots: z.boolean(),
     privacy: z.enum(["PUBLIC", "LOCKED", "PRIVATE"]),
     password: z.string().regex(/^\d{4}$/, "Password must be 4 digits"),
   })

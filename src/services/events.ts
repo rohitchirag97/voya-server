@@ -10,7 +10,7 @@ import { grantBadge } from "./badges";
 import { userSummary } from "./rooms";
 
 // Events (schema: events). Counting is live from what the server already records: gift coins (sent, received, per room)
-// and recharge rupees, only inside the event's window, and optionally only the event's own gift category.
+// and coins received from recharges, only inside the event's window, and optionally only the event's own gift category.
 
 export const EVENT_FILES_DIR = () => join(config.uploadsDir, "events");
 const IST = "Asia/Kolkata";
@@ -44,7 +44,7 @@ async function totals(e: Event, metric: EventMetric, eventGiftsOnly: boolean, op
   const limit = opts.limit ? sql`limit ${opts.limit}` : sql``;
   const q =
     metric === "RECHARGE"
-      ? sql`select r.user_id::text as key ${day("r.created_at")} as day, (sum(r.price_paise) / 100)::float8 as value from recharges r
+      ? sql`select r.user_id::text as key ${day("r.created_at")} as day, sum(r.coins)::float8 as value from recharges r
           where r.status = 'SUCCESS' and r.created_at >= ${e.startsAt} and r.created_at < ${to} ${mine} group by 1, 2 order by value desc ${limit}`
       : sql`select ${sql.raw(who)}::text as key ${day("g.created_at")} as day, sum(g.coins_debited)::float8 as value from gift_transactions g
           where g.created_at >= ${e.startsAt} and g.created_at < ${to} ${onlyCategory} ${mine} group by 1, 2 order by value desc ${limit}`;
@@ -80,7 +80,7 @@ async function board(e: Event, b: EventConfig["boards"][number], me?: string) {
     id: b.id,
     title: b.title,
     metric: b.metric,
-    unit: b.metric === "RECHARGE" ? "rupees" : "coins",
+    unit: "coins",
     rewards: b.rewards,
     rows: rows.map((r, i) => ({ rank: i + 1, value: r.value, ...(names.get(r.key) ?? { key: r.key }) })),
     mine,
@@ -94,7 +94,7 @@ async function taskProgress(e: Event, t: EventConfig["tasks"][number], me: strin
   const rows = await totals(e, t.metric, t.eventGiftsOnly, { userId: me, byDay: t.daily });
   const value = t.daily ? (rows.find((r) => r.day === todayIst())?.value ?? 0) : (rows[0]?.value ?? 0);
   const paid = e.paidOutAt !== null;
-  return { id: t.id, title: t.title, unit: t.metric === "RECHARGE" ? "rupees" : "coins", target: t.target, daily: t.daily, reward: t.reward, value, done: value >= t.target, paid };
+  return { id: t.id, title: t.title, unit: "coins", target: t.target, daily: t.daily, reward: t.reward, value, done: value >= t.target, paid };
 }
 
 // ---------- for the app ----------

@@ -151,6 +151,7 @@ export const rooms = pgTable(
     backgroundUrl: text("background_url"), // a custom photo backdrop (wins over the preset); null = use the preset
     showEntry: boolean("show_entry").notNull().default(true),
     giftAnimations: boolean("gift_animations").notNull().default(true),
+    noScreenshots: boolean("no_screenshots").notNull().default(false), // everyone in the room: screenshots and recordings blocked (Android)
     // AUDIO: the permanent party room. LIVE: a video live stream (seat 0 = host camera, 1-3 = co-hosts), ended when the host stops.
     kind: roomKind("kind").notNull().default("AUDIO"),
     // Pinned to the top of the room list, in slot order (1-4). Slot 1 is the official help room (`official`),
@@ -982,10 +983,10 @@ export type EventReward = { coins?: number; badgeId?: string; badgeDays?: number
 export type EventMetric = "GIFTS_SENT" | "GIFTS_RECEIVED" | "ROOM_GIFTS" | "RECHARGE";
 export type EventConfig = {
   page: { headerUrl: string | null; color: string; description: string; rules: string };
-  // Leaderboards: what they count (coins of gifts, or recharge rupees), only this event's gifts or all, ranks shown,
+  // Leaderboards: what they count (coins of gifts, or coins received from recharges), only this event's gifts or all, ranks shown,
   // and rewards by rank range.
   boards: { id: string; title: string; metric: EventMetric; eventGiftsOnly: boolean; size: number; rewards: (EventReward & { from: number; to: number })[] }[];
-  // Tasks: a per-user target (coins of gifts, or recharge rupees) over the event, or each day (India time) if daily.
+  // Tasks: a per-user target (coins of gifts, or coins received from recharges) over the event, or each day (India time) if daily.
   tasks: { id: string; title: string; metric: Exclude<EventMetric, "ROOM_GIFTS">; eventGiftsOnly: boolean; target: number; daily: boolean; reward: EventReward }[];
 };
 export const events = pgTable(

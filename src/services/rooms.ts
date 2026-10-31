@@ -86,6 +86,7 @@ export async function getSnapshot(roomId: string) {
     createdAt: room.createdAt,
     showEntry: room.showEntry,
     giftAnimations: room.giftAnimations,
+    noScreenshots: room.noScreenshots,
     privacy: room.privacy, // never the password
     kind: room.kind,
     pinned: room.pinSlot !== null,
@@ -105,6 +106,7 @@ export type RoomSettings = {
   backgroundUrl?: string | null;
   showEntry?: boolean;
   giftAnimations?: boolean;
+  noScreenshots?: boolean;
   privacy?: RoomPrivacy;
   password?: string; // 4 digits; sets / changes the LOCKED password
 };
@@ -141,6 +143,8 @@ export async function updateSettings(actor: User, roomId: string, settings: Room
   emitToRoom(roomId, "room:state", snap);
   if (patch.title && patch.title !== before.title) await systemMessage(roomId, `${actor.displayName} renamed the room to "${patch.title}"`, { kind: "ROOM_RENAMED", userId: actor.id });
   if (patch.privacy && patch.privacy !== before.privacy) await systemMessage(roomId, `${actor.displayName} ${PRIVACY_NOTICE[patch.privacy]}`, { kind: "ROOM_PRIVACY", userId: actor.id });
+  if (patch.noScreenshots !== undefined && patch.noScreenshots !== before.noScreenshots)
+    await systemMessage(roomId, `${actor.displayName} turned screenshot protection ${patch.noScreenshots ? "on" : "off"}`, { kind: "ROOM_SCREENSHOTS", userId: actor.id });
   return snap;
 }
 

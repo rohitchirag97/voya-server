@@ -2219,19 +2219,20 @@ describe("room settings", () => {
     await emit(sg, "room:join", { roomId });
 
     const snap0 = (await api("GET", `/rooms/${roomId}`, guest.token)).body;
-    expect(snap0).toMatchObject({ background: "night", showEntry: true, giftAnimations: true });
+    expect(snap0).toMatchObject({ background: "night", showEntry: true, giftAnimations: true, noScreenshots: false });
     expect((await api("PATCH", `/rooms/${roomId}/settings`, guest.token, { title: "Mine now" })).body.error.code).toBe("NOT_ROOM_ADMIN");
     expect((await api("PATCH", `/rooms/${roomId}/settings`, host.token, { background: "lava" })).status).toBe(400);
     expect((await api("PATCH", `/rooms/${roomId}/settings`, host.token, { title: "   " })).status).toBe(400);
 
     const live = nextEvent(sg, "room:state");
-    const patched = await api("PATCH", `/rooms/${roomId}/settings`, host.token, { title: "Late Night Chai", background: "ocean", showEntry: false, giftAnimations: false });
-    expect(patched.body).toMatchObject({ title: "Late Night Chai", background: "ocean", showEntry: false, giftAnimations: false });
+    const patched = await api("PATCH", `/rooms/${roomId}/settings`, host.token, { title: "Late Night Chai", background: "ocean", showEntry: false, giftAnimations: false, noScreenshots: true });
+    expect(patched.body).toMatchObject({ title: "Late Night Chai", background: "ocean", showEntry: false, giftAnimations: false, noScreenshots: true });
     expect(await live).toMatchObject({ title: "Late Night Chai", background: "ocean", showEntry: false, giftAnimations: false });
 
     // Entry notices off: a newcomer joins without a "joined" message; the rename was announced.
     const late = await joined(roomId, "late");
     const bodies = (await api("GET", `/rooms/${roomId}/messages?limit=20`, guest.token)).body.messages.map((m: any) => m.body);
+    expect(bodies).toContain(`${host.handle} turned screenshot protection on`);
     expect(bodies).toContain(`${host.handle} renamed the room to "Late Night Chai"`);
     expect(bodies.some((b: string) => b === `${late.handle} joined`)).toBe(false);
     expect(bodies.some((b: string) => b === `${guest.handle} joined`)).toBe(true); // joined while notices were on
