@@ -102,7 +102,7 @@ async function taskProgress(e: Event, t: EventConfig["tasks"][number], me: strin
 // Live events for the banner carousels, in order (several can run at once).
 export const liveEvents = () =>
   db
-    .select({ id: events.id, title: events.title, bannerUrl: events.bannerUrl, bannerHome: events.bannerHome, bannerRoom: events.bannerRoom, endsAt: events.endsAt, color: sql<string>`${events.config}->'page'->>'color'` })
+    .select({ id: events.id, title: events.title, bannerUrl: events.bannerUrl, bannerHome: events.bannerHome, bannerRoom: events.bannerRoom, homeTab: events.homeTab, endsAt: events.endsAt, color: sql<string>`${events.config}->'page'->>'color'` })
     .from(events)
     .where(and(eq(events.published, true), lte(events.startsAt, sql`now()`), gt(events.endsAt, sql`now()`)))
     .orderBy(asc(events.sortOrder), desc(events.startsAt));

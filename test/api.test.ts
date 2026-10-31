@@ -3561,3 +3561,36 @@ describe("events", () => {
     await db.execute(sql`update gift_catalog set category_id = 1 where id = 'star'`); // the test database is reused
   });
 });
+
+describe("notices", () => {
+  test("admins post notices: carousel while live, inbox tile with unread count, drafts hidden", async () => {
+    const adm = await signup("noticer");
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const fan = await signup("reader");
+    const now = Date.now();
+    const body = { title: "Hosts wanted", body: "Apply in Support.", color: "#FF4FA3", startsAt: new Date(now - 1000).toISOString(), endsAt: new Date(now + 3_600_000).toISOString(), published: false, inInbox: true, sortOrder: 0 };
+    expect((await api("POST", "/admin/notices", fan.token, body)).status).toBe(403);
+    expect((await api("POST", "/admin/notices", adm.token, { ...body, endsAt: body.startsAt })).status).toBe(400);
+    const made = await api("POST", "/admin/notices", adm.token, body);
+    expect(made.status).toBe(201);
+    const id = made.body.id;
+    const live = async () => (await api("GET", "/notices", fan.token)).body.notices.some((n: any) => n.id === id);
+    expect(await live()).toBe(false); // draft
+    expect((await api("GET", `/notices/${id}`, fan.token)).status).toBe(404);
+
+    await api("PATCH", `/admin/notices/${id}`, adm.token, { published: true });
+    expect(await live()).toBe(true);
+    expect((await api("GET", `/notices/${id}`, fan.token)).body.body).toBe("Apply in Support.");
+    const inbox = (await api("GET", "/notices/inbox", fan.token)).body;
+    expect(inbox.notices.some((n: any) => n.id === id)).toBe(true);
+    expect(inbox.unread).toBeGreaterThan(0);
+    await api("POST", "/notices/seen", fan.token);
+    expect((await api("GET", "/notices/inbox", fan.token)).body.unread).toBe(0);
+
+    await api("PATCH", `/admin/notices/${id}`, adm.token, { endsAt: new Date(now).toISOString() });
+    expect(await live()).toBe(false); // ended: off the carousel, still in the inbox
+    expect((await api("GET", "/notices/inbox", fan.token)).body.notices.some((n: any) => n.id === id)).toBe(true);
+    expect((await api("PATCH", `/admin/notices/${id}`, adm.token, { homeTab: "LIVE" })).body.homeTab).toBe("LIVE");
+    expect((await api("DELETE", `/admin/notices/${id}`, adm.token)).status).toBe(200);
+  });
+});

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { GIFT_FILES_DIR } from "./services/giftAdmin";
 import { EVENT_FILES_DIR } from "./services/events";
 import { eventRoutes } from "./routes/events";
+import { noticeRoutes } from "./routes/notices";
 import type { Env } from "./http";
 import { io } from "./io";
 import { toSafeError } from "./lib/errors";
@@ -75,6 +76,7 @@ app.use(
 );
 app.route("/v1", account);
 app.route("/v1", eventRoutes); // before roomRoutes, whose "*" auth would run a second time
+app.route("/v1", noticeRoutes);
 app.route("/v1", admin); // before roomRoutes, whose "*" auth would run a second time
 app.route("/v1", postRoutes); // before roomRoutes, whose "*" auth would cover the public /uploads too
 app.route("/v1", roomRoutes);

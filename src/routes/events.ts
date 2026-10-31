@@ -64,6 +64,7 @@ const eventFields = z.object({
   published: z.boolean(),
   bannerHome: z.boolean(),
   bannerRoom: z.boolean(),
+  homeTab: z.enum(["BOTH", "LIVE", "ROOMS"]).optional(), // unset: both (column default)
   sortOrder: z.number().int().min(0).max(100_000),
   giftCategoryId: z.number().int().positive().nullable(),
   config: configSchema,

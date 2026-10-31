@@ -78,6 +78,7 @@ export const users = pgTable(
     specialId: text("special_id").unique(),
     // App staff (null = regular user). Only set by src/db/grantStaff.ts, never through the API; drives the Official mark.
     staffRole: staffRole("staff_role"),
+    noticesSeenAt: ts("notices_seen_at"), // inbox Notices tile: notices after this are unread
     // About me (all optional). Age and zodiac are worked out from the birthday in the app.
     gender: gender("gender"),
     birthday: date("birthday", { mode: "string" }),
@@ -975,6 +976,8 @@ export const supportMessages = pgTable(
 // Events: time-limited campaigns made in the admin panel; any number can run at once, each with its own banner, page,
 // leaderboards, tasks and (optionally) a gift category that shows only while it's live. Everything about an event is
 // data (config), so new events need no app update. Live = published and now within [startsAt, endsAt).
+// Home carousel placement for event banners and notices: the Live tab, the Rooms tab, or both.
+export type HomeTab = "BOTH" | "LIVE" | "ROOMS";
 export type EventReward = { coins?: number; badgeId?: string; badgeDays?: number | null };
 export type EventMetric = "GIFTS_SENT" | "GIFTS_RECEIVED" | "ROOM_GIFTS" | "RECHARGE";
 export type EventConfig = {
@@ -996,6 +999,7 @@ export const events = pgTable(
     bannerUrl: text("banner_url"), // games/events/<file>
     bannerHome: boolean("banner_home").notNull().default(true),
     bannerRoom: boolean("banner_room").notNull().default(true),
+    homeTab: text("home_tab").$type<HomeTab>().notNull().default("BOTH"), // which home tab shows the banner
     sortOrder: integer("sort_order").notNull().default(0),
     giftCategoryId: integer("gift_category_id").references(() => giftCategories.id), // event gifts: shown only while live
     config: jsonb("config").$type<EventConfig>().notNull(),
@@ -1017,4 +1021,27 @@ export const eventPayouts = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("event_payouts_once").on(t.eventId, t.userId, t.source)],
+);
+
+// Notices: announcements made in the admin panel (hiring, requirements, news). Shown in the home carousel between
+// startsAt and endsAt; tapping opens the full text. `inInbox`: also listed under the inbox Notices tile (kept after
+// the carousel stops showing it).
+export const notices = pgTable(
+  "notices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    imageUrl: text("image_url"), // games/events/<file>; none: the app draws the slide
+    color: text("color").notNull().default("#08C9D9"),
+    startsAt: ts("starts_at").notNull(),
+    endsAt: ts("ends_at").notNull(),
+    published: boolean("published").notNull().default(false),
+    inInbox: boolean("in_inbox").notNull().default(false),
+    homeTab: text("home_tab").$type<HomeTab>().notNull().default("BOTH"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdBy: uuid("created_by").notNull().references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index("notices_window").on(t.published, t.startsAt, t.endsAt), check("notice_window", sql`${t.endsAt} > ${t.startsAt}`)],
 );
