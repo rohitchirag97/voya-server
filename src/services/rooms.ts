@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { config } from "../config";
 import { db, isUniqueViolation, type Tx } from "../db";
-import { blocks, chatMessages, directMessages, follows, giftTransactions, levelThresholds, roomAdmins, roomKicks, roomParticipants, rooms, roomSeats, users, type User } from "../db/schema";
+import { blocks, chatMessages, cosmetics, directMessages, follows, giftTransactions, levelThresholds, roomAdmins, roomKicks, roomParticipants, rooms, roomSeats, users, type User } from "../db/schema";
 import { emitToRoom, io, isOnline, roomChannel, userChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { SEAT_LAYOUTS, seatPositions, type SeatCount } from "../lib/layout";
@@ -644,26 +644,34 @@ export async function joinRoom(user: User, roomId: string, password?: string) {
     return { isNew: !existing, roomVersion: await bumpVersion(tx, roomId) };
   });
 
+  const entryFx = await entryEffectOf(user);
   if (isNew) {
     const svip = await svipOf(user.id);
     emitToRoom(roomId, "room:participant:joined", {
       roomId,
       roomVersion,
-      user: { userId: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl, svip },
+      user: { userId: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl, svip, entryFx },
       role: "AUDIENCE",
       at: new Date(),
     });
-    await announceEntry(roomId, user, svip);
+    await announceEntry(roomId, user, svip, entryFx);
   }
-  return { room: await getSnapshot(roomId), zego: await zegoCredentials(roomId, user.id) };
+  return { room: await getSnapshot(roomId), zego: await zegoCredentials(roomId, user.id), entryFx };
+}
+
+// The animation of the entry effect someone has on (a prize item; services/items.ts takes it off when it expires).
+async function entryEffectOf(user: User) {
+  if (!user.entryEffectId) return null;
+  const [c] = await db.select({ svga: cosmetics.svga }).from(cosmetics).where(and(eq(cosmetics.id, user.entryEffectId), eq(cosmetics.enabled, true)));
+  return c?.svga ?? null;
 }
 
 // The "X joined" notice: on entering, and again when someone comes back after their connection dropped.
-// It can be switched off in the room's settings; SVIP1+ entrances are always announced (and animated in the app).
-export async function announceEntry(roomId: string, user: User, svip?: number) {
+// It can be switched off in the room's settings; SVIP1+ entrances and entry effects are always announced (and animated).
+export async function announceEntry(roomId: string, user: User, svip?: number, entryFx?: string | null) {
   const tier = svip ?? (await svipOf(user.id));
   const grand = tier >= SVIP_PERKS.entrance;
-  if (grand || (await getRoom(roomId)).showEntry)
+  if (grand || entryFx || (await getRoom(roomId)).showEntry)
     await systemMessage(roomId, grand ? `SVIP${tier} ${user.displayName} entered the room` : `${user.displayName} joined`, { kind: "JOIN", userId: user.id, svip: tier });
 }
 

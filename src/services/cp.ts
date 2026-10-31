@@ -225,7 +225,8 @@ async function addCapped(pairId: string, source: string, points: number, cap: nu
 export async function awardGift(senderId: string, recipientId: string, coins: number) {
   const pair = await activePairId(senderId, recipientId);
   const points = Math.floor(coins / CP_POINTS.coinsPerGiftPoint);
-  if (pair && points > 0) await addPoints(pair, points);
+  // Recorded per day like the capped sources (event CP boards count days), with no real cap.
+  if (pair && points > 0) await addCapped(pair, "GIFT", points, 2_000_000_000);
 }
 
 // An inbox message between CP partners.

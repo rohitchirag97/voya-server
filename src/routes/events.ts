@@ -2,10 +2,11 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { json, requireAuth, requireStaff, schemas, type Env } from "../http";
 import { db } from "../db";
-import { badges, events, giftCategories } from "../db/schema";
+import { events, giftCategories } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { AppError } from "../lib/errors";
 import * as ev from "../services/events";
+import { listItems } from "../services/items";
 
 // Events: the app reads live ones (banners) and an event's page; the admin panel (owner/admin) makes and runs them.
 export const eventRoutes = new Hono<Env>();
@@ -19,11 +20,26 @@ eventRoutes.get("/events/:id", async (c) => c.json(await ev.eventPage(schemas.uu
 
 // ---------- admin ----------
 
-const reward = z.object({
-  coins: z.number().int().min(0).max(10_000_000).optional(),
-  badgeId: z.string().min(1).max(64).optional(),
-  badgeDays: z.number().int().min(1).max(3650).nullable().optional(),
-});
+const days = z.number().int().min(1).max(3650).nullable();
+const rewardItem = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("COINS"), amount: z.number().int().min(1).max(100_000_000) }),
+  z.object({ type: z.literal("BADGE"), id: z.string().min(1).max(64), days }),
+  z.object({ type: z.literal("ITEM"), id: z.string().min(1).max(64), days }),
+  z.object({ type: z.literal("SPECIAL_ID"), days }),
+  z.object({ type: z.literal("SVIP"), tier: z.number().int().min(1).max(6), days: z.number().int().min(1).max(365) }),
+]);
+const reward = z.object({ items: z.array(rewardItem).max(10) });
+const filter = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("EVENT_GIFTS") }),
+  z.object({ type: z.literal("GIFT_CATEGORIES"), ids: z.array(z.number().int().positive()).min(1).max(20) }),
+  z.object({ type: z.literal("HOSTS_ONLY") }),
+  z.object({ type: z.literal("JOINED_AFTER"), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/,"Date as YYYY-MM-DD") }),
+  z.object({ type: z.literal("MIN_LEVEL"), level: z.number().int().min(1).max(200) }),
+]);
+const counting = {
+  game: z.enum(["ALL", "GREEDY_JUNGLE", "GREEDY_GALAXY", "ROCKET"]).default("ALL"),
+  filters: z.array(filter).max(8).default([]),
+};
 const configSchema = z.object({
   page: z.object({
     headerUrl: z.string().max(200).nullable(),
@@ -36,8 +52,8 @@ const configSchema = z.object({
       z.object({
         id: z.string().max(16).default(""),
         title: z.string().trim().min(1).max(40),
-        metric: z.enum(["GIFTS_SENT", "GIFTS_RECEIVED", "ROOM_GIFTS", "RECHARGE"]),
-        eventGiftsOnly: z.boolean(),
+        metric: z.enum(["GIFTS_SENT", "GIFTS_RECEIVED", "ROOM_GIFTS", "RECHARGE", "GAME_WINS", "CP_POINTS"]),
+        ...counting,
         size: z.number().int().min(1).max(100),
         rewards: z.array(reward.extend({ from: z.number().int().min(1), to: z.number().int().min(1), min: z.number().int().min(0).max(1_000_000_000).optional() })).max(20),
       }),
@@ -48,8 +64,8 @@ const configSchema = z.object({
       z.object({
         id: z.string().max(16).default(""),
         title: z.string().trim().min(1).max(60),
-        metric: z.enum(["GIFTS_SENT", "GIFTS_RECEIVED", "RECHARGE"]),
-        eventGiftsOnly: z.boolean(),
+        metric: z.enum(["GIFTS_SENT", "GIFTS_RECEIVED", "RECHARGE", "GAME_WINS"]),
+        ...counting,
         target: z.number().int().min(1).max(100_000_000),
         daily: z.boolean(),
         reward,
@@ -67,6 +83,7 @@ const eventFields = z.object({
   homeTab: z.enum(["BOTH", "LIVE", "ROOMS"]).optional(), // unset: both (column default)
   sortOrder: z.number().int().min(0).max(100_000),
   giftCategoryId: z.number().int().positive().nullable(),
+  repeat: z.enum(["NONE", "WEEKLY", "MONTHLY"]).optional(), // unset: never (column default)
   config: configSchema,
 });
 const checkWindow = (b: { startsAt?: Date; endsAt?: Date }) => {
@@ -107,11 +124,11 @@ eventRoutes.post("/admin/events/:id/:slot{banner|header}", async (c) => {
 eventRoutes.get("/admin/events/:id/payouts", async (c) => c.json(await ev.payoutPreview(schemas.uuid.parse(c.req.param("id")))));
 eventRoutes.post("/admin/events/:id/payouts/approve", async (c) => c.json(await ev.approvePayouts(c.get("user"), schemas.uuid.parse(c.req.param("id")))));
 
-// What the panel's event form can pick from: badges (as rewards) and gift categories (as event gifts).
+// What the panel's event form can pick from: prize items (badges, frames, chat bubbles, entry effects) and gift categories.
 eventRoutes.get("/admin/event-options", async (c) => {
-  const [badgeRows, categories] = await Promise.all([
-    db.select({ id: badges.id, name: badges.name }).from(badges).orderBy(badges.name),
+  const [items, categories] = await Promise.all([
+    listItems(),
     db.select({ id: giftCategories.id, name: giftCategories.name }).from(giftCategories).orderBy(giftCategories.sortOrder),
   ]);
-  return c.json({ badges: badgeRows, categories });
+  return c.json({ items: items.filter((i) => i.enabled && (i.kind === "BADGE" || i.exclusive)), categories });
 });

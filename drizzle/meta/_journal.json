@@ -498,6 +498,13 @@
       "when": 1793443374202,
       "tag": "0070_no_screenshots",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1793445809198,
+      "tag": "0071_prize_items",
+      "breakpoints": true
     }
   ]
 }

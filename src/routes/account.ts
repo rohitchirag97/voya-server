@@ -19,6 +19,7 @@ import { myFamily } from "../services/families";
 import { pushDm } from "../services/dmPush";
 import { ejectBlocked, userSummary } from "../services/rooms";
 import { cosmeticMinSvip, SVIP_PERKS, svipOf, svipStatus, visibleAvatar, wearable } from "../services/svip";
+import { claimSpecialId, openVouchers, ownedCosmetics, ownsCosmetic } from "../services/items";
 import { nameError, normalizeName } from "../lib/displayName";
 
 const phone = z.string().regex(/^\+[1-9]\d{7,14}$/, "E.164 phone number, e.g. +919876543210");
@@ -228,29 +229,51 @@ account.use("/cosmetics", requireAuth);
 account.get("/cosmetics", async (c) =>
   c.json(
     await db
-      .select({ id: cosmetics.id, kind: cosmetics.kind, name: cosmetics.name, svg: cosmetics.svg, svga: cosmetics.svga, style: cosmetics.style, minSvip: cosmetics.minSvip })
+      .select({ id: cosmetics.id, kind: cosmetics.kind, name: cosmetics.name, svg: cosmetics.svg, svga: cosmetics.svga, style: cosmetics.style, minSvip: cosmetics.minSvip, exclusive: cosmetics.exclusive })
       .from(cosmetics)
       .where(eq(cosmetics.enabled, true))
       .orderBy(asc(cosmetics.kind), asc(cosmetics.sortOrder)),
   ),
 );
 
-// Equip or remove (null) your frame / card decoration / bubble. Every enabled item is free; SVIP items need the tier.
+// Equip or remove (null) your frame / card decoration / bubble / entry effect. Every enabled item is free; SVIP items
+// need the tier; prize items (exclusive) need owning one (or, for SVIP items, the tier).
 account.patch("/me/cosmetics", async (c) => {
   const slot = z.string().max(64).nullable().optional();
-  const b = await json(c, z.object({ avatarFrameId: slot, cardDecorId: slot, chatBubbleId: slot }));
+  const b = await json(c, z.object({ avatarFrameId: slot, cardDecorId: slot, chatBubbleId: slot, entryEffectId: slot }));
+  const me = c.get("user").id;
   let svip: number | undefined;
-  const check = async (id: string | null | undefined, kind: "AVATAR_FRAME" | "CARD_DECOR" | "CHAT_BUBBLE") => {
+  const check = async (id: string | null | undefined, kind: "AVATAR_FRAME" | "CARD_DECOR" | "CHAT_BUBBLE" | "ENTRY_EFFECT") => {
     if (!id) return;
     const [row] = await db.select().from(cosmetics).where(and(eq(cosmetics.id, id), eq(cosmetics.enabled, true)));
     if (row?.kind !== kind) throw new AppError("COSMETIC_NOT_FOUND", 404);
-    if (row.minSvip > (svip ??= await svipOf(c.get("user").id))) throw new AppError("SVIP_REQUIRED", 403, `Needs SVIP${row.minSvip}`);
+    if (await ownsCosmetic(me, id)) return;
+    if (row.exclusive || kind === "ENTRY_EFFECT") throw new AppError("NOT_OWNED", 403, "You don't own this item");
+    if (row.minSvip > (svip ??= await svipOf(me))) throw new AppError("SVIP_REQUIRED", 403, `Needs SVIP${row.minSvip}`);
   };
   await check(b.avatarFrameId, "AVATAR_FRAME");
   await check(b.cardDecorId, "CARD_DECOR");
   await check(b.chatBubbleId, "CHAT_BUBBLE");
+  await check(b.entryEffectId, "ENTRY_EFFECT");
   const [u] = await db.update(users).set({ ...b, updatedAt: new Date() }).where(eq(users.id, c.get("user").id)).returning();
   return c.json({ ...publicUser(u!), ...(await decorationsOf(u!)) });
+});
+
+// My items: prize frames, bubbles and entry effects I own (with when each ends), what I'm wearing, and Special ID
+// vouchers waiting to be used.
+account.get("/me/items", async (c) => {
+  const u = c.get("user");
+  return c.json({
+    items: await ownedCosmetics(u.id),
+    equipped: { avatarFrameId: u.avatarFrameId, chatBubbleId: u.chatBubbleId, entryEffectId: u.entryEffectId },
+    vouchers: await openVouchers(u.id),
+    specialId: u.specialId,
+    specialIdExpiresAt: u.specialIdExpiresAt,
+  });
+});
+account.post("/me/vouchers/:id/claim", async (c) => {
+  const b = await json(c, z.object({ specialId: z.string().max(20) }));
+  return c.json(await claimSpecialId(c.get("user").id, schemas.uuid.parse(c.req.param("id")), b.specialId));
 });
 
 // Find people by their 10-digit ID or their special ID, letters in any case (registered before /users/:userId).

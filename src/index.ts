@@ -7,6 +7,8 @@ import { purgeUndelivered } from "./services/dmPush";
 import { runGreedyLoop } from "./services/greedy";
 import { runLudoLoop } from "./services/ludo";
 import { runRocketLoop } from "./services/rocket";
+import { runEventLoop } from "./services/events";
+import { runItemSweep } from "./services/items";
 
 await loadLevels();
 watchLevels();
@@ -18,5 +20,7 @@ void runRocketLoop();
 void runLudoLoop();
 runCpLoop();
 runMicLoop();
+runItemSweep(); // prize items and Special IDs that ran out
+runEventLoop(); // weekly/monthly events open their next period
 // Inbox messages no phone picked up within 30 days are deleted (chats live on phones, not here).
 setInterval(() => purgeUndelivered().catch(() => {}), 3600_000);

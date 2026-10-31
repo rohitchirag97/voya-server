@@ -3523,8 +3523,8 @@ describe("events", () => {
     const now = Date.now();
     const config = {
       page: { headerUrl: null, color: "#08C9D9", description: "Light it up", rules: "Gifts count during the event." },
-      boards: [{ title: "Top Gifters", metric: "GIFTS_SENT", eventGiftsOnly: false, size: 10, rewards: [{ from: 1, to: 1, coins: 500 }] }],
-      tasks: [{ title: "Send 500 coins of Diwali gifts", metric: "GIFTS_SENT", eventGiftsOnly: true, target: 500, daily: false, reward: { coins: 50 } }],
+      boards: [{ title: "Top Gifters", metric: "GIFTS_SENT", size: 10, rewards: [{ from: 1, to: 1, items: [{ type: "COINS", amount: 500 }] }] }],
+      tasks: [{ title: "Send 500 coins of Diwali gifts", metric: "GIFTS_SENT", filters: [{ type: "EVENT_GIFTS" }], target: 500, daily: false, reward: { items: [{ type: "COINS", amount: 50 }] } }],
     };
     const body = { title: "Diwali Week", startsAt: new Date(now).toISOString(), endsAt: new Date(now + 3_600_000).toISOString(), published: false, bannerHome: true, bannerRoom: true, sortOrder: 0, giftCategoryId: cat.id, config };
     expect((await api("POST", "/admin/events", fan.token, body)).status).toBe(403);
@@ -3532,6 +3532,12 @@ describe("events", () => {
     expect(made.status).toBe(201);
     const id = made.body.id;
     expect(made.body.config.boards[0].id).toBeTruthy();
+    // Events saved before prize items (a flag for event gifts, coins + badge prizes) read as blocks and items.
+    const { normConfig } = await import("../src/services/events");
+    expect(normConfig({ page: config.page, boards: [{ id: "b", title: "Old", metric: "GIFTS_SENT", eventGiftsOnly: true, size: 5, rewards: [{ from: 1, to: 1, coins: 9, badgeId: "x", badgeDays: 3 }] }], tasks: [] }).boards[0]).toEqual({
+      id: "b", title: "Old", metric: "GIFTS_SENT", game: "ALL", filters: [{ type: "EVENT_GIFTS" }], size: 5,
+      rewards: [{ from: 1, to: 1, items: [{ type: "COINS", amount: 9 }, { type: "BADGE", id: "x", days: 3 }] }],
+    });
     expect((await api("GET", "/events", fan.token)).body.events.some((e: any) => e.id === id)).toBe(false); // draft
     expect(await giftBox()).not.toContain("star"); // event gifts hidden while the event isn't live
     expect((await api("GET", `/events/${id}`, fan.token)).status).toBe(404);
@@ -3553,7 +3559,7 @@ describe("events", () => {
     expect((await api("POST", `/admin/events/${id}/payouts/approve`, adm.token)).body.error.code).toBe("EVENT_NOT_ENDED");
     await db.execute(sql`update events set ends_at = now() where id = ${id}`);
     // A rank below its prize's minimum wins nothing.
-    const withMin = (min: number) => ({ ...config, boards: [{ ...config.boards[0], rewards: [{ from: 1, to: 1, coins: 500, min }] }] });
+    const withMin = (min: number) => ({ ...config, boards: [{ ...config.boards[0], rewards: [{ from: 1, to: 1, items: [{ type: "COINS", amount: 500 }], min }] }] });
     await api("PATCH", `/admin/events/${id}`, adm.token, { config: withMin(1_000_000_000) });
     expect((await api("GET", `/admin/events/${id}/payouts`, adm.token)).body.prizes.map((p: any) => p.why)).toEqual(["Send 500 coins of Diwali gifts"]);
     await api("PATCH", `/admin/events/${id}`, adm.token, { config: withMin(1) });
@@ -3598,5 +3604,112 @@ describe("notices", () => {
     expect((await api("GET", "/notices/inbox", fan.token)).body.notices.some((n: any) => n.id === id)).toBe(true);
     expect((await api("PATCH", `/admin/notices/${id}`, adm.token, { homeTab: "LIVE" })).body.homeTab).toBe("LIVE");
     expect((await api("DELETE", `/admin/notices/${id}`, adm.token)).status).toBe(200);
+  });
+});
+
+describe("prize items", () => {
+  const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)])], "a.png", { type: "image/png" });
+  const svga = () => new File([new Uint8Array([0x78, 0x9c, ...new Array(64).fill(1)])], "a.svga");
+  const form = (fields: Record<string, string | File>) => {
+    const f = new FormData();
+    for (const [k, v] of Object.entries(fields)) f.append(k, v);
+    return f;
+  };
+  const upload = async (token: string, kind: string, fields: Record<string, string | File>) => {
+    const r = await fetch(`${base}/v1/admin/items/${kind}`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: form(fields) });
+    return { status: r.status, body: (await r.json()) as any };
+  };
+
+  test("items, CP and game boards, every prize kind, vouchers, expiry and repeating periods", async () => {
+    const { sweepExpired } = await import("../src/services/items");
+    const { repeatEvents } = await import("../src/services/events");
+    const adm = await signup("itemadm");
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const { host, roomId } = await liveRoom();
+    const fan = await joined(roomId, "itemfan");
+    const gamer = await signup("gamer");
+
+    // Items: admins upload artwork; a picture goes in as an <image> the app can draw.
+    expect((await upload(fan.token, "AVATAR_FRAME", { name: "Gold ring", image: png() })).status).toBe(403);
+    expect((await upload(adm.token, "ENTRY_EFFECT", { name: "No file" })).body.error.code).toBe("FILE_REQUIRED");
+    expect((await upload(adm.token, "AVATAR_FRAME", { name: "Bad", image: svga() })).body.error.code).toBe("BAD_MEDIA");
+    const frame = (await upload(adm.token, "AVATAR_FRAME", { name: "Gold ring", image: png() })).body.id;
+    const effect = (await upload(adm.token, "ENTRY_EFFECT", { name: "Dragon", svga: svga() })).body.id;
+    const badge = (await upload(adm.token, "BADGE", { name: "Diwali King", description: "Won Diwali", image: png() })).body.id;
+    const items = (await api("GET", "/admin/items", adm.token)).body.items;
+    expect(items.find((i: any) => i.id === frame).svg).toMatch(/<image href="\/games\/items\/[0-9a-f-]{36}\.png"/);
+    expect(items.find((i: any) => i.id === effect).svga).toMatch(/^games\/items\/.+\.svga$/);
+    const art = items.find((i: any) => i.id === frame).svg.match(/href="\/([^"]+)"/)[1];
+    expect((await fetch(`${base}/${art}`)).status).toBe(200);
+    // Nobody can wear an exclusive item they don't own.
+    expect((await api("PATCH", "/me/cosmetics", fan.token, { avatarFrameId: frame })).body.error.code).toBe("NOT_OWNED");
+
+    // A CP pair (gifts earn it points) and a Rocket win.
+    await db.execute(sql`update wallet_accounts set balance = 100000 where user_id in (${host.id}, ${fan.id})`);
+    const p = (await api("POST", "/cp/proposals", fan.token, { toUserId: host.id, type: "LOVE" })).body.proposal;
+    expect((await api("POST", `/cp/proposals/${p.id}/accept`, host.token)).status).toBe(200);
+    const now = Date.now();
+    const page = { headerUrl: null, color: "#08C9D9", description: "", rules: "" };
+    const config = {
+      page,
+      boards: [
+        { title: "Top CP", metric: "CP_POINTS", size: 10, rewards: [{ from: 1, to: 10, min: 1, items: [{ type: "COINS", amount: 100 }, { type: "ITEM", id: frame, days: 7 }, { type: "ITEM", id: effect, days: null }] }] },
+        { title: "Rocket kings", metric: "GAME_WINS", game: "ROCKET", size: 10, rewards: [{ from: 1, to: 1, min: 1, items: [{ type: "SVIP", tier: 2, days: 3 }, { type: "SPECIAL_ID", days: null }, { type: "BADGE", id: badge, days: 30 }] }] },
+        { title: "New players", metric: "GAME_WINS", size: 10, filters: [{ type: "JOINED_AFTER", date: "2999-01-01" }], rewards: [] },
+      ],
+      tasks: [],
+    };
+    const made = await api("POST", "/admin/events", adm.token, { title: `Prize week ${now}`, startsAt: new Date(now).toISOString(), endsAt: new Date(now + 3_600_000).toISOString(), published: true, bannerHome: true, bannerRoom: true, sortOrder: 0, giftCategoryId: null, config });
+    expect(made.status).toBe(201);
+    const id = made.body.id;
+    expect((await api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: host.id, giftId: "chai", quantity: 2 }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
+    await db.execute(sql`insert into wallet_ledger (user_id, entry_type, amount, reference_type, reference_id) values (${gamer.id}, 'ROCKET_WIN', 900, 'ROCKET_ROUND', '1')`);
+
+    const ev = (await api("GET", `/events/${id}`, fan.token)).body;
+    const ours = ev.boards[0].rows.find((r: any) => [r.a.userId, r.b.userId].sort().join() === [host.id, fan.id].sort().join());
+    expect(ours).toMatchObject({ value: 20, pairId: expect.any(String) }); // 200 coins = 20 points
+    expect(ev.boards[0].mine).toEqual({ rank: ours.rank, value: 20 });
+    expect(ev.boards[1].rows[0]).toMatchObject({ value: 900, userId: gamer.id });
+    expect(ev.boards[2].rows).toEqual([]); // nobody joined after 2999
+    expect(ev.labels.items[frame].name).toBe("Gold ring");
+    expect(ev.labels.badges[badge].name).toBe("Diwali King");
+
+    // Approve: both partners get the CP prize; the Rocket winner gets SVIP, a voucher and the badge.
+    await db.execute(sql`update events set ends_at = now() where id = ${id}`);
+    const before = (await api("GET", "/wallet", host.token)).body.balance;
+    const paid = (await api("POST", `/admin/events/${id}/payouts/approve`, adm.token)).body;
+    expect(paid.failures).toEqual([]);
+    expect(paid.paid).toBeGreaterThanOrEqual(3); // both of us, the gamer (and pairs from earlier tests today)
+    expect((await api("GET", "/wallet", host.token)).body.balance).toBe(before + 100);
+    const mine = (await api("GET", "/me/items", host.token)).body;
+    expect(mine.items.map((i: any) => i.id).sort()).toEqual([frame, effect].sort());
+    expect((await api("PATCH", "/me/cosmetics", host.token, { avatarFrameId: frame, entryEffectId: effect })).status).toBe(200);
+    expect((await api("GET", `/users/${gamer.id}`, gamer.token)).body.badges.map((b: any) => b.id)).toContain(badge);
+    expect((await api("GET", "/me/svip", gamer.token)).body.tier).toBe(2);
+
+    // Entering a room with an entry effect: the room is told which animation to play.
+    const room2 = await liveRoom();
+    expect((await api("POST", `/rooms/${room2.roomId}/join`, host.token)).body.entryFx).toMatch(/^games\/items\/.+\.svga$/);
+
+    // The voucher: pick any free ID, once.
+    const [v] = (await api("GET", "/me/items", gamer.token)).body.vouchers;
+    expect((await api("POST", `/me/vouchers/${v.id}/claim`, gamer.token, { specialId: "x" })).body.error.code).toBe("BAD_SPECIAL_ID");
+    expect((await api("POST", `/me/vouchers/${v.id}/claim`, gamer.token, { specialId: "win77" })).body.specialId).toBe("WIN77");
+    expect((await api("POST", `/me/vouchers/${v.id}/claim`, gamer.token, { specialId: "win78" })).body.error.code).toBe("VOUCHER_NOT_FOUND");
+
+    // Expiry: the frame's week runs out and it comes off; the forever effect stays.
+    await db.execute(sql`update user_cosmetics set expires_at = now() - interval '1 minute' where user_id = ${host.id} and cosmetic_id = ${frame}`);
+    await sweepExpired();
+    expect((await api("GET", "/me/items", host.token)).body.equipped).toMatchObject({ avatarFrameId: null, entryEffectId: effect });
+
+    // Repeating: an ended weekly event opens its next week, once.
+    await api("PATCH", `/admin/events/${id}`, adm.token, { repeat: "WEEKLY" });
+    await repeatEvents();
+    await repeatEvents();
+    const { rows } = await db.execute<{ id: string; starts_at: Date; ends_at: Date; repeated_into: string | null }>(sql`select id, starts_at, ends_at, repeated_into from events where title = ${`Prize week ${now}`} order by starts_at`);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.repeated_into).toBe(rows[1]!.id);
+    expect(new Date(rows[1]!.ends_at).getTime() - new Date(rows[1]!.starts_at).getTime()).toBe(7 * 86_400_000);
+    await db.execute(sql`update events set repeat = 'NONE', published = false where title like 'Prize week%'`); // the test database is reused
   });
 });

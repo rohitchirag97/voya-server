@@ -7,6 +7,8 @@ import { GIFT_FILES_DIR } from "./services/giftAdmin";
 import { EVENT_FILES_DIR } from "./services/events";
 import { eventRoutes } from "./routes/events";
 import { noticeRoutes } from "./routes/notices";
+import { itemRoutes } from "./routes/items";
+import { ITEM_FILES_DIR } from "./services/items";
 import type { Env } from "./http";
 import { io } from "./io";
 import { toSafeError } from "./lib/errors";
@@ -54,11 +56,12 @@ app.route("/", links); // shareable room links (/r/:roomId) and the install page
 // HTML5 mini-games, opened in a WebView over the room. The socket client comes from the installed socket.io, so versions always match.
 app.get("/games/socket.io.min.js", () => new Response(Bun.file(`${import.meta.dir}/../node_modules/socket.io/client-dist/socket.io.min.js`)));
 // Files added in the admin panel: gift icons and animations (services/giftAdmin.ts), event banners and headers
-// (services/events.ts). Each upload has a fresh name: cached forever.
+// (services/events.ts), prize items (services/items.ts). Each upload has a fresh name: cached forever.
 const UPLOAD_NAME = /^[0-9a-f-]{36}\.(png|jpg|webp|svga)$/;
-app.get("/games/:dir{gifts|events}/:name", async (c) => {
+app.get("/games/:dir{gifts|events|items}/:name", async (c) => {
   const name = c.req.param("name");
-  const f = Bun.file(join(c.req.param("dir") === "gifts" ? GIFT_FILES_DIR() : EVENT_FILES_DIR(), name));
+  const dir = { gifts: GIFT_FILES_DIR, events: EVENT_FILES_DIR, items: ITEM_FILES_DIR }[c.req.param("dir") as "gifts" | "events" | "items"];
+  const f = Bun.file(join(dir(), name));
   if (!UPLOAD_NAME.test(name) || !(await f.exists())) return c.notFound();
   const type = { png: "image/png", jpg: "image/jpeg", webp: "image/webp", svga: "application/octet-stream" }[name.split(".").pop()!]!;
   return new Response(f, { headers: { "content-type": type, "cache-control": "public, max-age=31536000, immutable" } });
@@ -77,6 +80,7 @@ app.use(
 app.route("/v1", account);
 app.route("/v1", eventRoutes); // before roomRoutes, whose "*" auth would run a second time
 app.route("/v1", noticeRoutes);
+app.route("/v1", itemRoutes);
 app.route("/v1", admin); // before roomRoutes, whose "*" auth would run a second time
 app.route("/v1", postRoutes); // before roomRoutes, whose "*" auth would cover the public /uploads too
 app.route("/v1", roomRoutes);

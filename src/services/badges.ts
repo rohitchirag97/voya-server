@@ -6,14 +6,14 @@ import { AppError } from "../lib/errors";
 // Badges a user currently holds: enabled and not expired, in display order.
 export const activeBadges = (userId: string) =>
   db
-    .select({ id: badges.id, name: badges.name, description: badges.description, svg: badges.svg, expiresAt: userBadges.expiresAt })
+    .select({ id: badges.id, name: badges.name, description: badges.description, svg: badges.svg, svga: badges.svga, expiresAt: userBadges.expiresAt })
     .from(userBadges)
     .innerJoin(badges, eq(badges.id, userBadges.badgeId))
     .where(and(eq(userBadges.userId, userId), eq(badges.enabled, true), or(isNull(userBadges.expiresAt), gt(userBadges.expiresAt, new Date()))))
     .orderBy(asc(badges.sortOrder));
 
 export const badgeCatalog = () =>
-  db.select({ id: badges.id, name: badges.name, svg: badges.svg }).from(badges).where(eq(badges.enabled, true)).orderBy(asc(badges.sortOrder));
+  db.select({ id: badges.id, name: badges.name, svg: badges.svg, svga: badges.svga }).from(badges).where(eq(badges.enabled, true)).orderBy(asc(badges.sortOrder));
 
 // userId -> active badge ids (display order, at most `max` each) for many users in one query.
 export async function activeBadgeIds(userIds: string[], max = 3) {
