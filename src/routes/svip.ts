@@ -4,7 +4,7 @@ import { db } from "../db";
 import { cosmetics, svipAssets, type SvipFxKind } from "../db/schema";
 import { requireAuth, type Env } from "../http";
 import { AppError } from "../lib/errors";
-import { createItem, saveItemFile, updateItem, type ItemKind } from "../services/items";
+import { createItem, fileType, saveItemFile, updateItem, type ItemKind } from "../services/items";
 import { requirePerm } from "../services/roles";
 import { itemForm } from "./items";
 
@@ -42,13 +42,14 @@ svipRoutes.get("/admin/svip", async (c) =>
   }),
 );
 
-// Replace (or add) a tier's animation with an uploaded SVGA. A fresh file name, so phones fetch the new design.
+// Replace (or add) a tier's design: an SVGA, or a PNG/WebP/JPEG picture (shown still). A fresh file name, so phones
+// fetch the new design.
 svipRoutes.post("/admin/svip/fx/:kind/:tier", async (c) => {
   const kind = kindOf(c.req.param("kind"));
   const tier = tierOf(c.req.param("tier"));
   const file = (await c.req.formData().catch(() => null))?.get("svga");
-  if (!(file instanceof File) || !file.size) throw new AppError("FILE_REQUIRED", 400, "Choose an SVGA file");
-  const svga = await saveItemFile(file, "svga");
+  if (!(file instanceof File) || !file.size) throw new AppError("FILE_REQUIRED", 400, "Choose an SVGA, PNG or WebP file");
+  const svga = await saveItemFile(file, (await fileType(file)) === "svga" ? "svga" : "image");
   await db.insert(svipAssets).values({ kind, tier, svga }).onConflictDoUpdate({ target: [svipAssets.kind, svipAssets.tier], set: { svga, updatedAt: new Date() } });
   return c.json({ kind, tier, svga });
 });

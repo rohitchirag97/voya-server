@@ -22,7 +22,7 @@ const now = () => new Date();
 const until = (days: number | null) => (days === null ? null : new Date(Date.now() + days * 86_400_000));
 
 // What a file really is, from its first bytes (its name and the box it was chosen in can be wrong).
-async function fileType(file: File) {
+export async function fileType(file: File) {
   const h = new Uint8Array(await file.slice(0, 12).arrayBuffer());
   const text = String.fromCharCode(...h);
   if (h[0] === 0x89 && h[1] === 0x50) return "png";

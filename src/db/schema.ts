@@ -1167,7 +1167,7 @@ export const svipAssets = pgTable(
   {
     kind: text("kind").$type<SvipFxKind>().notNull(),
     tier: integer("tier").notNull(),
-    svga: text("svga").notNull(), // games/fx/svip/... (built in) or games/items/<file>.svga (uploaded)
+    svga: text("svga").notNull(), // games/fx/svip/... (built in) or games/items/<file> (uploaded: an SVGA or a picture)
     updatedAt: ts("updated_at").notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.kind, t.tier] }), check("svip_asset_tier", sql`${t.tier} between 1 and 6`)],

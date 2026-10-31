@@ -3865,6 +3865,9 @@ describe("svip designs", () => {
     expect(up.body.svga).toMatch(/^games\/items\/.+\.svga$/);
     expect((await api("GET", "/svip/assets", fan.token)).body.assets.entry["1"]).toBe(up.body.svga);
     expect((await send(adm.token, "POST", "/admin/svip/fx/entry/7", { svga: svga() })).status).toBe(400);
+    // A picture works too (shown still), e.g. a PNG profile title badge.
+    expect((await send(adm.token, "POST", "/admin/svip/fx/badge/5", { svga: png() })).body.svga).toMatch(/^games\/items\/.+\.png$/);
+    await db.execute(sql`update svip_assets set svga = 'games/fx/svip/badge/5.svga' where kind = 'badge' and tier = 5`);
     await api("DELETE", "/admin/svip/fx/name/4", adm.token);
     expect((await api("GET", "/svip/assets", fan.token)).body.assets.name["4"]).toBeUndefined();
 
