@@ -4,6 +4,7 @@ import { db, isUniqueViolation, type Tx } from "../db";
 import { blocks, chatMessages, cosmetics, directMessages, follows, giftTransactions, levelThresholds, roomAdmins, roomKicks, roomParticipants, rooms, roomSeats, users, type User } from "../db/schema";
 import { emitToRoom, io, isOnline, roomChannel, userChannel } from "../io";
 import { AppError } from "../lib/errors";
+import { can } from "./roles";
 import { SEAT_LAYOUTS, seatPositions, type SeatCount } from "../lib/layout";
 import { rateLimit } from "../lib/rateLimit";
 import { generateToken04, roomPrivilege } from "../lib/zegoToken";
@@ -469,7 +470,7 @@ export const MAX_PINS = 4;
 
 // Staff pin a room into the first free slot (2-4; slot 1 belongs to the official room) or unpin it.
 export async function setPinned(actor: User, roomId: string, pinned: boolean) {
-  if (!actor.staffRole) throw new AppError("NOT_STAFF", 403, "Only VoyaLive staff can pin rooms");
+  if (!(await can(actor, "rooms.pin"))) throw new AppError("NOT_STAFF", 403, "Only VoyaLive staff can pin rooms");
   const room = await getRoom(roomId);
   if (room.official) throw new AppError("OFFICIAL_ROOM", 400, "The official room is always pinned");
   if (room.kind !== "AUDIO") throw new AppError("NOT_PINNABLE", 400, "Only party rooms can be pinned");

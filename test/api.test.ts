@@ -3766,3 +3766,111 @@ describe("give to user", () => {
     expect((await api("GET", "/notices", lucky.token)).body.notices.some((n: any) => n.id === receipt.id)).toBe(false);
   });
 });
+
+describe("staff roles", () => {
+  test("custom roles: switches decide access, nobody gives more than they have, and the role's look comes and goes with it", async () => {
+    const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)])], "a.png", { type: "image/png" });
+    const upload = async (token: string, kind: string, name: string) => {
+      const f = new FormData();
+      f.append("name", name);
+      f.append("image", png());
+      const r = await fetch(`${base}/v1/admin/items/${kind}`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: f });
+      return ((await r.json()) as any).id as string;
+    };
+    const boss = await signup("roleboss");
+    await db.execute(sql`update users set staff_role = null where staff_role = 'OWNER'`);
+    await db.execute(sql`update users set staff_role = 'OWNER' where id = ${boss.id}`);
+    const adm = await signup("roleadm");
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const mgr = await signup("rolemgr");
+    const ev = await signup("roleev");
+    const badge = await upload(boss.token, "BADGE", "Staff star");
+    const frame = await upload(boss.token, "AVATAR_FRAME", "Staff ring");
+
+    // Today's Admin can't make roles or hand them out; the owner can.
+    const eventRole = { name: "Event Manager", color: "#7C3AED", permissions: ["events.manage"], showTag: false, badgeId: badge, frameId: frame };
+    expect((await api("POST", "/admin/roles", adm.token, eventRole)).status).toBe(403);
+    expect((await api("POST", "/admin/roles", boss.token, { ...eventRole, color: "#F5B301" })).status).toBe(400); // the owner's gold
+    const er = (await api("POST", "/admin/roles", boss.token, eventRole)).body.id;
+    const mr = (await api("POST", "/admin/roles", boss.token, { ...eventRole, name: "Manager", permissions: ["roles.assign", "events.manage", "users.view"], badgeId: null, frameId: null, showTag: true })).body.id;
+    expect((await api("POST", `/admin/users/${mgr.id}/staff-role`, adm.token, { role: mr })).status).toBe(403);
+    expect((await api("POST", `/admin/users/${mgr.id}/staff-role`, boss.token, { role: mr })).status).toBe(200);
+
+    // The manager hands out roles within their own access only.
+    expect((await api("POST", `/admin/users/${ev.id}/staff-role`, mgr.token, { role: "ADMIN" })).status).toBe(403);
+    expect((await api("POST", `/admin/users/${ev.id}/staff-role`, mgr.token, { role: er })).status).toBe(200);
+    expect((await api("POST", `/admin/users/${mgr.id}/staff-role`, mgr.token, { role: null })).body.error.code).toBe("CANNOT_CHANGE_OWN_ROLE");
+    expect((await api("POST", `/admin/users/${boss.id}/staff-role`, mgr.token, { role: null })).status).toBe(403);
+
+    // The Event Manager: events yes, everything else no; the app knows their switches.
+    expect((await api("GET", "/admin/events", ev.token)).status).toBe(200);
+    expect((await api("GET", "/admin/users", ev.token)).status).toBe(403);
+    expect((await api("GET", "/admin/gifts", ev.token)).status).toBe(403);
+    expect((await api("GET", "/support-desk", ev.token)).status).toBe(403);
+    expect((await api("GET", "/me", ev.token)).body.permissions).toEqual(["events.manage"]);
+    expect((await api("GET", "/me", boss.token)).body.permissions).toContain("grants.give");
+
+    // Their look: no tick (showTag off), the role's badge shown, its frame given and worn.
+    expect((await api("GET", "/staff-roles", ev.token)).body.roles.find((r: any) => r.id === er)).toEqual({ id: er, name: "Event Manager", color: "#7C3AED", showTag: false });
+    expect((await api("GET", "/staff-roles", ev.token)).body.roles.find((r: any) => r.id === "OWNER").color).toBe("#F5B301");
+    const prof = (await api("GET", `/users/${ev.id}`, mgr.token)).body;
+    expect(prof.badges[0].id).toBe(badge);
+    expect(prof.avatarFrame?.id).toBe(frame);
+
+    // Taking the role away takes its look too.
+    expect((await api("POST", `/admin/users/${ev.id}/staff-role`, boss.token, { role: null })).status).toBe(200);
+    const after = (await api("GET", `/users/${ev.id}`, mgr.token)).body;
+    expect(after.badges.some((b: any) => b.id === badge)).toBe(false);
+    expect(after.avatarFrame).toBeNull();
+    expect((await api("GET", "/me/items", ev.token)).body.items).toEqual([]);
+    expect((await api("GET", "/admin/events", ev.token)).status).toBe(403);
+
+    // Deleting a role returns its members to regular users.
+    expect((await api("DELETE", `/admin/roles/${mr}`, boss.token)).body).toEqual({ members: 1 });
+    expect((await api("GET", "/me", mgr.token)).body.staffRole).toBeNull();
+    expect((await api("DELETE", "/admin/roles/OWNER", boss.token)).status).toBe(403);
+    await api("DELETE", `/admin/roles/${er}`, boss.token);
+  });
+});
+
+describe("svip designs", () => {
+  test("the app reads SVIP animations from the server; the panel replaces them and adds tier-only items", async () => {
+    const svga = () => new File([new Uint8Array([0x78, 0x9c, ...new Array(64).fill(1)])], "a.svga");
+    const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)])], "a.png", { type: "image/png" });
+    const send = async (token: string, method: string, path: string, fields: Record<string, string | File>) => {
+      const f = new FormData();
+      for (const [k, v] of Object.entries(fields)) f.append(k, v);
+      const r = await fetch(`${base}/v1${path}`, { method, headers: { authorization: `Bearer ${token}` }, body: f });
+      return { status: r.status, body: (await r.json()) as any };
+    };
+    const adm = await signup("svipadm");
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const fan = await signup("svipfan");
+
+    const assets = (await api("GET", "/svip/assets", fan.token)).body.assets;
+    expect(assets.entry["1"]).toBe("games/fx/svip/entry/1.svga");
+    expect(Object.keys(assets.name)).toEqual(["4", "5", "6"]);
+    expect((await api("GET", "/admin/svip", fan.token)).status).toBe(403);
+
+    // A new entry design for SVIP1: a fresh file name, so phones fetch it.
+    const up = await send(adm.token, "POST", "/admin/svip/fx/entry/1", { svga: svga() });
+    expect(up.body.svga).toMatch(/^games\/items\/.+\.svga$/);
+    expect((await api("GET", "/svip/assets", fan.token)).body.assets.entry["1"]).toBe(up.body.svga);
+    expect((await send(adm.token, "POST", "/admin/svip/fx/entry/7", { svga: svga() })).status).toBe(400);
+    await api("DELETE", "/admin/svip/fx/name/4", adm.token);
+    expect((await api("GET", "/svip/assets", fan.token)).body.assets.name["4"]).toBeUndefined();
+
+    // An SVIP3 profile card: everyone can see it in the catalog, only SVIP3+ can wear it.
+    const card = (await send(adm.token, "POST", "/admin/svip/items/CARD_DECOR/3", { name: "SVIP3 card", image: png() })).body.id;
+    expect((await api("GET", "/admin/svip", adm.token)).body.items.find((i: any) => i.id === card)).toMatchObject({ kind: "CARD_DECOR", minSvip: 3, exclusive: false });
+    expect((await api("PATCH", "/me/cosmetics", fan.token, { cardDecorId: card })).body.error.code).toBe("SVIP_REQUIRED");
+    // Built-in SVIP frames are editable here too.
+    expect((await send(adm.token, "PATCH", "/admin/svip/items/AVATAR_FRAME/svip2_frame", { name: "SVIP2 Halo", svga: svga() })).status).toBe(200);
+    expect((await api("GET", "/admin/svip", adm.token)).body.items.find((i: any) => i.id === "svip2_frame").name).toBe("SVIP2 Halo");
+
+    // Put the built-in designs back (the test database is reused).
+    await db.execute(sql`update svip_assets set svga = 'games/fx/svip/entry/1.svga' where kind = 'entry' and tier = 1`);
+    await db.execute(sql`insert into svip_assets (kind, tier, svga) values ('name', 4, 'games/fx/svip/name/4.svga') on conflict do nothing`);
+    await db.execute(sql`update cosmetics set name = 'SVIP2 Frame', svga = 'games/fx/svip/frame/2.svga' where id = 'svip2_frame'`);
+  });
+});

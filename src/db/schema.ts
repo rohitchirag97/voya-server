@@ -17,13 +17,13 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 const createdAt = () => ts("created_at").notNull().defaultNow();
 
 export const userStatus = pgEnum("user_status", ["ACTIVE", "SUSPENDED", "BANNED"]);
-export const staffRole = pgEnum("staff_role", ["SUPPORT", "MODERATOR", "ADMIN", "OWNER"]);
 export const gender = pgEnum("gender", ["MALE", "FEMALE", "OTHER"]);
 export const roomStatus = pgEnum("room_status", ["CREATED", "LIVE", "ENDING", "ENDED", "FAILED"]);
 export const roomPrivacy = pgEnum("room_privacy", ["PUBLIC", "LOCKED", "PRIVATE"]);
@@ -82,8 +82,9 @@ export const users = pgTable(
     // Premium short ID: 3-9 capital letters/digits (stored uppercase), granted by staff. Never clashes with a 10-digit public id.
     specialId: text("special_id").unique(),
     specialIdExpiresAt: ts("special_id_expires_at"), // a Special ID won for N days; null = keeps it
-    // App staff (null = regular user). Only set by src/db/grantStaff.ts, never through the API; drives the Official mark.
-    staffRole: staffRole("staff_role"),
+    // Staff role (null = regular user): a staff_roles id. "OWNER" is the owner's fixed role; the others are made in the
+    // admin panel > Roles. Drives what they can do (services/roles.ts) and how they look (tick, badge, frame).
+    staffRole: text("staff_role").references((): AnyPgColumn => staffRoles.id),
     noticesSeenAt: ts("notices_seen_at"), // inbox Notices tile: notices after this are unread
     // About me (all optional). Age and zodiac are worked out from the birthday in the app.
     gender: gender("gender"),
@@ -1088,6 +1089,7 @@ export const userCosmetics = pgTable(
     cosmeticId: text("cosmetic_id").notNull().references(() => cosmetics.id),
     grantedAt: ts("granted_at").notNull().defaultNow(),
     expiresAt: ts("expires_at"),
+    fromRole: text("from_role"), // given with a staff role (its frame): taken away again with the role
   },
   (t) => [primaryKey({ columns: [t.userId, t.cosmeticId] })],
 );
@@ -1135,4 +1137,32 @@ export const adminGrants = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("admin_grants_created").on(t.createdAt)],
+);
+
+// Staff roles, made in the admin panel > Roles: a name and colour, access switches (lib/permissions.ts), and the look
+// everyone in the role gets: the official tick in the role's colour (if showTag), a badge, a frame. "OWNER" is fixed.
+export const staffRoles = pgTable("staff_roles", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  color: text("color").notNull().default("#1D9BF0"),
+  permissions: jsonb("permissions").$type<string[]>().notNull().default([]),
+  showTag: boolean("show_tag").notNull().default(true),
+  badgeId: text("badge_id").references(() => badges.id),
+  frameId: text("frame_id").references(() => cosmetics.id),
+  sortOrder: integer("sort_order").notNull().default(100),
+  createdAt: createdAt(),
+});
+
+// SVIP animations by tier (admin panel > SVIP): the entry banner, seat medal, name shimmer and profile title badge each
+// tier plays. The app reads this list, so a new design needs no app update. No row: that tier has none.
+export type SvipFxKind = "entry" | "seat" | "name" | "badge";
+export const svipAssets = pgTable(
+  "svip_assets",
+  {
+    kind: text("kind").$type<SvipFxKind>().notNull(),
+    tier: integer("tier").notNull(),
+    svga: text("svga").notNull(), // games/fx/svip/... (built in) or games/items/<file>.svga (uploaded)
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.kind, t.tier] }), check("svip_asset_tier", sql`${t.tier} between 1 and 6`)],
 );

@@ -512,6 +512,20 @@
       "when": 1793448781996,
       "tag": "0072_item_flags_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1793450510108,
+      "tag": "0073_staff_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1793451188443,
+      "tag": "0074_svip_assets",
+      "breakpoints": true
     }
   ]
 }

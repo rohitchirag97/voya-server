@@ -3,8 +3,9 @@ import { z } from "zod";
 import { eq, or } from "drizzle-orm";
 import { db } from "../db";
 import { users } from "../db/schema";
-import { json, requireAuth, requireStaff, type Env } from "../http";
+import { json, requireAuth, type Env } from "../http";
 import { AppError } from "../lib/errors";
+import { requirePerm } from "../services/roles";
 import { createItem, giveToUser, listItems, recentGrants, updateItem, type ItemKind } from "../services/items";
 import { normalizeSpecialId } from "../services/specialIds";
 import { rewardItem } from "./events";
@@ -12,8 +13,8 @@ import { rewardItem } from "./events";
 // Admin panel > Items (owner/admin): badges, frames, profile card decorations, chat bubbles and entry effects with
 // uploaded artwork, each an event prize and/or a Mall item. Give to user (owner only): coins and items, with a reason.
 export const itemRoutes = new Hono<Env>();
-itemRoutes.use("/admin/items", requireAuth, requireStaff("OWNER", "ADMIN"));
-itemRoutes.use("/admin/items/*", requireAuth, requireStaff("OWNER", "ADMIN"));
+itemRoutes.use("/admin/items", requireAuth, requirePerm("items.manage"));
+itemRoutes.use("/admin/items/*", requireAuth, requirePerm("items.manage"));
 
 const KINDS = ["BADGE", "AVATAR_FRAME", "CARD_DECOR", "CHAT_BUBBLE", "ENTRY_EFFECT"] as const;
 const colour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Colour as #RRGGBB");
@@ -30,7 +31,7 @@ const fields = z.object({
 });
 
 // Multipart: name, description (badges), enabled, bubble colours (from, to, border, text), files "image" and "svga".
-async function itemForm(c: { req: { formData: () => Promise<FormData> } }) {
+export async function itemForm(c: { req: { formData: () => Promise<FormData> } }) {
   const form = await c.req.formData().catch(() => null);
   if (!form) throw new AppError("VALIDATION_ERROR", 400, "Send the item as a form");
   const str = (k: string) => (typeof form.get(k) === "string" ? (form.get(k) as string) : undefined);
@@ -65,8 +66,9 @@ itemRoutes.patch("/admin/items/:kind{BADGE|AVATAR_FRAME|CARD_DECOR|CHAT_BUBBLE|E
 
 // ---------- give to user (owner only) ----------
 
-itemRoutes.use("/admin/grants", requireAuth, requireStaff("OWNER"));
-itemRoutes.get("/admin/grants", async (c) => c.json({ grants: await recentGrants() }));
+itemRoutes.use("/admin/grants", requireAuth, requirePerm("grants.give"));
+// Recent grants, and every item that can be given (so this works without the Items switch).
+itemRoutes.get("/admin/grants", async (c) => c.json({ grants: await recentGrants(), items: await listItems() }));
 itemRoutes.post("/admin/grants", async (c) => {
   const b = await json(c, z.object({ user: z.string().trim().min(3).max(20), reason: z.string().trim().min(3, "Write a reason").max(300), items: z.array(rewardItem).min(1, "Add something to give").max(10) }));
   // The person by their 10-digit ID or their Special ID.

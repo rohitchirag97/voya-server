@@ -8,6 +8,7 @@ import { EVENT_FILES_DIR } from "./services/events";
 import { eventRoutes } from "./routes/events";
 import { noticeRoutes } from "./routes/notices";
 import { itemRoutes } from "./routes/items";
+import { svipRoutes } from "./routes/svip";
 import { ITEM_FILES_DIR } from "./services/items";
 import type { Env } from "./http";
 import { io } from "./io";
@@ -81,6 +82,7 @@ app.route("/v1", account);
 app.route("/v1", eventRoutes); // before roomRoutes, whose "*" auth would run a second time
 app.route("/v1", noticeRoutes);
 app.route("/v1", itemRoutes);
+app.route("/v1", svipRoutes);
 app.route("/v1", admin); // before roomRoutes, whose "*" auth would run a second time
 app.route("/v1", postRoutes); // before roomRoutes, whose "*" auth would cover the public /uploads too
 app.route("/v1", roomRoutes);

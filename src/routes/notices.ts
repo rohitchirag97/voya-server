@@ -1,19 +1,20 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { and, asc, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
-import { json, requireAuth, requireStaff, schemas, type Env } from "../http";
+import { json, requireAuth, schemas, type Env } from "../http";
 import { db } from "../db";
 import { notices, users } from "../db/schema";
 import { AppError } from "../lib/errors";
 import { saveEventImage } from "../services/events";
+import { requirePerm } from "../services/roles";
 
 // Notices (schema: notices): the app shows live ones in the home carousel and inbox ones under the Notices tile;
 // the admin panel (owner/admin) writes them.
 export const noticeRoutes = new Hono<Env>();
 noticeRoutes.use("/notices", requireAuth);
 noticeRoutes.use("/notices/*", requireAuth);
-noticeRoutes.use("/admin/notices", requireAuth, requireStaff("OWNER", "ADMIN"));
-noticeRoutes.use("/admin/notices/*", requireAuth, requireStaff("OWNER", "ADMIN"));
+noticeRoutes.use("/admin/notices", requireAuth, requirePerm("notices.manage"));
+noticeRoutes.use("/admin/notices/*", requireAuth, requirePerm("notices.manage"));
 
 const card = { id: notices.id, title: notices.title, imageUrl: notices.imageUrl, color: notices.color, homeTab: notices.homeTab, startsAt: notices.startsAt, endsAt: notices.endsAt };
 const started = and(eq(notices.published, true), lte(notices.startsAt, sql`now()`));

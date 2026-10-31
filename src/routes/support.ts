@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db, isUniqueViolation } from "../db";
 import { supportMessages, supportThreads, users, type User } from "../db/schema";
 import { json, requireAuth, schemas, type Env } from "../http";
+import { can, staffWith } from "../services/roles";
 import { io, userChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
@@ -23,11 +24,12 @@ support.use("/support-desk", requireAuth);
 
 type Desk = "GENERAL" | "SVIP";
 const DESK_NAME: Record<Desk, string> = { GENERAL: "VoyaLive Support", SVIP: "SVIP Support" };
-const STAFF: Record<Desk, NonNullable<User["staffRole"]>[]> = { GENERAL: ["OWNER", "ADMIN", "MODERATOR", "SUPPORT"], SVIP: ["OWNER", "ADMIN"] };
+// Who answers each desk: staff whose role has its switch (admin panel > Roles).
+const DESK_PERM = { GENERAL: "support.general", SVIP: "support.svip" } as const;
 const deskParam = z.enum(["general", "svip"]).transform((d) => d.toUpperCase() as Desk);
 const PAGE = 50;
 
-const canAnswer = (user: User, desk: Desk) => !!user.staffRole && STAFF[desk].includes(user.staffRole);
+const canAnswer = (user: User, desk: Desk) => can(user, DESK_PERM[desk]);
 async function assertCanWrite(user: User, desk: Desk) {
   if (desk === "SVIP" && !((await svipOf(user.id)) > 0)) throw new AppError("SVIP_ONLY", 403, "SVIP Support is for SVIP members");
 }
@@ -47,7 +49,7 @@ async function messagesOf(threadId: string, cursor?: number) {
 
 // Live: to the user (all their phones) and to every staff member who answers that desk.
 async function announce(thread: typeof supportThreads.$inferSelect, message: typeof supportMessages.$inferSelect, sender: User) {
-  const staff = await db.select({ id: users.id }).from(users).where(inArray(users.staffRole, STAFF[thread.desk]));
+  const staff = await staffWith(DESK_PERM[thread.desk]);
   const event = { desk: thread.desk, deskName: DESK_NAME[thread.desk], threadId: thread.id, userId: thread.userId, message: { ...message, senderName: sender.displayName } };
   let to = io.to(userChannel(thread.userId));
   for (const s of staff) to = to.to(userChannel(s.id));
@@ -144,7 +146,8 @@ support.post("/support/:desk/image", async (c) => {
 // The desks this staff member answers, with how many conversations wait on each.
 support.get("/support-desk", async (c) => {
   const user = c.get("user");
-  const desks = (["GENERAL", "SVIP"] as Desk[]).filter((d) => canAnswer(user, d));
+  const desks: Desk[] = [];
+  for (const d of ["GENERAL", "SVIP"] as Desk[]) if (await canAnswer(user, d)) desks.push(d);
   if (!desks.length) throw new AppError("FORBIDDEN", 403, "Not allowed");
   const open = await db
     .select({ desk: supportThreads.desk, n: sql<number>`count(*)::int` })
@@ -158,7 +161,7 @@ support.get("/support-desk", async (c) => {
 support.get("/support-desk/:desk", async (c) => {
   const user = c.get("user");
   const desk = deskParam.parse(c.req.param("desk"));
-  if (!canAnswer(user, desk)) throw new AppError("FORBIDDEN", 403, "Not allowed");
+  if (!(await canAnswer(user, desk))) throw new AppError("FORBIDDEN", 403, "Not allowed");
   const threads = await db
     .select()
     .from(supportThreads)
@@ -193,7 +196,7 @@ support.get("/support-desk/:desk", async (c) => {
 async function staffThread(c: Context<Env>) {
   const [t] = await db.select().from(supportThreads).where(eq(supportThreads.id, schemas.uuid.parse(c.req.param("threadId"))));
   if (!t) throw new AppError("NOT_FOUND", 404, "No such conversation");
-  if (!canAnswer(c.get("user"), t.desk)) throw new AppError("FORBIDDEN", 403, "Not allowed");
+  if (!(await canAnswer(c.get("user"), t.desk))) throw new AppError("FORBIDDEN", 403, "Not allowed");
   return t;
 }
 

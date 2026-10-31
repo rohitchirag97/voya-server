@@ -1,19 +1,21 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { json, requireAuth, requireStaff, schemas, type Env } from "../http";
+import { json, requireAuth, schemas, type Env } from "../http";
 import { db } from "../db";
 import { events, giftCategories } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { AppError } from "../lib/errors";
 import * as ev from "../services/events";
+import { requirePerm } from "../services/roles";
 import { listItems } from "../services/items";
 
 // Events: the app reads live ones (banners) and an event's page; the admin panel (owner/admin) makes and runs them.
 export const eventRoutes = new Hono<Env>();
 eventRoutes.use("/events", requireAuth);
 eventRoutes.use("/events/*", requireAuth);
-eventRoutes.use("/admin/events", requireAuth, requireStaff("OWNER", "ADMIN"));
-eventRoutes.use("/admin/events/*", requireAuth, requireStaff("OWNER", "ADMIN"));
+eventRoutes.use("/admin/events", requireAuth, requirePerm("events.manage"));
+eventRoutes.use("/admin/events/*", requireAuth, requirePerm("events.manage"));
+eventRoutes.use("/admin/event-options", requireAuth, requirePerm("events.manage"));
 
 eventRoutes.get("/events", async (c) => c.json({ events: await ev.liveEvents() }));
 eventRoutes.get("/events/:id", async (c) => c.json(await ev.eventPage(schemas.uuid.parse(c.req.param("id")), c.get("user"))));
@@ -122,7 +124,7 @@ eventRoutes.post("/admin/events/:id/:slot{banner|header}", async (c) => {
 });
 
 eventRoutes.get("/admin/events/:id/payouts", async (c) => c.json(await ev.payoutPreview(schemas.uuid.parse(c.req.param("id")))));
-eventRoutes.post("/admin/events/:id/payouts/approve", async (c) => c.json(await ev.approvePayouts(c.get("user"), schemas.uuid.parse(c.req.param("id")))));
+eventRoutes.post("/admin/events/:id/payouts/approve", requirePerm("events.payout"), async (c) => c.json(await ev.approvePayouts(c.get("user"), schemas.uuid.parse(c.req.param("id")))));
 
 // What the panel's event form can pick from: items marked as event prizes (admin panel > Items) and gift categories.
 eventRoutes.get("/admin/event-options", async (c) => {

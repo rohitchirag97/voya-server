@@ -14,14 +14,6 @@ export const requireAuth = createMiddleware<Env>(async (c, next) => {
   await next();
 });
 
-// After requireAuth: only these staff roles get through.
-export const requireStaff = (...roles: NonNullable<User["staffRole"]>[]) =>
-  createMiddleware<Env>(async (c, next) => {
-    const role = c.get("user").staffRole;
-    if (!role || !roles.includes(role)) throw new AppError("FORBIDDEN", 403, "Not allowed");
-    await next();
-  });
-
 export const json = async <T extends z.ZodType>(c: Context, schema: T): Promise<z.infer<T>> =>
   schema.parse(await c.req.json().catch(() => ({})));
 

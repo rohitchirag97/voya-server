@@ -20,6 +20,7 @@ import { pushDm } from "../services/dmPush";
 import { ejectBlocked, userSummary } from "../services/rooms";
 import { cosmeticMinSvip, SVIP_PERKS, svipOf, svipStatus, visibleAvatar, wearable } from "../services/svip";
 import { claimSpecialId, openVouchers, ownedCosmetics, ownsCosmetic } from "../services/items";
+import { permissionsOf, publicRoles } from "../services/roles";
 import { nameError, normalizeName } from "../lib/displayName";
 
 const phone = z.string().regex(/^\+[1-9]\d{7,14}$/, "E.164 phone number, e.g. +919876543210");
@@ -72,8 +73,12 @@ account.use("/reports", requireAuth);
 account.get("/me", async (c) => {
   const u = c.get("user");
   // Sign-in methods are private: only you see your phone and whether Google is linked.
-  return c.json({ ...publicUser(u), avatarUrl: visibleAvatar(u.avatarUrl, await svipOf(u.id)), phone: u.phone, googleLinked: !!u.googleSub });
+  // Staff also get their role's switches (the panel shows only their menus; the app only their powers).
+  return c.json({ ...publicUser(u), avatarUrl: visibleAvatar(u.avatarUrl, await svipOf(u.id)), phone: u.phone, googleLinked: !!u.googleSub, permissions: await permissionsOf(u) });
 });
+
+// Staff roles' names, colours and whether they show the official tick (the app draws staff ticks from this).
+account.get("/staff-roles", requireAuth, async (c) => c.json({ roles: await publicRoles() }));
 
 account.post("/me/link/phone", async (c) => {
   const b = await json(c, z.object({ phone, code: z.string().regex(/^\d{6}$/) }));

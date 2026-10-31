@@ -1,4 +1,4 @@
-import { inArray, sql } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { db } from ".";
 import { SAMPLE_BADGES } from "./badgesSeed";
@@ -23,14 +23,9 @@ export async function migrateAndSeed() {
     ])
     .onConflictDoNothing();
   await db.insert(cosmetics).values(SAMPLE_COSMETICS).onConflictDoNothing();
-  // SVIP art follows the code (tiers get redrawn); SVIP7 is gone, so its items are switched off.
-  await db
-    .insert(cosmetics)
-    .values(SVIP_COSMETICS)
-    .onConflictDoUpdate({
-      target: cosmetics.id,
-      set: { name: sql`excluded.name`, svg: sql`excluded.svg`, svga: sql`excluded.svga`, style: sql`excluded.style`, minSvip: sql`excluded.min_svip`, sortOrder: sql`excluded.sort_order` },
-    });
+  // SVIP frames and bubbles: added once; from then on their design is edited in the admin panel > SVIP (kept here).
+  // SVIP7 is gone, so its items are switched off.
+  await db.insert(cosmetics).values(SVIP_COSMETICS).onConflictDoNothing();
   await db.update(cosmetics).set({ enabled: false }).where(inArray(cosmetics.id, ["svip7_frame", "svip7_bubble"]));
   await db.insert(badges).values(SAMPLE_BADGES).onConflictDoNothing();
   await db.insert(giftCatalog).values(ANIMATED_GIFTS).onConflictDoNothing();

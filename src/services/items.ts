@@ -48,6 +48,7 @@ export type ItemInput = {
   enabled?: boolean;
   forPrize?: boolean;
   forMall?: boolean;
+  minSvip?: number; // an SVIP item (admin panel > SVIP): free to wear from this tier up, never owned
 };
 
 // Everything the panel can pick from, newest first within each kind.
@@ -74,7 +75,7 @@ export async function createItem(i: ItemInput) {
     if (i.kind === "CARD_DECOR" && !art.svg) throw new AppError("FILE_REQUIRED", 400, "Upload the card decoration's image");
     if (i.kind === "ENTRY_EFFECT" && !art.svga) throw new AppError("FILE_REQUIRED", 400, "Upload the entry effect's SVGA animation");
     if (i.kind === "CHAT_BUBBLE" && !i.bubble) throw new AppError("VALIDATION_ERROR", 400, "Pick the bubble's colours");
-    await db.insert(cosmetics).values({ id, kind: i.kind, name: i.name, svg: art.svg ?? "", svga: art.svga ?? null, style: bubbleStyle(i), exclusive: true, forPrize: !!i.forPrize, forMall: !!i.forMall, sortOrder: 1000 });
+    await db.insert(cosmetics).values({ id, kind: i.kind, name: i.name, svg: art.svg ?? "", svga: art.svga ?? null, style: bubbleStyle(i), exclusive: !i.minSvip, minSvip: i.minSvip ?? 0, forPrize: !!i.forPrize, forMall: !!i.forMall, sortOrder: 1000 });
   }
   return id;
 }
