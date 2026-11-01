@@ -3937,3 +3937,43 @@ describe("any artwork", () => {
     expect(still.effect).toMatch(/^\/games\/gifts\/.+\.png$/);
   });
 });
+
+describe("splash screens", () => {
+  test("staff schedule splash screens; the app reads live and soon-starting ones without signing in", async () => {
+    const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)])], "a.png", { type: "image/png" });
+    const send = async (token: string, method: string, path: string, fields: Record<string, string | File>) => {
+      const f = new FormData();
+      for (const [k, v] of Object.entries(fields)) f.append(k, v);
+      const r = await fetch(`${base}/v1${path}`, { method, headers: { authorization: `Bearer ${token}` }, body: f });
+      return { status: r.status, body: (await r.json()) as any };
+    };
+    const adm = await signup("splashadm");
+    await db.execute(sql`update users set staff_role = 'ADMIN' where id = ${adm.id}`);
+    const fan = await signup("splashfan");
+    const fanId = (await api("GET", "/me", fan.token)).body.publicId;
+    const now = Date.now();
+    const at = (h: number) => new Date(now + h * 3_600_000).toISOString();
+
+    const base0 = { title: "Diwali", startsAt: at(-1), endsAt: at(5), art: png() };
+    expect((await send(fan.token, "POST", "/admin/splashes", base0)).status).toBe(403);
+    expect((await send(adm.token, "POST", "/admin/splashes", { ...base0, art: "" as unknown as File })).body.error.code).toBe("FILE_REQUIRED");
+    expect((await send(adm.token, "POST", "/admin/splashes", { ...base0, actionType: "url", actionTarget: "http://x.com" })).body.error.message).toContain("https");
+    const live = (await send(adm.token, "POST", "/admin/splashes", { ...base0, actionType: "profile", actionTarget: String(fanId) })).body;
+    expect(live.action).toMatchObject({ type: "profile", target: fan.id });
+    const soon = (await send(adm.token, "POST", "/admin/splashes", { ...base0, title: "Tomorrow", startsAt: at(20), endsAt: at(30) })).body.id;
+    const later = (await send(adm.token, "POST", "/admin/splashes", { ...base0, title: "Next week", startsAt: at(24 * 7), endsAt: at(24 * 8) })).body.id;
+
+    // No sign-in needed; live and within 3 days, not next week.
+    const list = (await (await fetch(`${base}/v1/splashes`)).json()) as any;
+    const ids = list.splashes.map((s: any) => s.id);
+    expect(ids).toContain(live.id);
+    expect(ids).toContain(soon);
+    expect(ids).not.toContain(later);
+    expect(list.splashes.find((s: any) => s.id === live.id).art).toMatch(/^games\/items\/.+\.png$/);
+
+    // Edit keeps the artwork when none is sent; switched off, it's gone from the app.
+    expect((await send(adm.token, "PATCH", `/admin/splashes/${live.id}`, { title: "Diwali!", startsAt: at(-1), endsAt: at(5), enabled: "false" })).body).toMatchObject({ art: live.art, enabled: false });
+    expect(((await (await fetch(`${base}/v1/splashes`)).json()) as any).splashes.some((s: any) => s.id === live.id)).toBe(false);
+    for (const id of [live.id, soon, later]) await api("DELETE", `/admin/splashes/${id}`, adm.token);
+  });
+});

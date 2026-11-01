@@ -17,6 +17,7 @@ export const PERMISSIONS = [
   { key: "notices.manage", group: "Content", label: "Notices" },
   { key: "items.manage", group: "Content", label: "Items" },
   { key: "svip.manage", group: "Content", label: "SVIP designs" },
+  { key: "splash.manage", group: "Content", label: "Splash screens" },
   { key: "agencies.manage", group: "Content", label: "Agencies" },
   { key: "support.general", group: "In the app", label: "Answer General support" },
   { key: "support.svip", group: "In the app", label: "Answer SVIP support" },

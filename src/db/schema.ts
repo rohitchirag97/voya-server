@@ -1172,3 +1172,24 @@ export const svipAssets = pgTable(
   },
   (t) => [primaryKey({ columns: [t.kind, t.tier] }), check("svip_asset_tier", sql`${t.tier} between 1 and 6`)],
 );
+
+// Splash screens (admin panel > Splash screens): full-screen artwork the app shows on opening, between startsAt and
+// endsAt (several live at once take turns). Tapping can open an event, notice, room, profile or website. None live:
+// the app's default start screen.
+export type SplashAction = { type: "event" | "notice" | "room" | "profile" | "url"; target: string; label?: string };
+export const splashes = pgTable(
+  "splashes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    art: text("art").notNull(), // games/items/<file>: an SVGA or a picture
+    startsAt: ts("starts_at").notNull(),
+    endsAt: ts("ends_at").notNull(),
+    action: jsonb("action").$type<SplashAction>(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    enabled: boolean("enabled").notNull().default(true),
+    createdBy: uuid("created_by").notNull().references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index("splashes_window").on(t.enabled, t.endsAt), check("splash_window", sql`${t.endsAt} > ${t.startsAt}`)],
+);

@@ -540,6 +540,13 @@
       "when": 1793455841410,
       "tag": "0076_style_switches",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1793526625899,
+      "tag": "0077_splashes",
+      "breakpoints": true
     }
   ]
 }
