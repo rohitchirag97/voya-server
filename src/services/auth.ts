@@ -118,8 +118,12 @@ async function googleSub(idToken: string) {
 // Finds or creates the user for a verified identity, then opens a session.
 async function signIn(id: Identity) {
   const user = await db.transaction(async (tx) => {
+    const existing = () => tx.select().from(users).where("phone" in id ? eq(users.phone, id.phone) : eq(users.googleSub, id.googleSub));
+    // Look up first: every insert attempt uses up a public id, even when it conflicts, so logins must not try one.
+    const [known] = await existing();
+    if (known) return known;
     const [created] = await tx.insert(users).values(id).onConflictDoNothing().returning();
-    if (!created) return (await tx.select().from(users).where("phone" in id ? eq(users.phone, id.phone) : eq(users.googleSub, id.googleSub)))[0]!;
+    if (!created) return (await existing())[0]!;
     // P0 test coins only; no real-money value.
     await tx.insert(walletAccounts).values({ userId: created.id, balance: config.signupBonusCoins });
     await tx.insert(walletLedger).values({

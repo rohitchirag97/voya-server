@@ -42,9 +42,12 @@ export async function purgeUndelivered() {
 // reserve the name.
 const RECHARGE_BOT_PHONE = "+0000000000";
 export async function rechargeBot() {
+  const find = () => db.select().from(users).where(eq(users.phone, RECHARGE_BOT_PHONE));
+  const [bot] = await find();
+  if (bot) return bot;
+  // Insert only when missing: every insert attempt uses up a public id, even when it conflicts.
   await db.insert(users).values({ phone: RECHARGE_BOT_PHONE, displayName: "Recharge Notification", staffRole: "SUPPORT" }).onConflictDoNothing();
-  const [bot] = await db.select().from(users).where(eq(users.phone, RECHARGE_BOT_PHONE));
-  return bot!;
+  return (await find())[0]!;
 }
 
 const STATUS_TEXT = { SUCCESS: "successful", PENDING: "pending", FAILED: "failed" } as const;
