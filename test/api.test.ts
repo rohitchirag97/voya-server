@@ -1404,6 +1404,23 @@ describe("user ids", () => {
   });
 });
 
+describe("room numbers", () => {
+  test("every room gets a 6-digit number; open public rooms are found by it, private ones are not", async () => {
+    const { host, roomId } = await liveRoom();
+    const other = await liveRoom();
+    const snap = (await api("GET", `/rooms/${roomId}`, host.token)).body;
+    expect(String(snap.number)).toMatch(/^[1-9]\d{5,}$/);
+    expect((await api("GET", `/rooms/${other.roomId}`, host.token)).body.number).not.toBe(snap.number);
+
+    const found = (await api("GET", `/users/search?q=${snap.number}`, other.host.token)).body.rooms;
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ roomId, number: snap.number });
+
+    expect((await api("PATCH", `/rooms/${roomId}/settings`, host.token, { privacy: "PRIVATE" })).status).toBe(200);
+    expect((await api("GET", `/users/search?q=${snap.number}`, other.host.token)).body.rooms).toEqual([]);
+  });
+});
+
 describe("coin sellers", () => {
   test("apply once, staff approve, approved sellers are listed, rejected can re-apply", async () => {
     const a = await signup("sella");

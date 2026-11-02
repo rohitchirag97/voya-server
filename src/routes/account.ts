@@ -17,7 +17,7 @@ import { weeklyGiftStats } from "../services/gifts";
 import { onBlock, relationshipsOf } from "../services/cp";
 import { myFamily } from "../services/families";
 import { pushDm } from "../services/dmPush";
-import { ejectBlocked, shownSpecialId, userSummary } from "../services/rooms";
+import { ejectBlocked, findRoomByNumber, shownSpecialId, userSummary } from "../services/rooms";
 import { cosmeticMinSvip, SVIP_PERKS, svipOf, svipStatus, visibleAvatar, wearable } from "../services/svip";
 import { claimSpecialId, openVouchers, ownedCosmetics, ownsCosmetic } from "../services/items";
 import { permissionsOf, publicRoles } from "../services/roles";
@@ -288,7 +288,7 @@ account.post("/me/vouchers/:id/claim", async (c) => {
   return c.json(await claimSpecialId(c.get("user").id, schemas.uuid.parse(c.req.param("id")), b.specialId));
 });
 
-// Find people by their 10-digit ID or their special ID, letters in any case (registered before /users/:userId).
+// Find people by their 10-digit ID or their special ID, and open rooms by their number, letters in any case (registered before /users/:userId).
 account.get("/users/search", async (c) => {
   const q = z.object({ q: z.string().trim().regex(/^[A-Za-z0-9]{3,10}$/, "Enter an ID") }).parse(c.req.query()).q;
   rateLimit(`search:${c.get("user").id}`, 30, 60_000);
@@ -296,7 +296,7 @@ account.get("/users/search", async (c) => {
     .select({ ...userSummary, publicId: users.publicId, specialId: shownSpecialId })
     .from(users)
     .where(or(/^\d{10}$/.test(q) ? eq(users.publicId, Number(q)) : undefined, eq(users.specialId, q.toUpperCase())));
-  return c.json({ users: rows });
+  return c.json({ users: rows, rooms: /^\d{6,9}$/.test(q) ? await findRoomByNumber(Number(q)) : [] });
 });
 
 account.get("/users/:userId", async (c) => {

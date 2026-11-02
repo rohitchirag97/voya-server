@@ -10,6 +10,7 @@ import {
   integer,
   jsonb,
   pgEnum,
+  pgSequence,
   pgTable,
   primaryKey,
   serial,
@@ -130,10 +131,14 @@ export const otpCodes = pgTable("otp_codes", {
   expiresAt: ts("expires_at").notNull(),
 });
 
+// Room numbers people can read out and search for: 100001, 100002, ... (never reused).
+export const roomNumberSeq = pgSequence("room_number_seq", { startWith: 100001 });
+
 export const rooms = pgTable(
   "rooms",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    number: integer("number").notNull().unique().default(sql`nextval('room_number_seq')`),
     zegoRoomId: text("zego_room_id").notNull().unique(),
     hostUserId: uuid("host_user_id").notNull().references(() => users.id),
     title: text("title").notNull(),

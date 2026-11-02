@@ -547,6 +547,13 @@
       "when": 1793526625899,
       "tag": "0077_splashes",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1793616809705,
+      "tag": "0078_room_numbers",
+      "breakpoints": true
     }
   ]
 }

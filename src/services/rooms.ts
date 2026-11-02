@@ -68,6 +68,7 @@ export async function getSnapshot(roomId: string) {
   ]);
   return {
     roomId: room.id,
+    number: room.number,
     zegoRoomId: room.zegoRoomId,
     hostUserId: room.hostUserId,
     title: room.title,
@@ -389,6 +390,7 @@ export async function zegoCredentials(roomId: string, userId: string) {
 
 const roomCard = {
   roomId: rooms.id,
+  number: rooms.number,
   title: rooms.title,
   category: rooms.category,
   coverUrl: rooms.coverUrl,
@@ -446,6 +448,14 @@ export async function listRooms(cursor: string | undefined, limit: number, kind:
     .offset(offset);
   return { rooms: rows.slice(0, limit), nextCursor: rows.length > limit ? String(offset + limit) : null };
 }
+
+// Search: the open room with this number (private rooms stay hidden).
+export const findRoomByNumber = (n: number) =>
+  db
+    .select(roomCard)
+    .from(rooms)
+    .innerJoin(users, eq(users.id, rooms.hostUserId))
+    .where(and(eq(rooms.number, n), eq(rooms.status, "LIVE"), ne(rooms.privacy, "PRIVATE")));
 
 // Home "Friends": live streams and rooms where people you follow are right now (never private ones),
 // busiest-with-friends first, live streams before rooms on a tie.
