@@ -301,10 +301,10 @@ export const openVouchers = (userId: string) =>
     .where(and(eq(specialIdVouchers.userId, userId), isNull(specialIdVouchers.usedAt), gt(specialIdVouchers.claimBy, sql`now()`)))
     .orderBy(asc(specialIdVouchers.claimBy));
 
-// Use a voucher: the chosen ID (3-9 letters/digits, not anyone else's) becomes mine for the voucher's days.
+// Use a voucher: the chosen ID (4-6 letters/digits, not anyone else's) becomes mine for the voucher's days.
 export async function claimSpecialId(userId: string, voucherId: string, raw: string) {
   const specialId = normalizeSpecialId(raw);
-  if (!/^[A-Z0-9]{3,9}$/.test(specialId)) throw new AppError("BAD_SPECIAL_ID", 400, "Special ID must be 3-9 letters or numbers");
+  if (!/^[A-Z0-9]{4,6}$/.test(specialId)) throw new AppError("BAD_SPECIAL_ID", 400, "Special ID must be 4-6 letters or numbers");
   try {
     return await db.transaction(async (tx) => {
       const [v] = await tx

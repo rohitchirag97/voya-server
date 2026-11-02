@@ -75,7 +75,7 @@ itemRoutes.use("/admin/grants", requireAuth, requirePerm("grants.give"));
 itemRoutes.get("/admin/grants", async (c) => c.json({ grants: await recentGrants(), items: await listItems() }));
 itemRoutes.post("/admin/grants", async (c) => {
   const b = await json(c, z.object({ user: z.string().trim().min(3).max(20), reason: z.string().trim().min(3, "Write a reason").max(300), items: z.array(rewardItem).min(1, "Add something to give").max(10) }));
-  // The person by their 10-digit ID or their Special ID.
+  // The person by their 9-digit ID or their Special ID.
   const id = /^\d{1,10}$/.test(b.user) ? Number(b.user) : null;
   const [u] = await db
     .select({ id: users.id, name: users.displayName })

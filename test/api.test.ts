@@ -1375,32 +1375,33 @@ describe("profile likes", () => {
 });
 
 describe("user ids", () => {
-  test("every user gets a unique 10-digit id; special ids are granted and searchable", async () => {
+  test("every user gets the next 9-digit id from 630000001; special ids are granted and searchable", async () => {
     const a = await signup("ida");
     const b = await signup("idb");
     const pa = (await api("GET", "/me", a.token)).body;
     const pb = (await api("GET", `/users/${b.id}`, a.token)).body;
-    expect(String(pa.publicId)).toMatch(/^[1-9]\d{9}$/);
-    expect(pb.publicId).not.toBe(pa.publicId);
+    expect(String(pa.publicId)).toMatch(/^63\d{7}$/);
+    expect(pb.publicId).toBeGreaterThan(pa.publicId); // signup order
     expect(pb.specialId).toBeNull();
 
-    // Search by the 10-digit id.
+    // Search by the 9-digit id.
     const byId = (await api("GET", `/users/search?q=${pb.publicId}`, a.token)).body.users;
     expect(byId).toHaveLength(1);
     expect(byId[0]).toMatchObject({ userId: b.id, displayName: b.handle, publicId: pb.publicId, specialId: null });
 
     // Special ids are granted separately, one owner each, and are searchable too.
-    await setSpecialId(b.id, "888");
-    expect((await setSpecialId(a.id, "888").catch((e) => e)).code).toBe("SPECIAL_ID_TAKEN");
-    expect((await setSpecialId(a.id, "12").catch((e) => e)).code).toBe("BAD_SPECIAL_ID");
-    expect((await api("GET", "/users/search?q=888", a.token)).body.users[0]).toMatchObject({ userId: b.id, specialId: "888" });
-    expect((await api("GET", `/users/${b.id}`, a.token)).body.specialId).toBe("888");
+    await setSpecialId(b.id, "8888");
+    expect((await setSpecialId(a.id, "8888").catch((e) => e)).code).toBe("SPECIAL_ID_TAKEN");
+    expect((await setSpecialId(a.id, "888").catch((e) => e)).code).toBe("BAD_SPECIAL_ID"); // 4-6 only
+    expect((await setSpecialId(a.id, "1234567").catch((e) => e)).code).toBe("BAD_SPECIAL_ID");
+    expect((await api("GET", "/users/search?q=8888", a.token)).body.users[0]).toMatchObject({ userId: b.id, specialId: "8888" });
+    expect((await api("GET", `/users/${b.id}`, a.token)).body.specialId).toBe("8888");
 
-    expect((await api("GET", "/users/search?q=0000000000", a.token)).body.users).toEqual([]);
+    expect((await api("GET", "/users/search?q=000000000", a.token)).body.users).toEqual([]);
     expect((await api("GET", "/users/search?q=abc", a.token)).body.users).toEqual([]); // letters are fine (special IDs can have them)
     expect((await api("GET", "/users/search?q=a%21b", a.token)).status).toBe(400);
     await setSpecialId(b.id, null);
-    expect((await api("GET", "/users/search?q=888", a.token)).body.users).toEqual([]);
+    expect((await api("GET", "/users/search?q=8888", a.token)).body.users).toEqual([]);
   });
 });
 

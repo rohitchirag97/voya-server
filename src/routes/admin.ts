@@ -27,7 +27,7 @@ admin.use("/admin/*", requireAuth, requireAnyStaff); // and each route needs its
 // Search by profile ID, special ID, or the start of a display name.
 admin.get("/admin/users", requirePerm("users.view"), async (c) => {
   const q = z.string().trim().min(1).max(40).parse(c.req.query("q"));
-  const byId = [eq(users.specialId, q.toUpperCase()), ...(/^\d{10}$/.test(q) ? [eq(users.publicId, Number(q))] : [])];
+  const byId = [eq(users.specialId, q.toUpperCase()), ...(/^\d{9}$/.test(q) ? [eq(users.publicId, Number(q))] : [])];
   const rows = await db
     .select({
       ...userSummary,
@@ -106,7 +106,7 @@ admin.post("/admin/users/:userId/unban", requirePerm("users.ban"), async (c) => 
   return c.json(u);
 });
 
-// Give a special ID (3-9 letters/digits, stored uppercase) or remove it (null).
+// Give a special ID (4-6 letters/digits, stored uppercase) or remove it (null).
 admin.post("/admin/users/:userId/special-id", requirePerm("users.specialId"), async (c) => {
   const { specialId } = await json(c, z.object({ specialId: z.string().trim().nullable() }));
   const u = await setSpecialId(schemas.uuid.parse(c.req.param("userId")), specialId || null);

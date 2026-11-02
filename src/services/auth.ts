@@ -215,14 +215,14 @@ export function assertCanParticipate(user: User) {
   if (!user.displayName) throw new AppError("PROFILE_INCOMPLETE", 403, "Set a display name first");
 }
 
-// A user by what people type: the 10-digit profile ID, a special ID, or the display name (unique ignoring case).
+// A user by what people type: the 9-digit profile ID, a special ID, or the display name (unique ignoring case).
 // A special ID like "RAJ" can equal someone else's name "raj"; the special ID wins.
 export async function findUserByRef(ref: string) {
   const r = ref.trim();
   const special = r.toUpperCase();
   const match = or(
     eq(users.specialId, special),
-    /^\d{10}$/.test(r) ? eq(users.publicId, Number(r)) : undefined,
+    /^\d{9}$/.test(r) ? eq(users.publicId, Number(r)) : undefined,
     /^\d+$/.test(r) ? undefined : eq(sql`lower(${users.displayName})`, r.toLowerCase()),
   );
   const [u] = await db

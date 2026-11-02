@@ -288,14 +288,14 @@ account.post("/me/vouchers/:id/claim", async (c) => {
   return c.json(await claimSpecialId(c.get("user").id, schemas.uuid.parse(c.req.param("id")), b.specialId));
 });
 
-// Find people by their 10-digit ID or their special ID, and open rooms by their number, letters in any case (registered before /users/:userId).
+// Find people by their 9-digit ID or their special ID, and open rooms by their number, letters in any case (registered before /users/:userId).
 account.get("/users/search", async (c) => {
   const q = z.object({ q: z.string().trim().regex(/^[A-Za-z0-9]{3,10}$/, "Enter an ID") }).parse(c.req.query()).q;
   rateLimit(`search:${c.get("user").id}`, 30, 60_000);
   const rows = await db
     .select({ ...userSummary, publicId: users.publicId, specialId: shownSpecialId })
     .from(users)
-    .where(or(/^\d{10}$/.test(q) ? eq(users.publicId, Number(q)) : undefined, eq(users.specialId, q.toUpperCase())));
+    .where(or(/^\d{9}$/.test(q) ? eq(users.publicId, Number(q)) : undefined, eq(users.specialId, q.toUpperCase())));
   return c.json({ users: rows, rooms: /^\d{6,9}$/.test(q) ? await findRoomByNumber(Number(q)) : [] });
 });
 

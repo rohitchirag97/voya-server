@@ -46,7 +46,7 @@ const fields = z.object({
   actionTarget: z.string().trim().max(300).default(""),
 });
 
-// What a tap opens, checked and turned into ids: a room link or id, a user's 10-digit or Special ID, an https link.
+// What a tap opens, checked and turned into ids: a room link or id, a user's 9-digit or Special ID, an https link.
 async function actionOf(type: string, raw: string): Promise<SplashAction | null> {
   if (!type) return null;
   if (!raw) throw new AppError("VALIDATION_ERROR", 400, "Choose what tapping the splash opens");
