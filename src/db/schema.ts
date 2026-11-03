@@ -359,7 +359,7 @@ export const walletLedger = pgTable(
     referenceId: text("reference_id").notNull(),
     createdAt: createdAt(),
   },
-  (t) => [index("wallet_ledger_user").on(t.userId, t.id)],
+  (t) => [index("wallet_ledger_user").on(t.userId, t.id), index("wallet_ledger_type_time").on(t.entryType, t.createdAt)],
 );
 
 // Diamonds: what gift recipients earn (a share of the coins spent). Convertible to coins; agency hosts can also withdraw.

@@ -1,0 +1,1 @@
+CREATE INDEX "wallet_ledger_type_time" ON "wallet_ledger" USING btree ("entry_type","created_at");

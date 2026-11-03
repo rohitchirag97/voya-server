@@ -1751,6 +1751,35 @@ describe("greedy game", () => {
     expect((await api("GET", "/wallet", b.token)).body.balance).toBe(0);
   });
 
+  test("game profit report adds up to the ledger; staff only", async () => {
+    const { openRound, settleRound } = await import("../src/services/greedy");
+    const owner = await signup("profitowner");
+    const joe = await signup("profitjoe");
+    await db.execute(sql`update users set staff_role = null where staff_role = 'OWNER'`);
+    await db.execute(sql`update users set staff_role = 'OWNER' where id = ${owner.id}`);
+    const round = await openRound("galaxy");
+    const sj = socketFor(joe.token);
+    await emit(sj, "greedy:join", { game: "galaxy" });
+    await emit(sj, "greedy:bet", { roundId: round.id, item: 0, amount: 100 });
+    await emit(sj, "greedy:bet", { roundId: round.id, item: 7, amount: 10 });
+    await settleRound(round.id, 0); // pays 500 on the 100
+
+    const day = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+    const q = `/admin/game-profit?from=${day}&to=${day}&group=day`;
+    expect((await api("GET", q, joe.token)).status).toBe(403);
+    const { rows } = (await api("GET", q, owner.token)).body;
+    const galaxy = rows.find((r: any) => r.game === "galaxy");
+    const [want] = (await db.execute(sql`
+      select coalesce(sum(-l.amount) filter (where entry_type = 'GREEDY_BET'), 0)::float8 as bet,
+        coalesce(sum(l.amount) filter (where entry_type = 'GREEDY_WIN'), 0)::float8 as paid
+      from wallet_ledger l join greedy_rounds r on r.id::text = l.reference_id
+      where l.reference_type = 'GREEDY_ROUND' and r.game = 'galaxy'`)).rows as any;
+    expect(galaxy).toEqual({ period: day, game: "galaxy", bet: want.bet, paid: want.paid });
+    expect(galaxy.bet).toBeGreaterThanOrEqual(110);
+    expect(galaxy.paid).toBeGreaterThanOrEqual(500);
+    expect((await api("GET", `/admin/game-profit?from=${day}&to=2020-01-01`, owner.token)).status).toBe(400);
+  });
+
   test("custom amounts, the per-animal cap, and the winners list everyone sees", async () => {
     const { openRound, settleAndAnnounce, MAX_ITEM_BET } = await import("../src/services/greedy");
     const a = await signup("greedyc");

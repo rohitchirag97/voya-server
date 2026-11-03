@@ -12,6 +12,7 @@ import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
 import * as agencies from "../services/agencies";
 import * as cash from "../services/cash";
+import { gameProfit, profitQuery } from "../services/gameProfit";
 import * as giftAdmin from "../services/giftAdmin";
 import * as salaries from "../services/salaries";
 import { findUserByRef } from "../services/auth";
@@ -152,7 +153,10 @@ const monthParam = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Month as YYYY-MM
 admin.get("/admin/salaries/:month", requirePerm("salaries.pay"), async (c) => c.json(await salaries.salarySheet(monthParam.parse(c.req.param("month")))));
 admin.post("/admin/salaries/:month/pay", requirePerm("salaries.pay"), async (c) => c.json(await salaries.payMonth(c.get("user"), monthParam.parse(c.req.param("month")))));
 
-admin.get("/admin/withdrawals", requirePerm("withdrawals.decide"), async (c) => {
+// Coins bet and paid out in the games, and the app's profit, for a date range grouped by day/week/month/year.
+admin.get("/admin/game-profit", requirePerm("games.profit"), async (c) => c.json(await gameProfit(profitQuery.parse(c.req.query()))));
+
+admin.get("/admin/withdrawals",requirePerm("withdrawals.decide"), async (c) => {
   const status = z.enum(["PENDING", "PAID", "REJECTED"]).default("PENDING").parse(c.req.query("status"));
   return c.json({ withdrawals: await cash.listWithdrawals(status) });
 });
