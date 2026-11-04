@@ -2969,6 +2969,42 @@ describe("Room levels", () => {
   });
 });
 
+describe("Daily and weekly tasks", () => {
+  // shortcut: visits are backdated from now, so this fails in the first 40 minutes of an India-time day.
+  test("finished tasks pay XP to the user and level points to their room, once per period", async () => {
+    const { host, roomId } = await liveRoom();
+    const fan = await joined(roomId, "tasker");
+    const task = (list: any[], id: string) => list.find((t) => t.id === id);
+
+    const before = (await api("GET", "/tasks", fan.token)).body;
+    expect(before.room).toBeNull();
+    expect(task(before.user, "user-day-minutes")).toMatchObject({ target: 30, reward: 20, progress: 0, claimed: false });
+    expect((await api("POST", "/tasks/user-day-minutes/claim", fan.token)).body.error.code).toBe("TASK_NOT_DONE");
+    expect((await api("POST", "/tasks/room-day-minutes/claim", fan.token)).body.error.code).toBe("NO_ROOM");
+    expect((await api("POST", "/tasks/nope/claim", fan.token)).status).toBe(404);
+
+    // 40 minutes in the room today: the user task is done, and pays 20 XP (level 0 → 1) once.
+    await db.execute(sql`update room_participants set joined_at = now() - interval '40 minutes' where room_id = ${roomId} and user_id = ${fan.id}`);
+    const claim = await api("POST", "/tasks/user-day-minutes/claim", fan.token);
+    expect(claim.body).toMatchObject({ reward: 20, leveledUp: true, level: { level: 1, xp: 20 } });
+    expect((await api("POST", "/tasks/user-day-minutes/claim", fan.token)).status).toBe(409);
+    expect(task((await api("GET", "/tasks", fan.token)).body.user, "user-day-minutes")).toMatchObject({ progress: 30, claimed: true });
+
+    // 3 more visits of 100 minutes: the room has 340 visitor minutes today; the owner claims 2,000 room points.
+    await db.execute(sql`insert into room_participants (room_id, user_id, presence, joined_at, left_at)
+      select ${roomId}, ${fan.id}, 'LEFT', now() - interval '100 minutes', now() from generate_series(1, 3)`);
+    const mine = (await api("GET", "/tasks", host.token)).body;
+    expect(mine.room.roomId).toBe(roomId);
+    expect(task(mine.room.tasks, "room-day-minutes")).toMatchObject({ progress: 300, claimed: false });
+    const pointsBefore = (await api("GET", `/rooms/${roomId}`, host.token)).body.level.points;
+    const room = (await api("POST", "/tasks/room-day-minutes/claim", host.token)).body;
+    expect(room.reward).toBe(2000);
+    expect(room.roomLevel.points - pointsBefore).toBeGreaterThanOrEqual(2000);
+    expect(room.roomLevel.points - pointsBefore).toBeLessThan(2100);
+    expect((await api("POST", "/tasks/room-day-minutes/claim", host.token)).body.error.code).toBe("TASK_CLAIMED");
+  });
+});
+
 describe("Agencies", () => {
   const badgeIds = async (id: string, token: string) => ((await api("GET", `/users/${id}`, token)).body.badges as any[]).map((b) => b.id);
   const mine = async (u: { token: string }) => (await api("GET", "/agencies/me", u.token)).body;

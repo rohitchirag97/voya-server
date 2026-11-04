@@ -3,9 +3,9 @@ import { config } from "./config";
 import type { User } from "./db/schema";
 import { schemas } from "./http";
 import { io, isOnline, roomChannel, userChannel } from "./io";
-import { eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "./db";
-import { roomParticipants, users } from "./db/schema";
+import { users } from "./db/schema";
 import { toSafeError } from "./lib/errors";
 import { authenticate, loadUser } from "./services/auth";
 import * as chat from "./services/chat";
@@ -15,7 +15,7 @@ import * as ludo from "./services/ludo";
 import * as rocket from "./services/rocket";
 import * as rooms from "./services/rooms";
 
-// shortcut: grace timers live in memory, so a restart forgets them (reconcileAfterRestart covers that); one server only.
+// shortcut: grace timers live in memory, so a restart forgets them; add a stale-session reconciler job before scaling out.
 const graceTimers = new Map<string, Timer>();
 const graceKey = (roomId: string, userId: string) => `${roomId}:${userId}`;
 
@@ -49,24 +49,6 @@ async function onDropped(roomId: string, userId: string, socketId: string, reaso
       }
     }, closedOnPurpose(reason) ? Math.min(config.seatQuickGraceMs, config.seatGraceMs) : config.seatGraceMs),
   );
-}
-
-// After a restart no grace timers are running, so people who were in a room when it went down would stay "in" it
-// forever: never announced when they come back, still holding seats. Apps reconnect within seconds; once they've had
-// the normal grace twice over, anyone still marked in a room without a connection to it leaves.
-export function reconcileAfterRestart() {
-  setTimeout(async () => {
-    try {
-      const active = await db.select({ roomId: roomParticipants.roomId, userId: roomParticipants.userId }).from(roomParticipants).where(isNull(roomParticipants.leftAt));
-      const connected = new Set((await io.fetchSockets()).flatMap((s) => [...s.rooms].filter((r) => r.startsWith("room:")).map((r) => graceKey(r.slice(5), s.data.userId))));
-      for (const p of active) {
-        if (connected.has(graceKey(p.roomId, p.userId))) continue;
-        await rooms.leaveRoom(await loadUser(p.userId), p.roomId).catch(toSafeError);
-      }
-    } catch (e) {
-      toSafeError(e);
-    }
-  }, config.seatGraceMs * 2 + 10_000);
 }
 
 io.use(async (socket, next) => {

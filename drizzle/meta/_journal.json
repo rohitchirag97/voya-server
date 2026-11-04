@@ -575,6 +575,13 @@
       "when": 1793771696831,
       "tag": "0081_room_levels",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1793776573037,
+      "tag": "0082_task_claims",
+      "breakpoints": true
     }
   ]
 }

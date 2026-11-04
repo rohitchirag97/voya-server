@@ -29,6 +29,7 @@ import { agencyRoutes } from "./routes/agencies";
 import { postRoutes } from "./routes/posts";
 import { roomRoutes } from "./routes/rooms";
 import { support } from "./routes/support";
+import { taskRoutes } from "./routes/tasks";
 import "./socket";
 
 export const app = new Hono<Env>();
@@ -82,6 +83,7 @@ app.use(
 app.route("/v1", account);
 app.route("/v1", eventRoutes); // before roomRoutes, whose "*" auth would run a second time
 app.route("/v1", noticeRoutes);
+app.route("/v1", taskRoutes); // before roomRoutes, whose "*" auth would run a second time
 app.route("/v1", itemRoutes);
 app.route("/v1", svipRoutes);
 app.route("/v1", splashRoutes);

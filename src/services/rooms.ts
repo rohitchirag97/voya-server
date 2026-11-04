@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { config } from "../config";
 import { db, isUniqueViolation, type Tx } from "../db";
-import { blocks, chatMessages, cosmetics, directMessages, follows, giftTransactions, levelThresholds, roomAdmins, roomKicks, roomParticipants, rooms, roomSeats, users, type User } from "../db/schema";
+import { blocks, chatMessages, cosmetics, directMessages, follows, giftTransactions, levelThresholds, roomAdmins, roomKicks, roomParticipants, rooms, roomSeats, taskClaims, users, type User } from "../db/schema";
 import { emitToRoom, io, isOnline, roomChannel, userChannel } from "../io";
 import { AppError } from "../lib/errors";
 import { can } from "./roles";
@@ -52,11 +52,13 @@ export async function getSeats(roomId: string, q: Tx | typeof db = db) {
     );
 }
 
-// A room's level from its all-time gift coins plus everyone's time in it but the owner's (see lib/roomLevels.ts).
+// A room's level from its all-time gift coins plus everyone's time in it but the owner's (see lib/roomLevels.ts),
+// plus points from claimed room tasks (lib/tasks.ts).
 // shortcut: summed from gifts and visits on each read; keep a running counter on rooms if this gets slow.
 export async function roomLevelOf(room: Pick<Room, "id" | "hostUserId">, q: Tx | typeof db = db) {
   const { rows: [r] } = await q.execute<{ points: string }>(sql`select
     (select coalesce(sum(${giftTransactions.coinsDebited}), 0) from ${giftTransactions} where ${giftTransactions.roomId} = ${room.id})
+    + (select coalesce(sum(${taskClaims.points}), 0) from ${taskClaims} where ${taskClaims.subjectId} = ${room.id})
     + ${POINTS_PER_LISTENER_MINUTE} * (select coalesce(sum(least(extract(epoch from coalesce(${roomParticipants.leftAt}, now()) - ${roomParticipants.joinedAt}) / 60, ${MAX_MINUTES_PER_VISIT})), 0)::bigint
        from ${roomParticipants} where ${roomParticipants.roomId} = ${room.id} and ${roomParticipants.userId} <> ${room.hostUserId}) as points`);
   return roomLevel(Number(r!.points));

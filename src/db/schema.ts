@@ -76,7 +76,7 @@ export const users = pgTable(
     avatarUrl: text("avatar_url"),
     bio: text("bio"),
     status: userStatus("status").notNull().default("ACTIVE"),
-    // Recharge points (1 per ₹1 recharged); the level comes from level_thresholds. Never decreases.
+    // Recharge points (1 per ₹1 recharged) plus claimed task XP (lib/tasks.ts); the level comes from level_thresholds. Never decreases.
     xp: integer("xp").notNull().default(0),
     // Equipped decorations (null = none).
     avatarFrameId: text("avatar_frame_id").references(() => cosmetics.id),
@@ -1069,6 +1069,22 @@ export const eventPayouts = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("event_payouts_once").on(t.eventId, t.userId, t.source)],
+);
+
+// Daily/weekly task rewards claimed (lib/tasks.ts). subjectId: the user (USER tasks) or their room (ROOM tasks; the
+// points add to the room's level). period: the India-time day, or the Monday of the week. One claim per task per period.
+export const taskClaims = pgTable(
+  "task_claims",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    taskId: text("task_id").notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    period: text("period").notNull(), // YYYY-MM-DD
+    points: integer("points").notNull(),
+    claimedBy: uuid("claimed_by").notNull().references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("task_claims_once").on(t.subjectId, t.taskId, t.period)],
 );
 
 // Notices: announcements made in the admin panel (hiring, requirements, news). Shown in the home carousel between
