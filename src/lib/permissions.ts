@@ -12,6 +12,7 @@ export const PERMISSIONS = [
   { key: "withdrawals.decide", group: "Money", label: "Withdrawals" },
   { key: "grants.give", group: "Money", label: "Give to user" },
   { key: "games.profit", group: "Money", label: "Game profit" },
+  { key: "coins.audit", group: "Money", label: "Coin audit (every coin movement)" },
   { key: "gifts.manage", group: "Content", label: "Gifts" },
   { key: "events.manage", group: "Content", label: "Events" },
   { key: "events.payout", group: "Content", label: "Approve event rewards" },

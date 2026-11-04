@@ -344,6 +344,9 @@ export const walletAccounts = pgTable(
     userId: uuid("user_id").primaryKey().references(() => users.id),
     balance: integer("balance").notNull().default(0),
     version: integer("version").notNull().default(0),
+    // Sum of this wallet's ledger rows, kept by the database (migration 0083). A transaction can only commit when
+    // balance = ledgerTotal, so no coin moves without a ledger row. Never set it from code.
+    ledgerTotal: bigint("ledger_total", { mode: "number" }).notNull().default(0),
   },
   (t) => [check("wallet_non_negative", sql`${t.balance} >= 0`)],
 );
@@ -358,9 +361,12 @@ export const walletLedger = pgTable(
     amount: integer("amount").notNull(),
     referenceType: text("reference_type").notNull(),
     referenceId: text("reference_id").notNull(),
+    // The wallet's balance right after this row, set by the database. Rows can't be changed or deleted (migration 0083):
+    // a mistake is fixed with a correcting row.
+    balanceAfter: bigint("balance_after", { mode: "number" }),
     createdAt: createdAt(),
   },
-  (t) => [index("wallet_ledger_user").on(t.userId, t.id), index("wallet_ledger_type_time").on(t.entryType, t.createdAt)],
+  (t) => [index("wallet_ledger_user").on(t.userId, t.id), index("wallet_ledger_type_time").on(t.entryType, t.createdAt), index("wallet_ledger_time").on(t.createdAt)],
 );
 
 // Diamonds: what gift recipients earn (a share of the coins spent). Convertible to coins; agency hosts can also withdraw.
@@ -551,6 +557,7 @@ export const coinSellers = pgTable(
     decidedAt: ts("decided_at"),
     parentId: uuid("parent_id").references(() => users.id),
     balance: integer("balance").notNull().default(0),
+    ledgerTotal: bigint("ledger_total", { mode: "number" }).notNull().default(0), // as walletAccounts.ledgerTotal, for seller_ledger
   },
   (t) => [
     index("coin_sellers_status").on(t.status),
@@ -573,9 +580,10 @@ export const sellerLedger = pgTable(
     actorId: uuid("actor_id").notNull().references(() => users.id),
     // Set on the sending side of a request so a double-submitted form moves coins once.
     idempotencyKey: text("idempotency_key"),
+    balanceAfter: bigint("balance_after", { mode: "number" }), // as walletLedger.balanceAfter
     createdAt: createdAt(),
   },
-  (t) => [index("seller_ledger_seller").on(t.sellerId, t.id), uniqueIndex("seller_ledger_idem").on(t.actorId, t.idempotencyKey)],
+  (t) => [index("seller_ledger_seller").on(t.sellerId, t.id), uniqueIndex("seller_ledger_idem").on(t.actorId, t.idempotencyKey), index("seller_ledger_time").on(t.createdAt)],
 );
 
 // Profile likes: one per liker per profile, never your own.

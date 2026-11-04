@@ -17,6 +17,7 @@ import { levelInfo, levelOf, loadLevels, maxLevel, xpToReach } from "../src/lib/
 import { tierFor } from "../src/services/svip";
 import * as ludo from "../src/services/ludo";
 import * as chat from "../src/services/chat";
+import { announceDoneTasks } from "../src/services/tasks";
 
 let base = "";
 let server: ReturnType<typeof serve>;
@@ -64,6 +65,19 @@ async function signup(name: string) {
   const handle = `${name}_${n}`;
   expect((await api("PATCH", "/me/profile", body.accessToken, { displayName: handle })).status).toBe(200);
   return { token: body.accessToken as string, id: body.user.userId as string, handle };
+}
+
+// Tests move coins like the app does: a ledger row and the balance change in one transaction (the database refuses
+// either one alone, see migration 0083).
+async function addCoins(userId: string, amount: number, entryType = "PROMO_GRANT", referenceType = "TEST", referenceId = "test") {
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`insert into wallet_ledger (user_id, entry_type, amount, reference_type, reference_id) values (${userId}, ${entryType}, ${amount}, ${referenceType}, ${referenceId})`);
+    await tx.execute(sql`update wallet_accounts set balance = balance + ${amount} where user_id = ${userId}`);
+  });
+}
+async function setCoins(userId: string, balance: number) {
+  const { rows: [w] } = await db.execute<{ balance: number }>(sql`select balance from wallet_accounts where user_id = ${userId}`);
+  await addCoins(userId, balance - Number(w!.balance));
 }
 
 async function liveRoom(seatCount = 8) {
@@ -1058,7 +1072,7 @@ describe("gifts", () => {
     const s = socketFor(host.token);
     await emit(s, "room:join", { roomId });
     const shown = nextEvent(s, "room:gift:received");
-    await db.execute(sql`update wallet_accounts set balance = 2000 where user_id = ${fan.id}`);
+    await setCoins(fan.id, 2000);
     const sent = await api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: host.id, giftId: "rocket", quantity: 2 }, { "Idempotency-Key": "rk1" });
     expect(sent.status).toBe(200);
     const evt = await shown;
@@ -1783,8 +1797,7 @@ describe("greedy game", () => {
     const { openRound, settleAndAnnounce, MAX_ITEM_BET } = await import("../src/services/greedy");
     const a = await signup("greedyc");
     const b = await signup("greedyd");
-    await db.execute(sql`update wallet_accounts set balance = 20000000 where user_id = ${a.id}`);
-    await db.execute(sql`insert into wallet_ledger (user_id, entry_type, amount, reference_type, reference_id) values (${a.id}, 'PROMO_GRANT', 19999000, 'TEST', 'test')`);
+    await setCoins(a.id, 20000000);
     const sa = socketFor(a.token);
     const sb = socketFor(b.token);
     const round = await openRound();
@@ -2000,8 +2013,7 @@ describe("rocket game", () => {
       expect((await emit(sa, "rocket:bet", { roundId: round.id, slot: 2, amount: 10 })).error.code).toBe("VALIDATION_ERROR");
       expect((await emit(sa, "rocket:bet", { roundId: round.id, amount: 0 })).error.code).toBe("VALIDATION_ERROR");
       // Per-panel cap: the bet that would go over it is refused and not charged.
-      await db.execute(sql`update wallet_accounts set balance = balance + 2000000 where user_id = ${d.id}`);
-      await db.execute(sql`insert into wallet_ledger (user_id, entry_type, amount, reference_type, reference_id) values (${d.id}, 'PROMO_GRANT', 2000000, 'TEST', 'test')`);
+      await addCoins(d.id, 2000000);
       expect((await emit(sd, "rocket:bet", { roundId: round.id, amount: rocket.MAX_BET })).data.amount).toBe(rocket.MAX_BET);
       expect((await emit(sd, "rocket:bet", { roundId: round.id, amount: 1 })).error.code).toBe("BET_LIMIT");
       expect((await api("GET", "/wallet", d.token)).body.balance).toBe(2001000 - rocket.MAX_BET);
@@ -2115,8 +2127,7 @@ describe("game win announcements", () => {
     expect(banners).toEqual([]);
 
     // Rocket: an auto cash-out of 10,000+ → notice in the room and a banner for everyone, including people in no room.
-    await db.execute(sql`update wallet_accounts set balance = balance + 10000 where user_id = ${winner.id}`);
-    await db.execute(sql`insert into wallet_ledger (user_id, entry_type, amount, reference_type, reference_id) values (${winner.id}, 'PROMO_GRANT', 10000, 'TEST', 'test')`);
+    await addCoins(winner.id, 10000);
     const realNow = rocket.clock.now;
     let t = Date.now();
     rocket.clock.now = () => t;
@@ -2133,8 +2144,7 @@ describe("game win announcements", () => {
     expect(banners).toEqual([expect.objectContaining({ userId: winner.id, displayName: winner.handle, game: "rocket", amount: 15000 })]);
 
     // A big win by someone in no room: no chat notice anywhere, but still the banner.
-    await db.execute(sql`update wallet_accounts set balance = balance + 1000 where user_id = ${outsider.id}`);
-    await db.execute(sql`insert into wallet_ledger (user_id, entry_type, amount, reference_type, reference_id) values (${outsider.id}, 'PROMO_GRANT', 1000, 'TEST', 'test')`);
+    await addCoins(outsider.id, 1000);
     const before = notices.length;
     const g2 = await greedy.openRound("jungle");
     await emit(so, "greedy:bet", { roundId: g2.id, item: 7, amount: 1000 }); // Lion ×45 = 45,000
@@ -2314,7 +2324,7 @@ describe("pk battles and room stats", () => {
 
     const gift = (to: string, giftId: string) =>
       api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: to, giftId, quantity: 1 }, { "Idempotency-Key": crypto.randomUUID() });
-    await db.execute(sql`update wallet_accounts set balance = 5000 where user_id = ${fan.id}`);
+    await setCoins(fan.id, 5000);
     await gift(host.id, "star"); // before the PK: not counted
     const sf = socketFor(fan.token);
     await emit(sf, "room:join", { roomId });
@@ -2353,7 +2363,7 @@ describe("pk battles and room stats", () => {
     const fresh = await stats(one.roomId);
     expect(fresh).toMatchObject({ rank: null, weekCoins: 0, heart: { level: 1, coins: 0, nextAt: 10000 } });
 
-    await db.execute(sql`update wallet_accounts set balance = 5000 where user_id = ${fan.id}`);
+    await setCoins(fan.id, 5000);
     const gift = (roomId: string, to: string, giftId: string, quantity: number) =>
       api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: to, giftId, quantity }, { "Idempotency-Key": crypto.randomUUID() });
     expect((await gift(two.roomId, two.host.id, "star", 2)).status).toBe(200); // 1000
@@ -2768,7 +2778,7 @@ describe("home feeds", () => {
 
 describe("CP relationships", () => {
   const coins = async (token: string) => (await api("GET", "/wallet", token)).body.balance as number;
-  const fund = (id: string, balance: number) => db.execute(sql`update wallet_accounts set balance = ${balance} where user_id = ${id}`);
+  const fund = (id: string, balance: number) => setCoins(id, balance);
   const propose = (from: { token: string }, to: { id: string }, type: string, label?: string) =>
     api("POST", "/cp/proposals", from.token, { toUserId: to.id, type, ...(label && { label }) });
   const rels = async (viewer: { token: string }, who: { id: string }) => (await api("GET", `/users/${who.id}`, viewer.token)).body.relationships as any[];
@@ -2880,7 +2890,7 @@ describe("CP relationships", () => {
 });
 
 describe("Families", () => {
-  const fund = (id: string, balance: number) => db.execute(sql`update wallet_accounts set balance = ${balance} where user_id = ${id}`);
+  const fund = (id: string, balance: number) => setCoins(id, balance);
 
   test("create costs 5000, one family each; owner appoints admins, admins remove members only", async () => {
     const [owner, adm, m, poor] = [await signup("fown"), await signup("fadm"), await signup("fmem"), await signup("fpoor")];
@@ -2954,18 +2964,48 @@ describe("Room levels", () => {
     const people = [];
     for (let i = 0; i < 4; i++) people.push(await joined(roomId, `adm${i}`));
     // The owner's own hours don't count, and nobody else has been here long yet.
-    await db.execute(sql`update room_participants set joined_at = now() - interval '10 hours' where room_id = ${roomId} and user_id = ${host.id}`);
+    await db.execute(sql`update room_participants set created_at = now() - interval '10 hours' where room_id = ${roomId} and user_id = ${host.id}`);
     expect((await api("GET", `/rooms/${roomId}`, host.token)).body.level).toMatchObject({ level: 1, adminLimit: 3, next: { level: 2, points: 50_000, adminLimit: 5 } });
     for (const p of people.slice(0, 3)) expect((await api("POST", `/rooms/${roomId}/admins/${p.id}`, host.token)).status).toBe(200);
     expect((await api("POST", `/rooms/${roomId}/admins/${people[3]!.id}`, host.token)).body.error.code).toBe("ADMIN_LIMIT");
 
     // 42 past visits of 3 hours each count 2 hours each: 42 × 120 min × 10 points = 50,400 points, level 2.
-    await db.execute(sql`insert into room_participants (room_id, user_id, presence, joined_at, left_at)
+    await db.execute(sql`insert into room_participants (room_id, user_id, presence, created_at, left_at)
       select ${roomId}, ${people[3]!.id}, 'LEFT', now() - interval '3 hours', now() from generate_series(1, 42)`);
     const lvl = (await api("GET", `/rooms/${roomId}`, host.token)).body.level;
     expect(lvl).toMatchObject({ level: 2, adminLimit: 5 });
     expect(lvl.points).toBeGreaterThanOrEqual(50_400);
     expect((await api("POST", `/rooms/${roomId}/admins/${people[3]!.id}`, host.token)).status).toBe(200);
+  });
+});
+
+describe("Coin audit", () => {
+  test("no coin moves without a ledger row, ledger rows can't be changed, and each row stamps the balance after it", async () => {
+    const u = await signup("audited");
+    const balance = async () => Number((await db.execute<{ b: number }>(sql`select balance as b from wallet_accounts where user_id = ${u.id}`)).rows[0]!.b);
+    const start = await balance();
+    // A balance change alone, or a ledger row alone, is refused at commit.
+    await expect(db.execute(sql`update wallet_accounts set balance = balance + 500 where user_id = ${u.id}`)).rejects.toThrow();
+    await expect(db.execute(sql`insert into wallet_ledger (user_id, entry_type, amount, reference_type, reference_id) values (${u.id}, 'PROMO_GRANT', 500, 'TEST', 'x')`)).rejects.toThrow();
+    await expect(db.execute(sql`update wallet_accounts set ledger_total = ledger_total + 500, balance = balance + 500 where user_id = ${u.id}`)).rejects.toThrow();
+    expect(await balance()).toBe(start);
+    // Both together go through, and the row records the balance after it.
+    await addCoins(u.id, 500);
+    expect(await balance()).toBe(start + 500);
+    const [row] = (await db.execute<any>(sql`select id, balance_after from wallet_ledger where user_id = ${u.id} order by id desc limit 1`)).rows;
+    expect(Number(row.balance_after)).toBe(start + 500);
+    await expect(db.execute(sql`update wallet_ledger set amount = 1 where id = ${row.id}`)).rejects.toThrow();
+    await expect(db.execute(sql`delete from wallet_ledger where id = ${row.id}`)).rejects.toThrow();
+
+    const adm = await signup("auditor");
+    await db.execute(sql`update users set staff_role = null where staff_role = 'OWNER'`);
+    await db.execute(sql`update users set staff_role = 'OWNER' where id = ${adm.id}`);
+    const audit = (await api("GET", `/admin/coin-ledger?user=${u.id}`, adm.token)).body;
+    expect(audit.check).toMatchObject({ wallets: { mismatched: 0 }, sellers: { mismatched: 0 } });
+    expect(audit.rows[0]).toMatchObject({ txnId: `TXN${row.id}`, userId: u.id, type: "PROMO_GRANT", amount: 500, balanceAfter: start + 500 });
+    const csv = await fetch(`${base}/v1/admin/coin-ledger?user=${u.id}&format=csv`, { headers: { authorization: `Bearer ${adm.token}` } });
+    expect(csv.headers.get("content-type")).toContain("text/csv");
+    expect((await csv.text()).split("\n")[0]).toBe("txn_id,time_utc,book,user_id,public_id,name,type,amount,balance_after,reference");
   });
 });
 
@@ -2983,15 +3023,27 @@ describe("Daily and weekly tasks", () => {
     expect((await api("POST", "/tasks/room-day-minutes/claim", fan.token)).body.error.code).toBe("NO_ROOM");
     expect((await api("POST", "/tasks/nope/claim", fan.token)).status).toBe(404);
 
-    // 40 minutes in the room today: the user task is done, and pays 20 XP (level 0 → 1) once.
-    await db.execute(sql`update room_participants set joined_at = now() - interval '40 minutes' where room_id = ${roomId} and user_id = ${fan.id}`);
+    // 40 minutes in the room today: the user task is done. Only the fan hears about it, once; it pays 20 XP (level 0 → 1) once.
+    await db.execute(sql`update room_participants set created_at = now() - interval '40 minutes' where room_id = ${roomId} and user_id = ${fan.id}`);
+    const fanSocket = socketFor(fan.token);
+    const hostSocket = socketFor(host.token);
+    await Promise.all([nextEvent(fanSocket, "connect"), nextEvent(hostSocket, "connect")]);
+    const heard: any[] = [];
+    hostSocket.on("task:done", (e) => heard.push(e));
+    const note = nextEvent(fanSocket, "task:done");
+    await announceDoneTasks();
+    expect(await note).toMatchObject({ taskId: "user-day-minutes", scope: "USER", reward: 20 });
+    fanSocket.on("task:done", (e) => heard.push(e));
+    await announceDoneTasks();
+    await Bun.sleep(100);
+    expect(heard).toEqual([]);
     const claim = await api("POST", "/tasks/user-day-minutes/claim", fan.token);
     expect(claim.body).toMatchObject({ reward: 20, leveledUp: true, level: { level: 1, xp: 20 } });
     expect((await api("POST", "/tasks/user-day-minutes/claim", fan.token)).status).toBe(409);
     expect(task((await api("GET", "/tasks", fan.token)).body.user, "user-day-minutes")).toMatchObject({ progress: 30, claimed: true });
 
     // 3 more visits of 100 minutes: the room has 340 visitor minutes today; the owner claims 2,000 room points.
-    await db.execute(sql`insert into room_participants (room_id, user_id, presence, joined_at, left_at)
+    await db.execute(sql`insert into room_participants (room_id, user_id, presence, created_at, left_at)
       select ${roomId}, ${fan.id}, 'LEFT', now() - interval '100 minutes', now() from generate_series(1, 3)`);
     const mine = (await api("GET", "/tasks", host.token)).body;
     expect(mine.room.roomId).toBe(roomId);
@@ -3250,7 +3302,7 @@ describe("CP levels", () => {
     const { awardTogether } = await import("../src/services/cp");
     const { host, roomId } = await liveRoom();
     const fan = await joined(roomId, "cplvfan");
-    await db.execute(sql`update wallet_accounts set balance = 100000 where user_id in (${host.id}, ${fan.id})`);
+    await Promise.all([setCoins(host.id, 100000), setCoins(fan.id, 100000)]);
     const p = (await api("POST", "/cp/proposals", fan.token, { toUserId: host.id, type: "LOVE" })).body.proposal;
     expect((await api("POST", `/cp/proposals/${p.id}/accept`, host.token)).status).toBe(200);
     const level = async () => (await api("GET", `/users/${host.id}`, fan.token)).body.relationships[0].level;
@@ -3286,7 +3338,7 @@ describe("CP levels", () => {
 
     // Strangers earn nothing: a gift to someone you're not paired with leaves your CP alone.
     const other = await joined(roomId, "cplvother");
-    await db.execute(sql`update wallet_accounts set balance = 1000 where user_id = ${other.id}`);
+    await setCoins(other.id, 1000);
     expect((await api("POST", `/rooms/${roomId}/gifts`, other.token, { recipientUserId: host.id, giftId: "star", quantity: 1 }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
     expect((await level()).points).toBe(82);
   });
@@ -3753,7 +3805,7 @@ describe("prize items", () => {
     expect((await api("PATCH", "/me/cosmetics", fan.token, { avatarFrameId: frame })).body.error.code).toBe("NOT_OWNED");
 
     // A CP pair (gifts earn it points) and a Rocket win.
-    await db.execute(sql`update wallet_accounts set balance = 100000 where user_id in (${host.id}, ${fan.id})`);
+    await Promise.all([setCoins(host.id, 100000), setCoins(fan.id, 100000)]);
     const p = (await api("POST", "/cp/proposals", fan.token, { toUserId: host.id, type: "LOVE" })).body.proposal;
     expect((await api("POST", `/cp/proposals/${p.id}/accept`, host.token)).status).toBe(200);
     const now = Date.now();
@@ -3771,7 +3823,7 @@ describe("prize items", () => {
     expect(made.status).toBe(201);
     const id = made.body.id;
     expect((await api("POST", `/rooms/${roomId}/gifts`, fan.token, { recipientUserId: host.id, giftId: "chai", quantity: 2 }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
-    await db.execute(sql`insert into wallet_ledger (user_id, entry_type, amount, reference_type, reference_id) values (${gamer.id}, 'ROCKET_WIN', 900, 'ROCKET_ROUND', '1')`);
+    await addCoins(gamer.id, 900, "ROCKET_WIN", "ROCKET_ROUND", "1");
 
     const ev = (await api("GET", `/events/${id}`, fan.token)).body;
     const ours = ev.boards[0].rows.find((r: any) => [r.a.userId, r.b.userId].sort().join() === [host.id, fan.id].sort().join());

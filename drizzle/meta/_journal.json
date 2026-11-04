@@ -582,6 +582,13 @@
       "when": 1793776573037,
       "tag": "0082_task_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1793779254635,
+      "tag": "0083_coin_audit",
+      "breakpoints": true
     }
   ]
 }

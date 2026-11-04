@@ -8,6 +8,7 @@ import { runGreedyLoop } from "./services/greedy";
 import { runLudoLoop } from "./services/ludo";
 import { runRocketLoop } from "./services/rocket";
 import { runEventLoop } from "./services/events";
+import { runTaskAnnouncer } from "./services/tasks";
 import { repairBadgeShapes, runItemSweep } from "./services/items";
 
 await loadLevels();
@@ -23,5 +24,6 @@ runMicLoop();
 runItemSweep(); // prize items and Special IDs that ran out
 void repairBadgeShapes().catch((e) => console.error(JSON.stringify({ level: "error", msg: "badge-repair-failed", err: String(e) })));
 runEventLoop(); // weekly/monthly events open their next period
+runTaskAnnouncer(); // "task done" notes, each only to its own person
 // Inbox messages no phone picked up within 30 days are deleted (chats live on phones, not here).
 setInterval(() => purgeUndelivered().catch(() => {}), 3600_000);

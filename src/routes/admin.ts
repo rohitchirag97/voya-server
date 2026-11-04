@@ -13,6 +13,7 @@ import { rateLimit } from "../lib/rateLimit";
 import * as agencies from "../services/agencies";
 import * as cash from "../services/cash";
 import { gameProfit, profitQuery } from "../services/gameProfit";
+import { coinLedger, coinLedgerCsv, ledgerQuery } from "../services/coinAudit";
 import * as giftAdmin from "../services/giftAdmin";
 import * as salaries from "../services/salaries";
 import { findUserByRef } from "../services/auth";
@@ -155,6 +156,14 @@ admin.post("/admin/salaries/:month/pay", requirePerm("salaries.pay"), async (c) 
 
 // Coins bet and paid out in the games, and the app's profit, for a date range grouped by day/week/month/year.
 admin.get("/admin/game-profit", requirePerm("games.profit"), async (c) => c.json(await gameProfit(profitQuery.parse(c.req.query()))));
+
+// Every coin movement (user wallets or seller wallets), newest first, filtered; format=csv downloads the same rows.
+admin.get("/admin/coin-ledger", requirePerm("coins.audit"), async (c) => {
+  const q = ledgerQuery.parse(c.req.query());
+  if (q.format === "json") return c.json(await coinLedger(q));
+  const name = `coin-ledger-${q.book}-${q.from ?? "start"}-to-${q.to ?? "now"}.csv`;
+  return c.body(await coinLedgerCsv(q), 200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${name}"` });
+});
 
 admin.get("/admin/withdrawals",requirePerm("withdrawals.decide"), async (c) => {
   const status = z.enum(["PENDING", "PAID", "REJECTED"]).default("PENDING").parse(c.req.query("status"));
