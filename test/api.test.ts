@@ -337,13 +337,12 @@ describe("svip", () => {
     expect((await api("GET", `/users/${owner.id}`, owner.token)).body.visitors).toBe(1);
 
     const { host, roomId } = await liveRoom();
-    expect((await api("PATCH", `/rooms/${roomId}/settings`, host.token, { showEntry: false })).status).toBe(200);
     const vip = await signup("svvip");
     await paid(vip.id, 1_20_000, "this"); // SVIP5
     expect((await api("POST", `/rooms/${roomId}/join`, vip.token)).status).toBe(200);
-    await joined(roomId, "svplain");
+    const plain = await joined(roomId, "svplain");
     const notices = (await api("GET", `/rooms/${roomId}/messages?limit=50`, host.token)).body.messages.filter((m: any) => m.payload?.kind === "JOIN");
-    expect(notices.map((m: any) => m.body)).toEqual([`SVIP5 ${vip.handle} entered the room`]);
+    expect(notices.map((m: any) => m.body).sort()).toEqual([`${plain.handle} joined`, `SVIP5 ${vip.handle} entered the room`].sort());
 
     expect((await api("POST", `/rooms/${roomId}/participants/${vip.id}/mute`, host.token, { muted: true })).body.error.code).toBe("SVIP_PROTECTED");
     expect((await api("POST", `/rooms/${roomId}/participants/${vip.id}/remove`, host.token)).body.error.code).toBe("SVIP_PROTECTED");
@@ -2274,16 +2273,17 @@ describe("room settings", () => {
 
     const live = nextEvent(sg, "room:state");
     const patched = await api("PATCH", `/rooms/${roomId}/settings`, host.token, { title: "Late Night Chai", background: "ocean", showEntry: false, giftAnimations: false, noScreenshots: true });
-    expect(patched.body).toMatchObject({ title: "Late Night Chai", background: "ocean", showEntry: false, giftAnimations: false, noScreenshots: true });
-    expect(await live).toMatchObject({ title: "Late Night Chai", background: "ocean", showEntry: false, giftAnimations: false });
+    // Entry notices and gift animations are each viewer's own choice now (on the phone): the room stays all on.
+    expect(patched.body).toMatchObject({ title: "Late Night Chai", background: "ocean", showEntry: true, giftAnimations: true, noScreenshots: true });
+    expect(await live).toMatchObject({ title: "Late Night Chai", background: "ocean", showEntry: true, giftAnimations: true });
 
-    // Entry notices off: a newcomer joins without a "joined" message; the rename was announced.
+    // A newcomer is still announced to everyone; the rename was announced.
     const late = await joined(roomId, "late");
     const bodies = (await api("GET", `/rooms/${roomId}/messages?limit=20`, guest.token)).body.messages.map((m: any) => m.body);
     expect(bodies).toContain(`${host.handle} turned screenshot protection on`);
     expect(bodies).toContain(`${host.handle} renamed the room to "Late Night Chai"`);
-    expect(bodies.some((b: string) => b === `${late.handle} joined`)).toBe(false);
-    expect(bodies.some((b: string) => b === `${guest.handle} joined`)).toBe(true); // joined while notices were on
+    expect(bodies).toContain(`${late.handle} joined`);
+    expect(bodies).toContain(`${guest.handle} joined`);
 
     // Room image: a PNG upload becomes the cover, served from /v1/uploads.
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(64).fill(0)]);

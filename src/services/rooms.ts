@@ -101,8 +101,9 @@ export async function getSnapshot(roomId: string) {
     backgroundUrl: room.backgroundUrl, // custom photo backdrop, if set (wins over `background`)
     owner: owner ?? null,
     createdAt: room.createdAt,
-    showEntry: room.showEntry,
-    giftAnimations: room.giftAnimations,
+    // Now a choice each viewer makes on their phone; always on here so older apps show everything.
+    showEntry: true,
+    giftAnimations: true,
     noScreenshots: room.noScreenshots,
     privacy: room.privacy, // never the password
     kind: room.kind,
@@ -679,7 +680,7 @@ export async function joinRoom(user: User, roomId: string, password?: string) {
       role: "AUDIENCE",
       at: new Date(),
     });
-    await announceEntry(roomId, user, svip, entryFx);
+    await announceEntry(roomId, user, svip);
   }
   return { room: await getSnapshot(roomId), zego: await zegoCredentials(roomId, user.id), entryFx };
 }
@@ -692,12 +693,11 @@ async function entryEffectOf(user: User) {
 }
 
 // The "X joined" notice: on entering, and again when someone comes back after their connection dropped.
-// It can be switched off in the room's settings; SVIP1+ entrances and entry effects are always announced (and animated).
-export async function announceEntry(roomId: string, user: User, svip?: number, entryFx?: string | null) {
+// Always sent: each viewer hides join notices on their own phone if they want (SVIP1+ get the grand wording).
+export async function announceEntry(roomId: string, user: User, svip?: number) {
   const tier = svip ?? (await svipOf(user.id));
   const grand = tier >= SVIP_PERKS.entrance;
-  if (grand || entryFx || (await getRoom(roomId)).showEntry)
-    await systemMessage(roomId, grand ? `SVIP${tier} ${user.displayName} entered the room` : `${user.displayName} joined`, { kind: "JOIN", userId: user.id, svip: tier });
+  await systemMessage(roomId, grand ? `SVIP${tier} ${user.displayName} entered the room` : `${user.displayName} joined`, { kind: "JOIN", userId: user.id, svip: tier });
 }
 
 // Frees the user's seat inside an open transaction. Returns the freed seat index, if any.
