@@ -204,6 +204,7 @@ export const roomParticipants = pgTable(
   (t) => [
     uniqueIndex("room_participants_active").on(t.roomId, t.userId).where(sql`${t.leftAt} is null`),
     index("room_participants_user").on(t.userId),
+    index("room_participants_room").on(t.roomId), // room level: everyone's time in a room
   ],
 );
 

@@ -7,6 +7,7 @@ import { AppError } from "../lib/errors";
 import { can } from "./roles";
 import { SEAT_LAYOUTS, seatPositions, type SeatCount } from "../lib/layout";
 import { rateLimit } from "../lib/rateLimit";
+import { MAX_MINUTES_PER_VISIT, POINTS_PER_LISTENER_MINUTE, roomLevel } from "../lib/roomLevels";
 import { generateToken04, roomPrivilege } from "../lib/zegoToken";
 import { assertCanParticipate } from "./auth";
 import { assertNotSvipProtected, avatarSql, frameSql, SVIP_PERKS, svipOf, svipSql } from "./svip";
@@ -51,11 +52,21 @@ export async function getSeats(roomId: string, q: Tx | typeof db = db) {
     );
 }
 
+// A room's level from its all-time gift coins plus everyone's time in it but the owner's (see lib/roomLevels.ts).
+// shortcut: summed from gifts and visits on each read; keep a running counter on rooms if this gets slow.
+export async function roomLevelOf(room: Pick<Room, "id" | "hostUserId">, q: Tx | typeof db = db) {
+  const { rows: [r] } = await q.execute<{ points: string }>(sql`select
+    (select coalesce(sum(${giftTransactions.coinsDebited}), 0) from ${giftTransactions} where ${giftTransactions.roomId} = ${room.id})
+    + ${POINTS_PER_LISTENER_MINUTE} * (select coalesce(sum(least(extract(epoch from coalesce(${roomParticipants.leftAt}, now()) - ${roomParticipants.joinedAt}) / 60, ${MAX_MINUTES_PER_VISIT})), 0)::bigint
+       from ${roomParticipants} where ${roomParticipants.roomId} = ${room.id} and ${roomParticipants.userId} <> ${room.hostUserId}) as points`);
+  return roomLevel(Number(r!.points));
+}
+
 export async function getSnapshot(roomId: string) {
   const room = await getRoom(roomId);
   const pkLive = !!room.pk && new Date(room.pk.endsAt) > new Date();
   if (room.pk && !pkLive) await finishPk(room.id, room.pk.startedAt); // overdue (missed timer)
-  const [seats, participants, admins, [owner]] = await Promise.all([
+  const [seats, participants, admins, [owner], level] = await Promise.all([
     getSeats(roomId),
     db
       .select({ ...userSummary, role: roomParticipants.role, presence: roomParticipants.presence })
@@ -65,6 +76,7 @@ export async function getSnapshot(roomId: string) {
     db.select({ userId: roomAdmins.userId }).from(roomAdmins).where(eq(roomAdmins.roomId, roomId)),
     // Whose room this is, even when they aren't in it (the side panel shows it).
     db.select({ ...userSummary, publicId: users.publicId, specialId: shownSpecialId }).from(users).where(eq(users.id, room.hostUserId)),
+    roomLevelOf(room),
   ]);
   return {
     roomId: room.id,
@@ -82,6 +94,7 @@ export async function getSnapshot(roomId: string) {
     seats,
     participants,
     admins: admins.map((a) => a.userId),
+    level, // room level: points, how many admins it allows, and what the next level needs
     charisma: await charismaState(room.id, room.charismaStartedAt),
     pk: pkLive ? await pkState(room.id, room.pk) : null,
     background: room.background,
@@ -986,6 +999,10 @@ export async function setAdmin(owner: User, roomId: string, targetUserId: string
     if (targetUserId === owner.id) throw new AppError("CANNOT_TARGET_SELF", 400);
     if (admin) {
       if (!(await getActiveParticipant(roomId, targetUserId, tx))) throw new AppError("NOT_IN_ROOM", 404);
+      const [{ n }] = (await tx.select({ n: sql<number>`count(*)::int` }).from(roomAdmins).where(eq(roomAdmins.roomId, roomId))) as [{ n: number }];
+      const { level, adminLimit } = await roomLevelOf(room, tx);
+      // Rooms that had more admins before levels keep them; they just can't add more.
+      if (n >= adminLimit) throw new AppError("ADMIN_LIMIT", 409, `A level ${level} room can have ${adminLimit} admins. Level up the room for more.`);
       const [added] = await tx.insert(roomAdmins).values({ roomId, userId: targetUserId, grantedBy: owner.id }).onConflictDoNothing().returning();
       if (!added) return null; // already an admin
     } else {

@@ -568,6 +568,13 @@
       "when": 1793688612492,
       "tag": "0080_wallet_ledger_type_time",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1793771696831,
+      "tag": "0081_room_levels",
+      "breakpoints": true
     }
   ]
 }

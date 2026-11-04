@@ -2948,6 +2948,27 @@ describe("Families", () => {
   });
 });
 
+describe("Room levels", () => {
+  test("a level 1 room allows 3 admins; gifts and time in the room (not the owner's) level it up for more", async () => {
+    const { host, roomId } = await liveRoom();
+    const people = [];
+    for (let i = 0; i < 4; i++) people.push(await joined(roomId, `adm${i}`));
+    // The owner's own hours don't count, and nobody else has been here long yet.
+    await db.execute(sql`update room_participants set joined_at = now() - interval '10 hours' where room_id = ${roomId} and user_id = ${host.id}`);
+    expect((await api("GET", `/rooms/${roomId}`, host.token)).body.level).toMatchObject({ level: 1, adminLimit: 3, next: { level: 2, points: 50_000, adminLimit: 5 } });
+    for (const p of people.slice(0, 3)) expect((await api("POST", `/rooms/${roomId}/admins/${p.id}`, host.token)).status).toBe(200);
+    expect((await api("POST", `/rooms/${roomId}/admins/${people[3]!.id}`, host.token)).body.error.code).toBe("ADMIN_LIMIT");
+
+    // 42 past visits of 3 hours each count 2 hours each: 42 × 120 min × 10 points = 50,400 points, level 2.
+    await db.execute(sql`insert into room_participants (room_id, user_id, presence, joined_at, left_at)
+      select ${roomId}, ${people[3]!.id}, 'LEFT', now() - interval '3 hours', now() from generate_series(1, 42)`);
+    const lvl = (await api("GET", `/rooms/${roomId}`, host.token)).body.level;
+    expect(lvl).toMatchObject({ level: 2, adminLimit: 5 });
+    expect(lvl.points).toBeGreaterThanOrEqual(50_400);
+    expect((await api("POST", `/rooms/${roomId}/admins/${people[3]!.id}`, host.token)).status).toBe(200);
+  });
+});
+
 describe("Agencies", () => {
   const badgeIds = async (id: string, token: string) => ((await api("GET", `/users/${id}`, token)).body.badges as any[]).map((b) => b.id);
   const mine = async (u: { token: string }) => (await api("GET", "/agencies/me", u.token)).body;
