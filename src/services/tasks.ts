@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
-import { taskClaims, users, type User } from "../db/schema";
+import { giftTransactions, roomParticipants, taskClaims, users, type User } from "../db/schema";
 import { AppError } from "../lib/errors";
 import { levelInfo, levelOf } from "../lib/levels";
 import { MAX_MINUTES_PER_VISIT } from "../lib/roomLevels";
@@ -19,15 +19,17 @@ async function periodKeys(): Promise<Record<TaskPeriod, string>> {
 // Minutes of visits since `start` (each visit capped like room levels), or gift coins since `start`.
 async function progress(t: Task, subjectId: string, hostId: string, period: string) {
   const start = sql`(${period}::date::timestamp at time zone ${IST})`;
+  const p = roomParticipants;
+  const g = giftTransactions;
   const minutes = (who: ReturnType<typeof sql>) => sql`select coalesce(floor(sum(least(
-      extract(epoch from coalesce(left_at, now()) - greatest(joined_at, ${start})) / 60, ${MAX_MINUTES_PER_VISIT}))), 0)::int as v
-    from room_participants where ${who} and coalesce(left_at, now()) > ${start}`;
-  const gifts = (who: ReturnType<typeof sql>) => sql`select coalesce(sum(coins_debited), 0)::int as v from gift_transactions where ${who} and created_at >= ${start}`;
+      extract(epoch from coalesce(${p.leftAt}, now()) - greatest(${p.joinedAt}, ${start})) / 60, ${MAX_MINUTES_PER_VISIT}))), 0)::int as v
+    from ${p} where ${who} and coalesce(${p.leftAt}, now()) > ${start}`;
+  const gifts = (who: ReturnType<typeof sql>) => sql`select coalesce(sum(${g.coinsDebited}), 0)::int as v from ${g} where ${who} and ${g.createdAt} >= ${start}`;
   const q = {
-    MINUTES_IN_ROOMS: minutes(sql`user_id = ${subjectId}`),
-    LISTENER_MINUTES: minutes(sql`room_id = ${subjectId} and user_id <> ${hostId}`),
-    GIFTS_SENT: gifts(sql`sender_id = ${subjectId}`),
-    ROOM_GIFTS: gifts(sql`room_id = ${subjectId}`),
+    MINUTES_IN_ROOMS: minutes(sql`${p.userId} = ${subjectId}`),
+    LISTENER_MINUTES: minutes(sql`${p.roomId} = ${subjectId} and ${p.userId} <> ${hostId}`),
+    GIFTS_SENT: gifts(sql`${g.senderId} = ${subjectId}`),
+    ROOM_GIFTS: gifts(sql`${g.roomId} = ${subjectId}`),
   }[t.metric];
   const { rows: [r] } = await db.execute<{ v: number }>(q);
   return Number(r!.v);
