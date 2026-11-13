@@ -7,6 +7,7 @@ import { emitToRoom, io } from "../io";
 import { AppError, toSafeError } from "../lib/errors";
 import { autoToken, lobbyState, move, roll, startGame, TOKENS, type LudoState } from "../lib/ludo";
 import { assertMember, assertRoomAdmin, getRoom, getSeats, systemMessage, userSummary } from "./rooms";
+import { announceToAllRooms } from "./svip";
 
 // Ludo mode for a room. The owner/admins switch it on; seated people join (2-4) and the owner/admins start the game.
 // The server rolls the dice and enforces every rule (lib/ludo.ts); phones only ask to roll or to move a token.
@@ -20,6 +21,10 @@ const AUTO_MS = Number(process.env.LUDO_AUTO_MS ?? 1_200); // pace of server-pla
 const MAX_PLAYERS = 4;
 export const channel = (roomId: string) => `ludo:${roomId}`;
 export const tokenSchema = z.number().int().min(0).max(TOKENS - 1);
+
+// Discovery: a joined lobby player can ask every open room for players, once a minute per room.
+export const DISCOVER_MS = Number(process.env.LUDO_DISCOVER_MS ?? 60_000);
+const discovered = new Map<string, number>(); // roomId -> when it last asked
 
 const games = new Map<string, LudoState>(); // rooms in Ludo mode -> current state (mirror of rooms.ludo)
 // Rooms where the server is finishing the current turn for a player who timed out ("takes the wheel for that turn only").
@@ -48,6 +53,7 @@ async function save(roomId: string, s: LudoState | null) {
   else {
     games.delete(roomId);
     takeover.delete(roomId);
+    discovered.delete(roomId);
   }
   io.to(channel(roomId)).emit("ludo:state", view(roomId, s));
   return s;
@@ -112,6 +118,21 @@ export const leaveLobby = (user: User, roomId: string) =>
     return save(roomId, { ...s, v: s.v + 1, lobby: s.lobby.filter((p) => p.userId !== user.id) });
   });
 
+// A banner in every open room: "<name> is looking for N more Ludo players", tap to come to this room and take a seat.
+export async function discover(user: User, roomId: string) {
+  const room = await getRoom(roomId);
+  if (room.privacy !== "PUBLIC") throw new AppError("LUDO_DISCOVER_PUBLIC", 409, "Only public rooms can look for players");
+  const s = await need(roomId);
+  if (s.phase !== "lobby" || !s.lobby.some((p) => p.userId === user.id)) throw new AppError("LUDO_DISCOVER_JOIN", 409, "Join the game first");
+  const open = MAX_PLAYERS - s.lobby.length;
+  if (open <= 0) throw new AppError("LUDO_FULL", 409, "This game already has 4 players");
+  const wait = (discovered.get(roomId) ?? 0) + DISCOVER_MS - Date.now();
+  if (wait > 0) throw new AppError("LUDO_DISCOVER_WAIT", 429, `Already looking for players. Try again in ${Math.ceil(wait / 1000)}s`);
+  discovered.set(roomId, Date.now());
+  announceToAllRooms(user, { kind: "LUDO_INVITE", roomId, roomTitle: room.title, open });
+  return { open };
+}
+
 export async function start(actor: User, roomId: string) {
   await assertRoomAdmin(roomId, actor.id);
   const s = await serial(roomId, async () => {
@@ -128,7 +149,8 @@ export async function start(actor: User, roomId: string) {
 
 // ---------- turns ----------
 
-const dice = () => randomInt(1, 7);
+// House rule: with every token still at base, a third of rolls are a forced 6 (~44% overall vs 17%) so games start faster.
+const dice = (s: LudoState) => (s.players[s.turn]!.tokens.every((t) => t === -1) && randomInt(3) === 0 ? 6 : randomInt(1, 7));
 
 function current(s: LudoState, userId: string, step: "roll" | "move") {
   if (s.phase !== "playing") throw new AppError("LUDO_NOT_PLAYING", 409, "No game is running");
@@ -140,7 +162,7 @@ export const rollDice = (user: User, roomId: string) =>
   serial(roomId, async () => {
     const s = await need(roomId);
     current(s, user.id, "roll");
-    return next(roomId, roll(s, dice()));
+    return next(roomId, roll(s, dice(s)));
   });
 
 export const moveToken = (user: User, roomId: string, token: number) =>
@@ -174,7 +196,7 @@ const autoStep = (roomId: string, now: number) =>
     const s = games.get(roomId);
     if (!s || s.phase !== "playing" || !s.deadline || Date.parse(s.deadline) > now) return;
     if (!s.players[s.turn]!.auto) takeover.add(roomId);
-    await next(roomId, s.step === "roll" ? roll(s, dice(), true) : move(s, autoToken(s), true));
+    await next(roomId, s.step === "roll" ? roll(s, dice(s), true) : move(s, autoToken(s), true));
   });
 
 // The clock: anything past its deadline gets played. Exported so tests can run it with a chosen "now".

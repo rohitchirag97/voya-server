@@ -13,6 +13,9 @@ import * as gifts from "./services/gifts";
 import * as greedy from "./services/greedy";
 import * as ludo from "./services/ludo";
 import * as rocket from "./services/rocket";
+import { assertGamesOn } from "./services/flags";
+import * as roulette from "./services/roulette";
+import * as slots from "./services/slots";
 import * as rooms from "./services/rooms";
 
 // shortcut: grace timers live in memory, so a restart forgets them; add a stale-session reconciler job before scaling out.
@@ -101,13 +104,16 @@ io.on("connection", (socket: Socket) => {
 
   // Greedy mini-game: one global round shared by every room.
   // A socket follows one game at a time; the round id in a bet already says which game it is for.
+  // The coin games sit behind one admin-panel switch (Feature switches > Games): while it's off nobody can open them or bet. Cash-outs of bets already
+  // placed still go through, so turning a game off mid-round never costs anyone their coins.
   handle("greedy:join", async (user, p) => {
+    await assertGamesOn();
     const game = greedy.gameSchema.parse(p.game);
     for (const g of Object.keys(greedy.GAMES) as greedy.Game[]) socket.leave(greedy.channel(g));
     socket.join(greedy.channel(game));
     return greedy.getState(user.id, game);
   });
-  handle("greedy:bet", (user, p) => greedy.placeBet(user, greedy.betSchema.parse(p)));
+  handle("greedy:bet", async (user, p) => (await assertGamesOn(), greedy.placeBet(user, greedy.betSchema.parse(p))));
   handle("greedy:today", (user, p) => greedy.todayLeaderboard(user.id, greedy.gameSchema.parse(p.game)));
   handle("greedy:history", async (_user, p) => {
     const q = greedy.historySchema.parse(p);
@@ -124,18 +130,26 @@ io.on("connection", (socket: Socket) => {
   handle("ludo:join", (user, p) => ludo.join(user, id(p)));
   handle("ludo:leave", (user, p) => ludo.leaveLobby(user, id(p)));
   handle("ludo:start", (user, p) => ludo.start(user, id(p)));
+  handle("ludo:discover", (user, p) => ludo.discover(user, id(p)));
   handle("ludo:roll", (user, p) => ludo.rollDice(user, id(p)));
   handle("ludo:move", (user, p) => ludo.moveToken(user, id(p), ludo.tokenSchema.parse(p.token)));
 
   // Rocket (crash) game: one global round at a time.
   handle("rocket:join", async (user) => {
+    await assertGamesOn();
     socket.join(rocket.CHANNEL);
     return rocket.getState(user.id);
   });
-  handle("rocket:bet", (user, p) => rocket.placeBet(user, rocket.betSchema.parse(p)));
+  handle("rocket:bet", async (user, p) => (await assertGamesOn(), rocket.placeBet(user, rocket.betSchema.parse(p))));
   handle("rocket:cashout", (user, p) => rocket.cashOut(user, rocket.cashOutSchema.parse(p)));
   handle("rocket:today", (user) => rocket.todayLeaderboard(user.id));
   handle("rocket:history", async (_user, p) => rocket.history(rocket.historySchema.parse(p).before));
+  // Slots: every spin is played alone and settled at once.
+  handle("slot:join", async (user) => (await assertGamesOn(), slots.getState(user.id)));
+  handle("slot:spin", async (user, p) => (await assertGamesOn(), slots.spin(user, slots.spinSchema.parse(p))));
+  // Roulette: same, one spin at a time.
+  handle("roulette:join", async (user) => (await assertGamesOn(), roulette.getState(user.id)));
+  handle("roulette:spin", async (user, p) => (await assertGamesOn(), roulette.spin(user, roulette.spinSchema.parse(p))));
 
   socket.on("room:typing", (p) => {
     const roomId = typeof p?.roomId === "string" ? p.roomId : "";

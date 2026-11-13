@@ -5,12 +5,12 @@ import { io } from "../io";
 import { toSafeError } from "../lib/errors";
 import { systemMessage } from "./rooms";
 
-// Wins worth telling people about. A "win" is one payout: a Greedy round's payout, or one Rocket cash-out.
+// Wins worth telling people about. A "win" is one payout: a Greedy round's payout, one Rocket cash-out, or one slot or roulette spin.
 export const ROOM_NOTICE_MIN = 300; // posted in the chat of the room the winner is in, with a button to open that game
 export const BIG_WIN_MIN = 10_000; // banner in every room, wherever the winner was
 
-export type GameKey = "jungle" | "galaxy" | "rocket";
-export const GAME_TITLES: Record<GameKey, string> = { jungle: "Greedy Jungle", galaxy: "Greedy Galaxy", rocket: "Rocket" };
+export type GameKey = "jungle" | "galaxy" | "rocket" | "slot" | "roulette";
+export const GAME_TITLES: Record<GameKey, string> = { jungle: "Greedy Jungle", galaxy: "Greedy Galaxy", rocket: "Rocket", slot: "Lucky Slots", roulette: "Roulette" };
 
 // Fire-and-forget from the game code: a notice failing must never affect the payout that already happened.
 export function announceWin(userId: string, game: GameKey, amount: number) {

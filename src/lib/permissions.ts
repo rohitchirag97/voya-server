@@ -21,6 +21,7 @@ export const PERMISSIONS = [
   { key: "svip.manage", group: "Content", label: "SVIP designs" },
   { key: "splash.manage", group: "Content", label: "Splash screens" },
   { key: "agencies.manage", group: "Content", label: "Agencies" },
+  { key: "features.manage", group: "Content", label: "Feature switches (turn the games on and off)" },
   { key: "support.general", group: "In the app", label: "Answer General support" },
   { key: "support.svip", group: "In the app", label: "Answer SVIP support" },
   { key: "rooms.pin", group: "In the app", label: "Pin rooms" },

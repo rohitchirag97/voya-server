@@ -39,7 +39,7 @@ const filter = z.discriminatedUnion("type", [
   z.object({ type: z.literal("MIN_LEVEL"), level: z.number().int().min(1).max(200) }),
 ]);
 const counting = {
-  game: z.enum(["ALL", "GREEDY_JUNGLE", "GREEDY_GALAXY", "ROCKET"]).default("ALL"),
+  game: z.enum(["ALL", "GREEDY_JUNGLE", "GREEDY_GALAXY", "ROCKET", "SLOT", "ROULETTE"]).default("ALL"),
   filters: z.array(filter).max(8).default([]),
 };
 const configSchema = z.object({

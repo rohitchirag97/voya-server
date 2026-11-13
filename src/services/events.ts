@@ -112,9 +112,13 @@ async function totals(e: Event, c: EventCounting, opts: { limit?: number; userId
       const games =
         c.game === "ROCKET"
           ? sql`l.entry_type = 'ROCKET_WIN'`
+          : c.game === "SLOT"
+          ? sql`l.entry_type = 'SLOT_WIN'`
+          : c.game === "ROULETTE"
+          ? sql`l.entry_type = 'ROULETTE_WIN'`
           : c.game === "GREEDY_JUNGLE" || c.game === "GREEDY_GALAXY"
             ? sql`l.entry_type = 'GREEDY_WIN' and l.reference_id in (select id::text from greedy_rounds where game = ${GREEDY_SKIN[c.game]})`
-            : sql`l.entry_type in ('GREEDY_WIN', 'ROCKET_WIN')`;
+            : sql`l.entry_type in ('GREEDY_WIN', 'ROCKET_WIN', 'SLOT_WIN', 'ROULETTE_WIN')`;
       q = sql`select l.user_id::text as key ${day("l.created_at")} as day, sum(l.amount)::float8 as value from wallet_ledger l
         where ${games} and l.created_at >= ${e.startsAt} and l.created_at < ${to}${peopleFilters(c, "l.user_id")}${mine("l.user_id")}
         group by 1, 2 order by value desc ${limit}`;

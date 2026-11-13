@@ -589,6 +589,20 @@
       "when": 1793779254635,
       "tag": "0083_coin_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1793779354635,
+      "tag": "0084_coin_rescale_100",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1794589270990,
+      "tag": "0085_feature_flags",
+      "breakpoints": true
     }
   ]
 }

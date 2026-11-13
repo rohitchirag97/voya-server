@@ -8,10 +8,10 @@ import { rateLimit } from "../lib/rateLimit";
 import { notifyCoins } from "./dmPush";
 import { announceToAllRooms, monthRupeesOf, tierFor } from "./svip";
 
-// One flat price for every amount, no bonus coins: ₹1 = 10 coins. (Coin sellers buy at ₹0.09 and resell at this price.)
-export const PAISE_PER_COIN = 10;
+// One flat price for every amount, no bonus coins: ₹1 = 100 coins. (Coin sellers resell at this price.)
+export const PAISE_PER_COIN = 1;
 // Coin packages (price in paise). Each ₹1 paid also earns 1 level point (XP).
-export const PACKAGES = [10, 50, 99, 499, 999, 4999].map((rupees) => ({ id: `coins_${rupees * 10}`, coins: rupees * 10, pricePaise: rupees * 100 }));
+export const PACKAGES = [10, 50, 99, 499, 999, 4999].map((rupees) => ({ id: `coins_${rupees * 100}`, coins: rupees * 100, pricePaise: rupees * 100 }));
 
 // Coins bought from a seller count as a recharge at the user's price: same level points and SVIP.
 export const sellerPricePaise = (coins: number) => coins * PAISE_PER_COIN;

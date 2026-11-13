@@ -27,6 +27,7 @@ beforeAll(async () => {
   await migrateAndSeed();
   await db.execute(sql`truncate users, user_badges, user_sessions, otp_codes, rooms, room_participants, room_seats, chat_messages,
     wallet_accounts, wallet_ledger, seller_ledger, gift_transactions, follows, blocks, reports, posts, post_likes, direct_messages, coin_sellers, profile_likes, profile_visits, post_comments, greedy_bets, greedy_rounds, rocket_bets, rocket_rounds cascade`);
+  await db.execute(sql`insert into feature_flags (key, enabled) values ('games', true) on conflict (key) do update set enabled = true`); // the game tests play them
   server = serve(0);
   base = `http://localhost:${server.port}`;
 });

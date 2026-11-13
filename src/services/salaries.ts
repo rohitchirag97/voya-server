@@ -8,19 +8,18 @@ import { poolsOf } from "./hostMonth";
 import { userSummary } from "./rooms";
 
 // Monthly salaries. Staff open a finished month's sheet, check it, and pay it. Each host gets their level's salary minus
-// what they converted from that month's pool (₹0.05 a diamond): levels 1-2 as coins, higher as cash. The rest of the
+// what they converted from that month's pool (₹0.005 a diamond): levels 1-2 as coins, higher as cash. The rest of the
 // pool lapses. Each owner gets 10% of their hosts' full level salaries, as cash. Paying is safe to repeat: every line is
 // written once, so a run that stopped halfway picks up where it left off.
 
-const PAISE_PER_COIN = 10; // ₹0.10
-const PAISE_PER_DIAMOND = Math.round(RUPEES_PER_DIAMOND * 100); // 5
+const PAISE_PER_COIN = 1; // ₹0.01, same as services/recharge
 
 const IST_MONTH = sql<string>`to_char(now() at time zone 'Asia/Kolkata', 'YYYY-MM')`;
 const day1 = (month: string) => `${month}-01`;
 
 function hostPay(level: number, salaryRupees: number, converted: number) {
   const grossPaise = salaryRupees * 100;
-  const payPaise = Math.max(0, grossPaise - converted * PAISE_PER_DIAMOND);
+  const payPaise = Math.max(0, grossPaise - Math.round(converted * RUPEES_PER_DIAMOND * 100));
   return { grossPaise, payPaise, paidIn: level === 0 ? "NONE" : level <= COIN_LEVELS ? "COINS" : "CASH" };
 }
 

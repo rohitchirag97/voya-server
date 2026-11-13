@@ -11,6 +11,9 @@ Every deploy uses these exact commands. Update this file when something about th
 | Secrets on the VPS | `/opt/voya-server/.env.production` (never commit it) |
 | Public API | `https://voyalive.tech` (host Caddy → `127.0.0.1:3000`) |
 | App (React Native, Android) | `/run/media/chirag/Data/gitHub/2026/new Projects/voya/app` |
+| Website + admin panel (Next.js) on the PC | `/run/media/chirag/Data/gitHub/2026/new Projects/voya/client` (repo `voya-website`) |
+| Website + admin panel code on the VPS | `/opt/voya-website` (git checkout, only `git pull` here) |
+| Website + admin panel container on the VPS | `/opt/voya-web/compose.yml` (builds from `/opt/voya-website`, listens on `127.0.0.1:3001` behind Caddy, `API_URL=http://127.0.0.1:3000`) |
 
 Short alias used below:
 
@@ -85,6 +88,30 @@ To restore the database from a backup (wipes current data):
 $DC exec -T postgres psql -U voya -d postgres -c 'drop database voya with (force)' -c 'create database voya owner voya'
 $DC exec -T postgres psql -U voya voya < /root/backups/<file>.sql
 $DC restart api
+```
+
+## Website and admin panel
+
+Deploy the server first when a panel page needs new API endpoints.
+
+On the PC:
+
+```sh
+cd "/run/media/chirag/Data/gitHub/2026/new Projects/voya/client"
+git status --short
+git add <files>
+git commit -m "<what changed>"
+git push
+```
+
+On the VPS:
+
+```sh
+cd /opt/voya-website && git pull
+git log --oneline -1                     # must show the commit just pushed
+cd /opt/voya-web && docker compose up -d --build
+docker compose logs --tail=30 web        # should end with Next's "Ready"
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3001/login   # 200
 ```
 
 ## 4. Build and install the app (on the PC, phone on USB)

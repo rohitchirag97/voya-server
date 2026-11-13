@@ -13,6 +13,7 @@ import { rateLimit } from "../lib/rateLimit";
 import * as agencies from "../services/agencies";
 import * as cash from "../services/cash";
 import { gameProfit, profitQuery } from "../services/gameProfit";
+import { gamesOn, setGamesOn } from "../services/flags";
 import { coinLedger, coinLedgerCsv, ledgerQuery } from "../services/coinAudit";
 import * as giftAdmin from "../services/giftAdmin";
 import * as salaries from "../services/salaries";
@@ -156,6 +157,13 @@ admin.post("/admin/salaries/:month/pay", requirePerm("salaries.pay"), async (c) 
 
 // Coins bet and paid out in the games, and the app's profit, for a date range grouped by day/week/month/year.
 admin.get("/admin/game-profit", requirePerm("games.profit"), async (c) => c.json(await gameProfit(profitQuery.parse(c.req.query()))));
+
+// Feature switches: the coin games (all of them together) on or off for everyone.
+admin.get("/admin/features", requirePerm("features.manage"), async (c) => c.json({ games: await gamesOn() }));
+admin.post("/admin/features/games", requirePerm("features.manage"), async (c) => {
+  const { enabled } = await json(c, z.object({ enabled: z.boolean() }));
+  return c.json(await setGamesOn(enabled, c.get("user").id));
+});
 
 // Every coin movement (user wallets or seller wallets), newest first, filtered; format=csv downloads the same rows.
 admin.get("/admin/coin-ledger", requirePerm("coins.audit"), async (c) => {

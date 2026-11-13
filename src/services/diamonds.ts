@@ -8,7 +8,7 @@ import { currentMonth } from "./hostMonth";
 
 // A gift recipient earns 70% of the coins spent, as diamonds (rounded down per gift). The platform keeps the rest.
 export const DIAMOND_SHARE_PERCENT = 70;
-// Converting to coins: 2 diamonds = 1 coin, i.e. a diamond is worth ₹0.05, the same as in host salaries.
+// Converting to coins: 2 diamonds = 1 coin, i.e. a diamond is worth ₹0.005 (a coin is ₹0.01), the same as in host salaries.
 export const DIAMONDS_PER_COIN = 2;
 export const diamondsFor = (coins: number) => Math.floor((coins * DIAMOND_SHARE_PERCENT) / 100);
 

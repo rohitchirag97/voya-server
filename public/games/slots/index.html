@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Lucky Slots</title>
+<style>
+  /* Lucky Slots: three reels, one payline. The server draws the reels and settles the coins; this page only animates. */
+  :root {
+    --bg: #12051f; --glass: rgba(48,16,72,.78); --hair: rgba(255,255,255,.1); --hair-2: rgba(255,255,255,.18);
+    --text: #fff3fb; --muted: #d3a9d9; --faint: #8f6a99; --gold: #ffcf5a; --pink: #ff4fa3; --up: #6ff0b0;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+  html, body { margin: 0; height: 100%; color: var(--text); font: 500 14px/1.35 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-variant-numeric: tabular-nums; }
+  body { background: radial-gradient(120% 80% at 50% 0%, #3a0f55, var(--bg) 60%); display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; overflow: hidden; }
+  body > * { width: 100%; max-width: 520px; margin-inline: auto; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  [hidden] { display: none !important; }
+  svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+  header { display: flex; align-items: center; gap: 6px; }
+  header .spacer { flex: 1; }
+  .balance { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px 0 10px; border-radius: 17px; background: var(--glass); border: 1px solid var(--hair); font-weight: 700; }
+  .balance svg { width: 16px; height: 16px; color: var(--gold); }
+  .ghost { width: 34px; height: 34px; border-radius: 17px; border: 1px solid var(--hair); background: var(--glass); display: grid; place-items: center; color: var(--muted); }
+
+  /* The machine */
+  .machine { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 14px; border-radius: 22px;
+    background: linear-gradient(180deg, #ff6bb5, #b8237a 45%, #6a1b9a); box-shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 2px 0 rgba(255,255,255,.35); border: 2px solid #ffd36b; }
+  .title { text-align: center; font-weight: 900; letter-spacing: .18em; font-size: 15px; color: #fff6d0; text-shadow: 0 2px 0 rgba(0,0,0,.25); }
+  .window { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 8px; border-radius: 16px; background: #1b0629; box-shadow: inset 0 4px 12px rgba(0,0,0,.6); --cell: min(17vh, 23vw, 92px); }
+  .reel { position: relative; height: calc(var(--cell) * 3); overflow: hidden; border-radius: 12px; background: radial-gradient(120% 60% at 50% 50%, #3b1656, #1c0830 75%); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+  .reel::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(10,2,18,.85), transparent 28%, transparent 72%, rgba(10,2,18,.85)); } /* the curved-drum shade */
+  .strip { will-change: transform; }
+  .cell { height: var(--cell); display: grid; place-items: center; }
+  .sym { width: 76%; height: 76%; overflow: visible; filter: drop-shadow(0 5px 6px rgba(0,0,0,.45)); }
+  .line { position: absolute; left: 4px; right: 4px; top: 50%; height: calc(var(--cell) + 4px); transform: translateY(-50%); border-radius: 12px; border: 3px solid rgba(255,211,107,.85); pointer-events: none; transition: box-shadow .2s; }
+  .window.win .line { animation: winglow .5s ease-in-out 6 alternate; }
+  @keyframes winglow { to { box-shadow: 0 0 0 4px rgba(255,211,107,.5), 0 0 26px rgba(255,211,107,.9); } }
+  .result { height: 26px; text-align: center; font-weight: 900; font-size: 18px; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,.4); }
+  .result.big { color: #ffe08a; font-size: 22px; }
+
+  /* Bet + spin */
+  .controls { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: stretch; }
+  .bet { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 14px; background: var(--glass); border: 1px solid var(--hair); }
+  .amt { display: grid; grid-template-columns: 34px 1fr 34px; gap: 4px; height: 32px; }
+  .amt button { border: 0; border-radius: 9px; background: rgba(255,255,255,.08); color: var(--muted); font-weight: 900; }
+  .amt output { display: grid; place-items: center; border-radius: 9px; background: rgba(0,0,0,.25); font-size: 15px; font-weight: 800; }
+  .quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .quick button { height: 24px; border: 0; border-radius: 7px; background: rgba(255,255,255,.06); color: var(--muted); font-size: 11.5px; font-weight: 700; }
+  .quick button[aria-pressed="true"] { background: rgba(255,79,163,.3); color: var(--text); }
+  .spin { width: 104px; border: 0; border-radius: 16px; font-size: 18px; font-weight: 900; letter-spacing: .06em; color: #3a1600; background: linear-gradient(180deg, #ffe39a, #ffa630); box-shadow: 0 6px 20px rgba(255,166,48,.45); }
+  .spin:active:not(:disabled) { transform: scale(.97); }
+  .spin:disabled { color: var(--muted); background: rgba(255,255,255,.08); box-shadow: inset 0 0 0 1px var(--hair); }
+
+  /* Paytable */
+  .panel { position: fixed; inset: 0; z-index: 5; display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; background: linear-gradient(180deg, #3a0f55, var(--bg) 45%); transform: translateY(100%); transition: transform .28s cubic-bezier(.2,.8,.2,1); }
+  .panel.show { transform: none; }
+  .panel-head { display: flex; align-items: center; gap: 10px; }
+  .panel-head h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 700; }
+  .pays { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+  .pays li { display: flex; align-items: center; justify-content: space-between; padding: 7px 4px; border-bottom: 1px solid var(--hair); font-size: 15px; font-weight: 700; }
+  .pays li span { display: flex; align-items: center; gap: 2px; }
+  .pays .sym { width: 34px; height: 34px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
+  .pays b { font-size: 15px; color: var(--gold); }
+  .note { color: var(--muted); font-size: 12.5px; }
+  .toast { position: fixed; z-index: 7; left: 50%; bottom: 120px; transform: translate(-50%, 6px); background: #3a0f55; border: 1px solid var(--hair-2); padding: 9px 14px; border-radius: 12px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: calc(100% - 32px); text-align: center; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  @media (prefers-reduced-motion: reduce) { .window.win .line { animation: none; box-shadow: 0 0 26px rgba(255,211,107,.9); } }
+</style>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v9M9.5 10c0-1.2 1.1-2 2.5-2s2.5.7 2.5 1.8c0 2.6-5 1.6-5 4.3 0 1.1 1.1 1.9 2.5 1.9s2.5-.8 2.5-2"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.6a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.6"/><path d="M12 16.8v.2"/></symbol>
+    <symbol id="i-min" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  </svg>
+  <!-- Reel symbols: glossy vector art, 100x100. Each has a dark rim, a lit gradient body and a specular highlight. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <radialGradient id="g-cherry" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#ff8fa0"/><stop offset=".45" stop-color="#f0163e"/><stop offset="1" stop-color="#6d0018"/></radialGradient>
+      <linearGradient id="g-stem" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6fbf4a"/><stop offset="1" stop-color="#2d6b1f"/></linearGradient>
+      <linearGradient id="g-leaf" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9ef27a"/><stop offset=".55" stop-color="#3fae3a"/><stop offset="1" stop-color="#1c6b25"/></linearGradient>
+      <radialGradient id="g-lemon" cx="38%" cy="30%" r="80%"><stop offset="0" stop-color="#fffbd0"/><stop offset=".4" stop-color="#ffe23a"/><stop offset="1" stop-color="#d98f00"/></radialGradient>
+      <radialGradient id="g-orange" cx="36%" cy="30%" r="78%"><stop offset="0" stop-color="#ffd8a0"/><stop offset=".4" stop-color="#ff9a1f"/><stop offset="1" stop-color="#b8420a"/></radialGradient>
+      <radialGradient id="g-grape" cx="35%" cy="30%" r="80%"><stop offset="0" stop-color="#e3c6ff"/><stop offset=".4" stop-color="#9b5cf0"/><stop offset="1" stop-color="#3a0f86"/></radialGradient>
+      <linearGradient id="g-gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff6b8"/><stop offset=".35" stop-color="#ffd23f"/><stop offset=".75" stop-color="#e59a00"/><stop offset="1" stop-color="#9c5a00"/></linearGradient>
+      <linearGradient id="g-star" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff9c4"/><stop offset=".45" stop-color="#ffd84a"/><stop offset="1" stop-color="#ff8f1a"/></linearGradient>
+      <linearGradient id="g-seven" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff9aa8"/><stop offset=".4" stop-color="#ff2a4d"/><stop offset="1" stop-color="#8a0020"/></linearGradient>
+      <linearGradient id="g-shine" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    </defs>
+    <symbol id="s-cherry" viewBox="0 0 100 100">
+      <path d="M52 12C46 30 38 44 30 58M52 12C58 32 64 44 70 56" stroke="url(#g-stem)" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M52 12C62 2 82 4 90 14 78 24 62 22 52 12Z" fill="url(#g-leaf)" stroke="#155a1d" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M56 12C66 10 78 11 86 14" stroke="#c8ffb0" stroke-width="1.6" fill="none" opacity=".7" stroke-linecap="round"/>
+      <circle cx="30" cy="70" r="19" fill="url(#g-cherry)" stroke="#4a0010" stroke-width="2"/>
+      <circle cx="71" cy="67" r="19" fill="url(#g-cherry)" stroke="#4a0010" stroke-width="2"/>
+      <ellipse cx="23" cy="62" rx="7" ry="4.5" fill="url(#g-shine)" transform="rotate(-35 23 62)"/>
+      <ellipse cx="64" cy="59" rx="7" ry="4.5" fill="url(#g-shine)" transform="rotate(-35 64 59)"/>
+    </symbol>
+    <symbol id="s-lemon" viewBox="0 0 100 100">
+      <g transform="rotate(-22 50 54)">
+        <path d="M8 54C12 50 14 48 16 46 22 30 36 24 50 24S78 30 84 46C86 48 88 50 92 54 88 58 86 60 84 62 78 78 64 84 50 84S22 78 16 62C14 60 12 58 8 54Z" fill="url(#g-lemon)" stroke="#8f5a00" stroke-width="2" stroke-linejoin="round"/>
+        <ellipse cx="38" cy="40" rx="15" ry="6" fill="url(#g-shine)" transform="rotate(-12 38 40)"/>
+        <g fill="#c98500" opacity=".35"><circle cx="60" cy="62" r="1.4"/><circle cx="68" cy="56" r="1.4"/><circle cx="54" cy="70" r="1.4"/><circle cx="72" cy="66" r="1.4"/></g>
+      </g>
+      <path d="M70 22C76 12 90 10 94 16 88 26 76 28 70 22Z" fill="url(#g-leaf)" stroke="#155a1d" stroke-width="1.5" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="s-orange" viewBox="0 0 100 100">
+      <circle cx="50" cy="57" r="33" fill="url(#g-orange)" stroke="#7a2a00" stroke-width="2"/>
+      <g fill="#a8400a" opacity=".3"><circle cx="62" cy="68" r="1.5"/><circle cx="70" cy="58" r="1.5"/><circle cx="56" cy="78" r="1.5"/><circle cx="74" cy="72" r="1.5"/><circle cx="44" cy="74" r="1.5"/></g>
+      <ellipse cx="38" cy="42" rx="13" ry="7" fill="url(#g-shine)" transform="rotate(-30 38 42)"/>
+      <path d="M50 25C50 19 52 15 55 12" stroke="#5b3a12" stroke-width="4" stroke-linecap="round" fill="none"/>
+      <path d="M53 20C60 8 78 6 86 12 78 24 62 26 53 20Z" fill="url(#g-leaf)" stroke="#155a1d" stroke-width="1.5" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="s-grape" viewBox="0 0 100 100">
+      <path d="M50 20C50 14 52 10 56 6" stroke="#5b3a12" stroke-width="4" stroke-linecap="round" fill="none"/>
+      <path d="M54 14C62 4 80 4 88 12 78 22 62 22 54 14Z" fill="url(#g-leaf)" stroke="#155a1d" stroke-width="1.5" stroke-linejoin="round"/>
+      <g fill="url(#g-grape)" stroke="#2a0866" stroke-width="1.6">
+        <circle cx="26" cy="32" r="12"/><circle cx="50" cy="30" r="12"/><circle cx="74" cy="32" r="12"/>
+        <circle cx="38" cy="52" r="12"/><circle cx="62" cy="52" r="12"/>
+        <circle cx="50" cy="73" r="12"/>
+      </g>
+      <g fill="url(#g-shine)" opacity=".85"><ellipse cx="21" cy="27" rx="4.5" ry="2.8"/><ellipse cx="45" cy="25" rx="4.5" ry="2.8"/><ellipse cx="69" cy="27" rx="4.5" ry="2.8"/><ellipse cx="33" cy="47" rx="4.5" ry="2.8"/><ellipse cx="57" cy="47" rx="4.5" ry="2.8"/><ellipse cx="45" cy="68" rx="4.5" ry="2.8"/></g>
+    </symbol>
+    <symbol id="s-bell" viewBox="0 0 100 100">
+      <circle cx="50" cy="13" r="6" fill="url(#g-gold)" stroke="#7a4400" stroke-width="2"/>
+      <circle cx="50" cy="86" r="8" fill="url(#g-gold)" stroke="#7a4400" stroke-width="2"/>
+      <path d="M50 18C33 18 25 32 25 50 25 62 21 70 13 76V80H87V76C79 70 75 62 75 50 75 32 67 18 50 18Z" fill="url(#g-gold)" stroke="#7a4400" stroke-width="2" stroke-linejoin="round"/>
+      <rect x="10" y="76" width="80" height="9" rx="4.5" fill="url(#g-gold)" stroke="#7a4400" stroke-width="2"/>
+      <path d="M36 28C30 34 29 46 30 58" stroke="url(#g-shine)" stroke-width="6" stroke-linecap="round" fill="none"/>
+      <path d="M26 66H74" stroke="#a86400" stroke-width="2" opacity=".45"/>
+    </symbol>
+    <symbol id="s-star" viewBox="0 0 100 100">
+      <path d="M50 8L62 36 92 38 69 58 77 88 50 72 23 88 31 58 8 38 38 36Z" fill="url(#g-star)" stroke="#a85a00" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M50 22L57 40 76 41 61 53 66 72 50 62 34 72 39 53 24 41 43 40Z" fill="#fff" opacity=".28" stroke-linejoin="round"/>
+      <path d="M44 30L50 16 55 28" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity=".85"/>
+    </symbol>
+    <symbol id="s-seven" viewBox="0 0 100 100">
+      <path d="M18 14H84V30C68 46 58 64 54 88H30C34 66 44 48 58 32H18Z" fill="url(#g-seven)" stroke="#ffd36b" stroke-width="6" stroke-linejoin="round" paint-order="stroke"/>
+      <path d="M18 14H84V30C68 46 58 64 54 88H30C34 66 44 48 58 32H18Z" fill="none" stroke="#7a1a00" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M24 19H78" stroke="url(#g-shine)" stroke-width="4" stroke-linecap="round"/>
+      <path d="M58 40C50 52 44 64 41 78" stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none" opacity=".45"/>
+    </symbol>
+  </svg>
+
+  <header>
+    <div class="balance" aria-label="Your coins"><svg class="i"><use href="#i-coin"/></svg><span id="balance">–</span></div>
+    <span class="spacer"></span>
+    <button class="ghost" id="openPays" aria-label="Paytable"><svg class="i"><use href="#i-help"/></svg></button>
+    <button class="ghost" id="minimizeGame" aria-label="Minimize game" hidden><svg class="i"><use href="#i-min"/></svg></button>
+    <button class="ghost" id="closeGame" aria-label="Close game" hidden><svg class="i"><use href="#i-close"/></svg></button>
+  </header>
+
+  <div class="machine">
+    <div class="title">★ LUCKY SLOTS ★</div>
+    <div class="window" id="window">
+      <div class="reel"><div class="strip"></div></div>
+      <div class="reel"><div class="strip"></div></div>
+      <div class="reel"><div class="strip"></div></div>
+      <div class="line" aria-hidden="true"></div>
+    </div>
+    <div class="result" id="result" aria-live="polite"></div>
+  </div>
+
+  <div class="controls">
+    <div class="bet">
+      <div class="amt">
+        <button id="minus" aria-label="Lower bet">−</button>
+        <output id="amount" aria-label="Bet">100</output>
+        <button id="plus" aria-label="Raise bet">+</button>
+      </div>
+      <div class="quick" id="quick"></div>
+    </div>
+    <button class="spin" id="spin" disabled>SPIN</button>
+  </div>
+
+  <div class="panel" id="paysPanel" role="dialog" aria-label="Paytable">
+    <div class="panel-head"><h2>Paytable</h2><button class="ghost" id="closePays" aria-label="Close"><svg class="i"><use href="#i-close"/></svg></button></div>
+    <ul class="pays" id="pays"></ul>
+    <p class="note" id="payNote"></p>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+
+<script src="/games/socket.io.min.js"></script>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const num = (n) => Number(n).toLocaleString('en-IN');
+const SYMS = ['cherry', 'lemon', 'orange', 'grape', 'bell', 'star', 'seven'];
+const icon = (s) => `<svg class="sym" viewBox="0 0 100 100" role="img" aria-label="${s}"><use href="#s-${s}"/></svg>`;
+const any = () => SYMS[Math.floor(Math.random() * SYMS.length)];
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2200); }
+
+let game = null, amount = 100, spinning = false;
+const reels = [...document.querySelectorAll('.reel')];
+const shown = [[any(), any(), any()], [any(), any(), any()], [any(), any(), any()]]; // [above, on the line, below] per reel
+
+function cellH() { return reels[0].clientHeight / 3; }
+function draw(reel, syms) { reel.firstElementChild.innerHTML = syms.map((s) => `<div class="cell">${icon(s)}</div>`).join(''); }
+reels.forEach((r, i) => draw(r, shown[i]));
+
+// Each reel scrolls a long random strip that ends on [above, result, below]; reels stop one after another.
+function animate(result) {
+  const h = cellH();
+  return Promise.all(reels.map((reel, i) => new Promise((done) => {
+    const end = [any(), result[i], any()];
+    const strip = [...end, ...Array.from({ length: 14 + i * 5 }, any), ...shown[i]]; // drawn top to bottom; we scroll down to the top
+    draw(reel, strip);
+    const s = reel.firstElementChild;
+    s.style.transition = 'none';
+    s.style.transform = `translateY(${-(strip.length - 3) * h}px)`;
+    s.getBoundingClientRect(); // apply the start position before animating
+    const ms = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 900 + i * 350;
+    s.style.transition = `transform ${ms}ms cubic-bezier(.15,.7,.25,1.05)`;
+    s.style.transform = 'translateY(0)';
+    setTimeout(() => { s.style.transition = 'none'; draw(reel, end); shown[i] = end; done(); }, ms + 20);
+  })));
+}
+
+// ---------- bet ----------
+function setAmount(n) {
+  amount = Math.max(1, Math.min(game?.maxBet ?? 100000, n));
+  $('amount').textContent = num(amount);
+  $('quick').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.v) === amount)));
+}
+const steps = () => game?.chips ?? [100, 1000, 10000, 100000];
+$('minus').onclick = () => { const lower = steps().filter((c) => c < amount); setAmount(lower.length ? lower.at(-1) : amount); };
+$('plus').onclick = () => { const higher = steps().find((c) => c > amount); setAmount(higher ?? amount); };
+
+async function spin() {
+  if (spinning || !game) return;
+  spinning = true; $('spin').disabled = true;
+  $('window').classList.remove('win'); $('result').textContent = ''; $('result').className = 'result';
+  // Never auto-retried: a spin isn't idempotent.
+  const r = await socket.timeout(8000).emitWithAck('slot:spin', { amount }).catch(() => null);
+  if (!r?.ok) {
+    spinning = false; $('spin').disabled = false;
+    return toast(!r ? 'Connection is slow. Check your balance before spinning again' : r.error?.code === 'INSUFFICIENT_COINS' ? 'Not enough coins' : r.error?.message || 'That didn’t work');
+  }
+  $('balance').textContent = num(r.data.balance - r.data.payout); // the bet leaves now; the win lands when the reels stop
+  await animate(r.data.reels);
+  $('balance').textContent = num(r.data.balance);
+  if (r.data.payout) {
+    $('window').classList.add('win');
+    $('result').textContent = `WIN ${num(r.data.payout)} · ×${r.data.multiplier}`;
+    if (r.data.multiplier >= 20) $('result').classList.add('big');
+  } else $('result').textContent = 'No win, try again';
+  spinning = false; $('spin').disabled = false;
+}
+$('spin').onclick = spin;
+
+// ---------- paytable ----------
+function fillPays() {
+  $('pays').innerHTML = [...SYMS].reverse().map((s) => `<li><span>${icon(s).repeat(3)}</span><b>×${game.pays[s]}</b></li>`).join('')
+    + `<li><span>${icon('cherry').repeat(2)}&nbsp;+ any</span><b>×${game.twoCherries}</b></li>`;
+  $('payNote').textContent = `Pays on the middle line. Win = bet × multiplier. Over many spins the machine pays back ${(game.rtp * 100).toFixed(2)}% of what is bet.`;
+}
+$('openPays').onclick = () => $('paysPanel').classList.add('show');
+$('closePays').onclick = () => $('paysPanel').classList.remove('show');
+
+// ---------- host app ----------
+const pendingToken = [];
+window.voyaToken = (t) => pendingToken.splice(0).forEach((r) => r(t));
+function getToken() {
+  if (!window.ReactNativeWebView) return Promise.resolve(new URLSearchParams(location.hash.slice(1)).get('token') || '');
+  return new Promise((r) => { pendingToken.push(r); window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'token' })); });
+}
+if (window.ReactNativeWebView) {
+  $('closeGame').hidden = false; $('closeGame').onclick = () => window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'close' }));
+  $('minimizeGame').hidden = false; $('minimizeGame').onclick = () => window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'minimize' }));
+}
+window.voyaVisibility = () => {}; // no sound to pause
+
+// ---------- socket ----------
+const socket = io({ path: '/socket.io/', transports: ['websocket'], auth: (cb) => getToken().then((token) => cb({ token })) });
+socket.on('connect', async () => {
+  const r = await socket.timeout(8000).emitWithAck('slot:join', {}).catch(() => null);
+  if (!r?.ok) return toast('Could not open Lucky Slots');
+  game = r.data;
+  $('balance').textContent = num(game.balance);
+  $('quick').innerHTML = game.chips.map((c) => `<button data-v="${c}">${c >= 1000 ? c / 1000 + 'K' : c}</button>`).join('');
+  $('quick').querySelectorAll('button').forEach((b) => (b.onclick = () => setAmount(Number(b.dataset.v))));
+  setAmount(amount); fillPays();
+  if (!spinning) $('spin').disabled = false;
+});
+socket.on('connect_error', () => { if (!game) toast("Can't reach the game. Retrying…"); });
+</script>
+</body>
+</html>

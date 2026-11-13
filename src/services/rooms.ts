@@ -323,7 +323,7 @@ export async function refreshPk(roomId: string) {
 // ---------- room rank & heart level ----------
 // Rank: this week's gift coins received in the room vs every other room (Monday 00:00 India time; null = no gifts yet).
 // Heart level: lifetime gift coins received in the room.
-export const HEART_LEVELS = [0, 10_000, 1_00_000, 5_00_000, 20_00_000, 1_00_00_000, 5_00_00_000, 20_00_00_000, 50_00_00_000, 1_00_00_00_000];
+export const HEART_LEVELS = [0, 100_000, 1_000_000, 5_000_000, 20_000_000, 100_000_000, 500_000_000, 2_000_000_000, 5_000_000_000, 10_000_000_000];
 const IST = sql.raw(`'Asia/Kolkata'`);
 export async function roomStats(roomId: string) {
   await getRoom(roomId);
@@ -435,7 +435,7 @@ const roomCard = {
 // then × 0.1 when nobody is in the room, so yesterday's busy room doesn't sit above an active one.
 // shortcut: five small correlated counts per room; precompute into a column every minute if the room list gets big.
 const rankSql = sql<number>`(
-  (sqrt((select coalesce(sum(g.coins_debited), 0) from gift_transactions g where g.room_id = ${rooms.id} and g.created_at > now() - interval '1 hour')) * 2
+  (sqrt((select coalesce(sum(g.coins_debited), 0) from gift_transactions g where g.room_id = ${rooms.id} and g.created_at > now() - interval '1 hour') / 10.0) * 2
    + ${rooms.listenerCount} * 5
    + (select count(distinct p.user_id) from room_participants p where p.room_id = ${rooms.id} and p.created_at > now() - interval '1 hour') * 2
    + (select count(*) from chat_messages m where m.room_id = ${rooms.id} and m.type = 'USER' and m.created_at > now() - interval '15 minutes') * 0.5

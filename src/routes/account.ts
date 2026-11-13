@@ -1,3 +1,4 @@
+import { gamesOn } from "../services/flags";
 import { and, asc, count, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -74,7 +75,7 @@ account.get("/me", async (c) => {
   const u = c.get("user");
   // Sign-in methods are private: only you see your phone and whether Google is linked.
   // Staff also get their role's switches (the panel shows only their menus; the app only their powers).
-  return c.json({ ...publicUser(u), avatarUrl: visibleAvatar(u.avatarUrl, await svipOf(u.id)), phone: u.phone, googleLinked: !!u.googleSub, permissions: await permissionsOf(u) });
+  return c.json({ ...publicUser(u), avatarUrl: visibleAvatar(u.avatarUrl, await svipOf(u.id)), phone: u.phone, googleLinked: !!u.googleSub, permissions: await permissionsOf(u), games: await gamesOn() }); // games: the coin games are switched on
 });
 
 // Staff roles' names, colours and whether they show the official tick (the app draws staff ticks from this).

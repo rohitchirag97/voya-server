@@ -1021,7 +1021,7 @@ export type RewardItem =
   | { type: "SVIP"; tier: number; days: number };
 export type EventReward = { items: RewardItem[] };
 export type EventMetric = "GIFTS_SENT" | "GIFTS_RECEIVED" | "ROOM_GIFTS" | "RECHARGE" | "GAME_WINS" | "CP_POINTS";
-export type EventGame = "ALL" | "GREEDY_JUNGLE" | "GREEDY_GALAXY" | "ROCKET";
+export type EventGame = "ALL" | "GREEDY_JUNGLE" | "GREEDY_GALAXY" | "ROCKET" | "SLOT" | "ROULETTE";
 // Optional limits on what counts: which gifts, and who can take part.
 export type EventFilter =
   | { type: "EVENT_GIFTS" } // only the event's own gift category
@@ -1226,3 +1226,11 @@ export const splashes = pgTable(
   },
   (t) => [index("splashes_window").on(t.enabled, t.endsAt), check("splash_window", sql`${t.endsAt} > ${t.startsAt}`)],
 );
+
+// Feature switches, flipped in the admin panel (Feature switches). A key with no row is off, so new features ship hidden.
+export const featureFlags = pgTable("feature_flags", {
+  key: text("key").primaryKey(),
+  enabled: boolean("enabled").notNull().default(false),
+  updatedBy: uuid("updated_by").references(() => users.id),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+});
