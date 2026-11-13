@@ -628,7 +628,7 @@ export const greedyRounds = pgTable(
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
     game: text("game").notNull().default("jungle"), // which skin's loop owns the round: "jungle" | "galaxy"; each has its own rounds, history and leaderboard
-    number: integer("number").notNull(), // the round number players see, counted per game (id is shared across games)
+    number: integer("number").notNull(), // the round number players see: per game, from 1 each India day (id is shared across games and unique)
     betEndsAt: ts("bet_ends_at").notNull(),
     resultItem: integer("result_item"),
     settledAt: ts("settled_at"),
@@ -638,7 +638,6 @@ export const greedyRounds = pgTable(
     index("greedy_rounds_unsettled").on(t.id).where(sql`${t.settledAt} is null`),
     index("greedy_rounds_game_created").on(t.game, t.createdAt),
     index("greedy_rounds_game_id").on(t.game, t.id),
-    uniqueIndex("greedy_rounds_game_number").on(t.game, t.number),
   ],
 );
 
@@ -661,7 +660,7 @@ export const rocketRounds = pgTable(
   "rocket_rounds",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
-    number: integer("number").notNull(),
+    number: integer("number").notNull(), // the round number players see: from 1 each India day (id is unique)
     crash100: integer("crash100").notNull(),
     salt: text("salt").notNull(),
     hash: text("hash").notNull(),
@@ -670,7 +669,6 @@ export const rocketRounds = pgTable(
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex("rocket_rounds_number").on(t.number),
     index("rocket_rounds_open").on(t.id).where(sql`${t.crashedAt} is null`),
     index("rocket_rounds_created").on(t.createdAt),
     check("rocket_crash_range", sql`${t.crash100} >= 100`),

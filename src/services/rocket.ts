@@ -174,8 +174,9 @@ export async function cashOut(user: User, input: z.infer<typeof cashOutSchema>) 
 export async function openRound(forcedCrash100?: number) {
   const crash100 = forcedCrash100 ?? drawCrash100();
   const salt = randomBytes(16).toString("hex");
-  // Only the rocket loop inserts rounds, so max + 1 cannot race (the unique index would catch it if it did).
-  const number = sql<number>`(select coalesce(max(${rocketRounds.number}), 0) + 1 from ${rocketRounds})`;
+  // Round numbers start again from 1 at midnight India time (the leaderboard's day). Only the rocket loop inserts
+  // rounds, so count + 1 cannot race.
+  const number = sql<number>`(select count(*) + 1 from ${rocketRounds} where ${rocketRounds.createdAt} >= ${dayStart})`;
   const [round] = await db
     .insert(rocketRounds)
     .values({ number, crash100, salt, hash: commit(salt, crash100), launchAt: new Date(clock.now() + BET_MS) })
@@ -226,9 +227,9 @@ export async function crashAndAnnounce(roundId: number) {
 
 // The day runs midnight to midnight in India; a round counts on the day it started.
 const DAY_TZ = "Asia/Kolkata";
+const dayStart = sql`(date_trunc('day', now() at time zone ${DAY_TZ}) at time zone ${DAY_TZ})`;
 const LEADERBOARD_SIZE = 100;
 export async function todayLeaderboard(userId: string) {
-  const dayStart = sql`(date_trunc('day', now() at time zone ${DAY_TZ}) at time zone ${DAY_TZ})`;
   const { rows } = await db.execute<{ userId: string; displayName: string | null; avatarUrl: string | null; won: number; rank: number }>(sql`
     with totals as (
       select b.user_id, coalesce(sum(b.payout), 0)::float8 as won

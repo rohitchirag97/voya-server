@@ -114,6 +114,7 @@ export async function getState(userId: string, game: Game = "jungle") {
 
 // The day runs midnight to midnight in India; nothing is deleted, "today" is just the rounds started since 12 AM.
 const DAY_TZ = "Asia/Kolkata";
+const dayStart = sql`(date_trunc('day', now() at time zone ${DAY_TZ}) at time zone ${DAY_TZ})`;
 const LEADERBOARD_SIZE = 100;
 
 // Everyone who bet today in this game, ranked by what they won today. A round counts on the day it started.
@@ -121,7 +122,6 @@ export async function todayLeaderboard(userId: string, game: Game = "jungle") {
   // Built from constants only, so safe to inline: each animal's multiplier, and "this bet won" for every outcome.
   const mults = sql.raw(`(array[${ITEMS.map((i) => i.mult).join(",")}])`);
   const betWon = sql.raw(OUTCOMES.map((o) => `(r.result_item = ${o.id} and b.item in (${o.wins.join(",")}))`).join(" or "));
-  const dayStart = sql`(date_trunc('day', now() at time zone ${DAY_TZ}) at time zone ${DAY_TZ})`;
   const { rows } = await db.execute<{ userId: string; displayName: string | null; avatarUrl: string | null; won: number; bet: number; rank: number }>(sql`
     with totals as (
       select b.user_id,
@@ -179,8 +179,9 @@ export async function placeBet(user: User, input: z.infer<typeof betSchema>) {
 }
 
 export async function openRound(game: Game = "jungle") {
-  // Round numbers count per game. Only this game's loop inserts its rounds, so max + 1 cannot race (the unique index would catch it if it did).
-  const number = sql<number>`(select coalesce(max(${greedyRounds.number}), 0) + 1 from ${greedyRounds} where ${greedyRounds.game} = ${game})`;
+  // Round numbers count per game and start again from 1 at midnight India time (the leaderboard's day). Only this game's
+  // loop inserts its rounds, so count + 1 cannot race.
+  const number = sql<number>`(select count(*) + 1 from ${greedyRounds} where ${greedyRounds.game} = ${game} and ${greedyRounds.createdAt} >= ${dayStart})`;
   const [round] = await db.insert(greedyRounds).values({ game, number, betEndsAt: new Date(Date.now() + BET_MS) }).returning();
   io.to(channel(game)).emit("greedy:round", { roundId: round!.id, number: round!.number, betEndsAt: round!.betEndsAt, serverNow: new Date() });
   return round!;

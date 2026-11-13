@@ -1920,6 +1920,9 @@ describe("greedy game", () => {
     const sp = socketFor(p.token);
     const sj = socketFor(j.token);
 
+    // A galaxy round from before today's midnight (India time) doesn't count: numbers start again from 1 each day.
+    await db.execute(sql`insert into greedy_rounds (game, number, bet_ends_at, result_item, settled_at, created_at)
+      values ('galaxy', 2160, now() - interval '1 day', 0, now() - interval '1 day', (date_trunc('day', now() at time zone 'Asia/Kolkata') at time zone 'Asia/Kolkata') - interval '1 second')`);
     const jr = await openRound("jungle");
     const gr = await openRound("galaxy");
     // Round numbers count per game: galaxy starts at 1 here, jungle keeps its own sequence despite galaxy rounds in between.
