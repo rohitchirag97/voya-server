@@ -10,13 +10,13 @@
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; pointer-events: none; }
   canvas { display: block; }
 </style>
-<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.min.js" } }</script>
+<script type="importmap">{ "imports": { "three": "/games/vendor/three/three.module.min.js" } }</script>
 </head>
 <body>
 <script type="module">
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from '/vendor/three/RoundedBoxGeometry.js';
-import { RoomEnvironment } from '/vendor/three/RoomEnvironment.js';
+import { RoundedBoxGeometry } from '/games/vendor/three/RoundedBoxGeometry.js';
+import { RoomEnvironment } from '/games/vendor/three/RoomEnvironment.js';
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m));
 let renderer;
@@ -536,7 +536,7 @@ warm.add(new THREE.Mesh(sphere, warmFace.mat), new THREE.Mesh(heartGeo, heartMat
 scene.add(warm); renderer.compile(scene, camera); scene.remove(warm); warmFace.dispose();
 post({ type: 'ready', ok: true });
 
-// Local preview: /fx/emotes/?demo plays everything in a grid (&size=, &freeze=ms).
+// Local preview: /games/emotes/?demo plays everything in a grid (&size=, &freeze=ms).
 if (q.has('demo')) {
   if (q.has('dark')) document.body.style.background = 'radial-gradient(#3a2a6a, #120c26)';
   const all = [['hand'], ['smile'], ['laugh'], ['cry'], ['kiss'], ['angry'], ['heart'], ['dice', 5], ['coin', 'Heads'], ['roller', '777'], ['coin', 'Tails'], ['dice', 2]];
