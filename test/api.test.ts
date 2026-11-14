@@ -256,23 +256,24 @@ describe("staff and impersonation", () => {
 });
 
 describe("svip", () => {
-  // Recharge of ₹rupees at a point relative to the start of this month (India time).
+  // Recharge of ₹rupees (rupees × 100 coins) at a point relative to the start of this month (India time).
   const paid = (userId: string, rupees: number, when: "this" | "last" | "older") =>
     db.execute(sql`insert into recharges (user_id, package_id, coins, price_paise, provider, idempotency_key, created_at)
-      values (${userId}, 'test', 1, ${rupees * 100}, 'DEV', ${crypto.randomUUID()},
+      values (${userId}, 'test', ${rupees * 100}, ${rupees * 100}, 'DEV', ${crypto.randomUUID()},
         (date_trunc('month', now() at time zone 'Asia/Kolkata') at time zone 'Asia/Kolkata')
           + ${when === "this" ? sql`interval '1 minute'` : when === "last" ? sql`interval '-1 day'` : sql`interval '-40 days'`})`);
 
   test("only recharges from the 1st to the last day of the current month count, and the tier ends with the month", async () => {
-    expect([4999, 5000, 14_999, 15_000, 2_50_000, 9_99_999].map(tierFor)).toEqual([0, 1, 1, 2, 6, 6]); // SVIP6 is the top
+    // Tiers are coins recharged this month: SVIP1 5,00,000 … SVIP6 2,50,00,000 (₹5,000 … ₹2,50,000 at ₹1 = 100 coins).
+    expect([4_99_999, 5_00_000, 14_99_999, 15_00_000, 2_50_00_000, 9_99_99_999].map(tierFor)).toEqual([0, 1, 1, 2, 6, 6]); // SVIP6 is the top
     const a = await signup("sva");
-    expect((await api("GET", "/me/svip", a.token)).body).toMatchObject({ tier: 0, validUntil: null, next: { tier: 1, remaining: 5000 } });
+    expect((await api("GET", "/me/svip", a.token)).body).toMatchObject({ tier: 0, validUntil: null, next: { tier: 1, remaining: 5_00_000 } });
 
     await paid(a.id, 2_50_000, "last"); // last month, however big, doesn't count
     await paid(a.id, 50_000, "older");
-    expect((await api("GET", "/me/svip", a.token)).body).toMatchObject({ tier: 0, thisMonthRupees: 0 });
+    expect((await api("GET", "/me/svip", a.token)).body).toMatchObject({ tier: 0, thisMonthCoins: 0 });
     await paid(a.id, 6_000, "this");
-    expect((await api("GET", "/me/svip", a.token)).body).toMatchObject({ tier: 1, thisMonthRupees: 6_000, next: { tier: 2, remaining: 9_000 } });
+    expect((await api("GET", "/me/svip", a.token)).body).toMatchObject({ tier: 1, thisMonthCoins: 6_00_000, next: { tier: 2, remaining: 9_00_000 } });
     await paid(a.id, 54_000, "this"); // ₹60,000 this month → SVIP4
     const up = (await api("GET", "/me/svip", a.token)).body;
     expect(up.tier).toBe(4);
@@ -326,8 +327,8 @@ describe("svip", () => {
     await new Promise<void>((r) => s.once("connect", () => r()));
     const got: any[] = [];
     s.on("app:announce", (a) => got.push(a));
-    await paid(u.id, 4_600, "this"); // ₹4,600 so far; the ₹499 package crosses ₹5,000 → SVIP1
-    expect((await api("POST", "/wallet/recharge", u.token, { packageId: "coins_4990" }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
+    await paid(u.id, 4_600, "this"); // 4,60,000 coins so far; the ₹499 package (49,900 coins) crosses 5,00,000 → SVIP1
+    expect((await api("POST", "/wallet/recharge", u.token, { packageId: "coins_49900" }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
     await Bun.sleep(300);
     expect(got).toEqual(
       expect.arrayContaining([
@@ -336,7 +337,7 @@ describe("svip", () => {
       ]),
     );
     got.length = 0;
-    expect((await api("POST", "/wallet/recharge", u.token, { packageId: "coins_100" }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
+    expect((await api("POST", "/wallet/recharge", u.token, { packageId: "coins_1000" }, { "Idempotency-Key": crypto.randomUUID() })).status).toBe(200);
     await Bun.sleep(300);
     expect(got.filter((a) => a.kind === "SVIP_UP")).toEqual([]); // still SVIP1: no repeat
     expect(got).toEqual([expect.objectContaining({ kind: "RECHARGE", userId: u.id })]); // every recharge is announced
@@ -465,27 +466,27 @@ describe("decorations", () => {
 });
 
 describe("levels and recharge", () => {
-  test("thresholds: rupee anchors, every level costs at least the previous, max 50", () => {
-    // New users start at level 0; any XP unlocks Lv 1.
-    expect([0, 1, 99, 100, 299, 300, 599, 600].map(levelOf)).toEqual([0, 1, 1, 2, 2, 3, 3, 4]);
-    expect(levelInfo(0)).toEqual({ level: 0, xp: 0, levelXp: 0, levelXpNeeded: 1, nextLevelAt: 1 });
-    // The agreed anchors (1 XP per ₹1).
-    expect([10, 20, 30, 40, 50].map(xpToReach)).toEqual([12_000, 48_000, 250_000, 587_000, 1_200_000]);
-    expect([11_999, 12_000, 1_199_999, 1_200_000, 9_999_999].map(levelOf)).toEqual([9, 10, 49, 50, 50]);
+  test("thresholds: coin anchors, every level costs at least the previous, max 50", () => {
+    // New users start at level 0; 100 coins (any recharge) unlocks Lv 1.
+    expect([0, 99, 100, 9_999, 10_000, 29_999, 30_000, 59_999, 60_000].map(levelOf)).toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4]);
+    expect(levelInfo(0)).toEqual({ level: 0, xp: 0, levelXp: 0, levelXpNeeded: 100, nextLevelAt: 100 });
+    // The agreed anchors (1 XP per coin recharged; ₹12,000 … ₹12,00,000 at ₹1 = 100 coins).
+    expect([10, 20, 30, 40, 50].map(xpToReach)).toEqual([12_00_000, 48_00_000, 2_50_00_000, 5_87_00_000, 12_00_00_000]);
+    expect([11_99_999, 12_00_000, 11_99_99_999, 12_00_00_000, 99_99_99_999].map(levelOf)).toEqual([9, 10, 49, 50, 50]);
     expect(maxLevel()).toBe(50);
     const steps = Array.from({ length: 49 }, (_, i) => xpToReach(i + 2) - xpToReach(i + 1));
     expect(steps.every((d, i) => i === 0 || d >= steps[i - 1]!)).toBe(true);
-    expect(levelInfo(150)).toEqual({ level: 2, xp: 150, levelXp: 50, levelXpNeeded: 200, nextLevelAt: 300 });
-    expect(levelInfo(1_500_000)).toMatchObject({ level: 50, nextLevelAt: null });
+    expect(levelInfo(15_000)).toEqual({ level: 2, xp: 15_000, levelXp: 5_000, levelXpNeeded: 20_000, nextLevelAt: 30_000 });
+    expect(levelInfo(15_00_00_000)).toMatchObject({ level: 50, nextLevelAt: null });
   });
 
   test("editing the thresholds table changes levels without a release", async () => {
-    await db.execute(sql`update level_thresholds set xp_required = 50 where level = 2`);
+    await db.execute(sql`update level_thresholds set xp_required = 5_000 where level = 2`);
     await loadLevels();
-    expect(levelOf(60)).toBe(2);
-    await db.execute(sql`update level_thresholds set xp_required = 100 where level = 2`);
+    expect(levelOf(6_000)).toBe(2);
+    await db.execute(sql`update level_thresholds set xp_required = 10_000 where level = 2`);
     await loadLevels();
-    expect(levelOf(60)).toBe(1);
+    expect(levelOf(6_000)).toBe(1);
   });
 
   test("recharge credits coins and level points; idempotent; levels up", async () => {
@@ -493,36 +494,36 @@ describe("levels and recharge", () => {
     const me = async () => (await api("GET", "/me", u.token)).body;
     expect((await me()).level).toMatchObject({ level: 0, xp: 0 });
     const packages = (await api("GET", "/wallet/packages", u.token)).body;
-    expect(packages.map((p: any) => [p.coins, p.pricePaise])).toEqual([[100, 1000], [500, 5000], [990, 9900], [4990, 49900], [9990, 99900], [49990, 499900]]); // ₹1 = 10 coins, no bonus
+    expect(packages.map((p: any) => [p.coins, p.pricePaise])).toEqual([[1000, 1000], [5000, 5000], [9900, 9900], [49900, 49900], [99900, 99900], [499900, 499900]]); // ₹1 = 100 coins, no bonus
 
     const buy = (packageId: string, key: string) => api("POST", "/wallet/recharge", u.token, { packageId }, { "Idempotency-Key": key });
     const before = (await api("GET", "/wallet", u.token)).body.balance;
-    // ₹99 for 990 coins → 99 XP: level 0 → Lv 1 (Lv 2 needs 100).
-    const r1 = await buy("coins_990", "r1");
-    expect(r1.body).toMatchObject({ balance: before + 990, leveledUp: true, level: { level: 1, xp: 99 } });
+    // ₹99 for 9,900 coins → 9,900 XP: level 0 → Lv 1 (Lv 2 needs 10,000).
+    const r1 = await buy("coins_9900", "r1");
+    expect(r1.body).toMatchObject({ balance: before + 9900, leveledUp: true, level: { level: 1, xp: 9900 } });
     // Retry: no second credit.
-    expect((await buy("coins_990", "r1")).body.replayed).toBe(true);
+    expect((await buy("coins_9900", "r1")).body.replayed).toBe(true);
     await Bun.sleep(100);
     // One inbox notice from the Recharge Notification account (support staff), none for the replay.
     const notices = (await api("GET", "/dm/pending", u.token)).body.messages;
     expect(notices).toEqual([
       expect.objectContaining({
-        notice: { kind: "RECHARGE", status: "SUCCESS", coins: 990, balance: before + 990, txnId: expect.stringMatching(/^TXN\d+$/), paidRupees: 99 },
+        notice: { kind: "RECHARGE", status: "SUCCESS", coins: 9900, balance: before + 9900, txnId: expect.stringMatching(/^TXN\d+$/), paidRupees: 99 },
         sender: expect.objectContaining({ displayName: "Recharge Notification", staffRole: "SUPPORT" }),
       }),
     ]);
-    expect((await api("GET", "/wallet", u.token)).body.balance).toBe(before + 990);
-    expect((await buy("coins_4990", "r1")).body.error.code).toBe("IDEMPOTENCY_CONFLICT");
+    expect((await api("GET", "/wallet", u.token)).body.balance).toBe(before + 9900);
+    expect((await buy("coins_49900", "r1")).body.error.code).toBe("IDEMPOTENCY_CONFLICT");
     expect((await buy("nope", "r9")).body.error.code).toBe("INVALID_PACKAGE");
 
-    // ₹99 + ₹499 = 598 XP → Lv 3 (needs 300; Lv 4 needs 600).
-    const r2 = await buy("coins_4990", "r2");
-    expect(r2.body).toMatchObject({ leveledUp: true, level: { level: 3, xp: 598, levelXp: 298, levelXpNeeded: 300 } });
+    // 9,900 + 49,900 = 59,800 XP → Lv 3 (needs 30,000; Lv 4 needs 60,000).
+    const r2 = await buy("coins_49900", "r2");
+    expect(r2.body).toMatchObject({ leveledUp: true, level: { level: 3, xp: 59_800, levelXp: 29_800, levelXpNeeded: 30_000 } });
     expect((await me()).level.level).toBe(3);
 
     // Spending coins never lowers the level; the ledger still matches the balance.
     const ledger = (await api("GET", "/wallet/transactions?limit=50", u.token)).body.entries;
-    expect(ledger.filter((e: any) => e.entryType === "RECHARGE").map((e: any) => e.amount).sort()).toEqual([4990, 990]);
+    expect(ledger.filter((e: any) => e.entryType === "RECHARGE").map((e: any) => e.amount).sort()).toEqual([49900, 9900]);
     expect(ledger.reduce((s: number, e: any) => s + e.amount, 0)).toBe((await api("GET", "/wallet", u.token)).body.balance);
   });
 });
@@ -1544,10 +1545,10 @@ describe("staff console and seller wallets", () => {
     const got = (await api("GET", "/dm/pending", buyer.token)).body.messages.at(-1);
     expect(got.notice).toMatchObject({ kind: "SELLER", status: "SUCCESS", coins: 300, balance: before + 300 });
     expect(got.body).not.toContain(seller.handle); // the seller stays anonymous
-    expect((await api("GET", "/me", buyer.token)).body.level.xp).toBe(30); // 300 coins at ₹1 = 10 coins
+    expect((await api("GET", "/me", buyer.token)).body.level.xp).toBe(300); // 1 XP per coin bought
     // ...and counts toward SVIP like an app recharge.
-    const { rows: svipRows } = await db.execute<{ paise: number }>(sql`select sum(price_paise)::int as paise from recharges where user_id = ${buyer.id}`);
-    expect(svipRows[0]!.paise).toBe(3000);
+    const { rows: svipRows } = await db.execute<{ coins: number; paise: number }>(sql`select sum(coins)::int as coins, sum(price_paise)::int as paise from recharges where user_id = ${buyer.id}`);
+    expect(svipRows[0]).toEqual({ coins: 300, paise: 300 }); // ₹3 at ₹1 = 100 coins
     const mine = await coins(seller.token);
     expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: String(sid), amount: 100, idempotencyKey: key() })).body.balance).toBe(600);
     expect(await coins(seller.token)).toBe(mine + 100);
@@ -3043,17 +3044,17 @@ describe("Daily and weekly tasks", () => {
     hostSocket.on("task:done", (e) => heard.push(e));
     const note = nextEvent(fanSocket, "task:done");
     await announceDoneTasks();
-    expect(await note).toMatchObject({ taskId: "user-day-minutes", scope: "USER", reward: 20 });
+    expect(await note).toMatchObject({ taskId: "user-day-minutes", scope: "USER", reward: 2000 });
     fanSocket.on("task:done", (e) => heard.push(e));
     await announceDoneTasks();
     await Bun.sleep(100);
     expect(heard).toEqual([]);
     const claim = await api("POST", "/tasks/user-day-minutes/claim", fan.token);
-    expect(claim.body).toMatchObject({ reward: 20, leveledUp: true, level: { level: 1, xp: 20 } });
+    expect(claim.body).toMatchObject({ reward: 2000, leveledUp: true, level: { level: 1, xp: 2000 } });
     expect((await api("POST", "/tasks/user-day-minutes/claim", fan.token)).status).toBe(409);
     expect(task((await api("GET", "/tasks", fan.token)).body.user, "user-day-minutes")).toMatchObject({ progress: 30, claimed: true });
 
-    // 3 more visits of 100 minutes: the room has 340 visitor minutes today; the owner claims 2,000 room points.
+    // 3 more visits of 100 minutes: the room has 340 visitor minutes today; the owner claims 20,000 room points.
     await db.execute(sql`insert into room_participants (room_id, user_id, presence, created_at, left_at)
       select ${roomId}, ${fan.id}, 'LEFT', now() - interval '100 minutes', now() from generate_series(1, 3)`);
     const mine = (await api("GET", "/tasks", host.token)).body;
@@ -3061,9 +3062,9 @@ describe("Daily and weekly tasks", () => {
     expect(task(mine.room.tasks, "room-day-minutes")).toMatchObject({ progress: 300, claimed: false });
     const pointsBefore = (await api("GET", `/rooms/${roomId}`, host.token)).body.level.points;
     const room = (await api("POST", "/tasks/room-day-minutes/claim", host.token)).body;
-    expect(room.reward).toBe(2000);
-    expect(room.roomLevel.points - pointsBefore).toBeGreaterThanOrEqual(2000);
-    expect(room.roomLevel.points - pointsBefore).toBeLessThan(2100);
+    expect(room.reward).toBe(20_000);
+    expect(room.roomLevel.points - pointsBefore).toBeGreaterThanOrEqual(20_000);
+    expect(room.roomLevel.points - pointsBefore).toBeLessThan(21_000);
     expect((await api("POST", "/tasks/room-day-minutes/claim", host.token)).body.error.code).toBe("TASK_CLAIMED");
   });
 });

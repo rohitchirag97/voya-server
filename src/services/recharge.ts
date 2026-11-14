@@ -6,7 +6,7 @@ import { AppError, toSafeError } from "../lib/errors";
 import { levelInfo, levelOf } from "../lib/levels";
 import { rateLimit } from "../lib/rateLimit";
 import { notifyCoins } from "./dmPush";
-import { announceToAllRooms, monthRupeesOf, tierFor } from "./svip";
+import { announceToAllRooms, monthCoinsOf, tierFor } from "./svip";
 
 // One flat price for every amount, no bonus coins: ₹1 = 100 coins. (Coin sellers resell at this price.)
 export const PAISE_PER_COIN = 1;
@@ -56,7 +56,7 @@ export async function recharge(user: User, packageId: string, key: string | unde
         .insert(walletLedger)
         .values({ userId: user.id, entryType: "RECHARGE", amount: pkg.coins, referenceType: "RECHARGE", referenceId: r!.id })
         .returning({ id: walletLedger.id });
-      const earned = Math.floor(pkg.pricePaise / 100);
+      const earned = pkg.coins; // 1 XP per coin
       const [u] = await tx
         .update(users)
         .set({ xp: sql`${users.xp} + ${earned}` })
@@ -65,7 +65,7 @@ export async function recharge(user: User, packageId: string, key: string | unde
       const level = levelInfo(u!.xp);
       return { recharge: r!, balance: w!.balance, level, leveledUp: level.level > levelOf(u!.xp - earned), replayed: false, txnId: `TXN${entry!.id}` };
     });
-    announceRecharge(user, Math.floor(pkg.pricePaise / 100), result.level.level, result.leveledUp).catch(toSafeError);
+    announceRecharge(user, pkg.coins, result.level.level, result.leveledUp).catch(toSafeError);
     const paidRupees = Math.floor(pkg.pricePaise / 100);
     notifyCoins(user.id, { kind: "RECHARGE", status: "SUCCESS", coins: pkg.coins, balance: result.balance, txnId: result.txnId, paidRupees }).catch(toSafeError);
     return result;
@@ -80,9 +80,9 @@ export async function recharge(user: User, packageId: string, key: string | unde
 }
 
 // Tell every open room about this recharge (app or seller) and any SVIP tier-up it caused.
-export async function announceRecharge(user: User, rupees: number, level: number, leveledUp: boolean) {
+export async function announceRecharge(user: User, coins: number, level: number, leveledUp: boolean) {
   announceToAllRooms(user, { kind: "RECHARGE", level, leveledUp });
-  const month = await monthRupeesOf(user.id);
+  const month = await monthCoinsOf(user.id);
   const tier = tierFor(month);
-  if (tier > tierFor(month - rupees)) announceToAllRooms(user, { kind: "SVIP_UP", tier });
+  if (tier > tierFor(month - coins)) announceToAllRooms(user, { kind: "SVIP_UP", tier });
 }

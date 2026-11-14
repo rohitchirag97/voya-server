@@ -76,8 +76,9 @@ export const users = pgTable(
     avatarUrl: text("avatar_url"),
     bio: text("bio"),
     status: userStatus("status").notNull().default("ACTIVE"),
-    // Recharge points (1 per ₹1 recharged) plus claimed task XP (lib/tasks.ts); the level comes from level_thresholds. Never decreases.
-    xp: integer("xp").notNull().default(0),
+    // Recharge points (1 per coin recharged, app or coin seller) plus claimed task XP (lib/tasks.ts); the level comes from
+    // level_thresholds. Never decreases. bigint: a lifetime total of coins can pass what a 32-bit column holds.
+    xp: bigint("xp", { mode: "number" }).notNull().default(0),
     // Equipped decorations (null = none).
     avatarFrameId: text("avatar_frame_id").references(() => cosmetics.id),
     cardDecorId: text("card_decor_id").references(() => cosmetics.id),
@@ -472,7 +473,7 @@ export const recharges = pgTable(
   (t) => [uniqueIndex("recharges_idempotency").on(t.userId, t.idempotencyKey), check("recharge_coins_positive", sql`${t.coins} > 0`)],
 );
 
-// Total recharge XP (1 per ₹1) needed to reach each level. Edit rows to retune; the server reloads every minute.
+// Total recharge XP (1 per coin recharged) needed to reach each level. Edit rows to retune; the server reloads every minute.
 export const levelThresholds = pgTable(
   "level_thresholds",
   {

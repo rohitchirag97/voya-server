@@ -4,16 +4,17 @@ import { cosmetics, recharges, users } from "../db/schema";
 import { io } from "../io";
 import { AppError, toSafeError } from "../lib/errors";
 
-// SVIP: tier from the ₹ recharged between the 1st and the last day of the current calendar month (India time).
+// SVIP: tier from the coins recharged (app or coin seller) between the 1st and the last day of the current calendar month
+// (India time).
 // It runs out when the month ends; recharging in the new month earns it again. Perk minimums: see SVIP_PERKS.
 // SVIP6 is the top tier.
 export const SVIP_TIERS = [
-  { tier: 1, rupees: 5_000 },
-  { tier: 2, rupees: 15_000 },
-  { tier: 3, rupees: 30_000 },
-  { tier: 4, rupees: 60_000 },
-  { tier: 5, rupees: 1_20_000 },
-  { tier: 6, rupees: 2_50_000 },
+  { tier: 1, coins: 5_00_000 }, // ₹5,000 at ₹1 = 100 coins
+  { tier: 2, coins: 15_00_000 },
+  { tier: 3, coins: 30_00_000 },
+  { tier: 4, coins: 60_00_000 },
+  { tier: 5, coins: 1_20_00_000 },
+  { tier: 6, coins: 2_50_00_000 },
 ] as const;
 
 // Each tier's animations (entry, frame, seat badge, name decoration, profile badge) are SVGAs in
@@ -44,12 +45,12 @@ export const SVIP_PERK_TEXT: { key: keyof typeof SVIP_PERKS; title: string; deta
   { key: "antiKick", title: "Kick protection", detail: "Owners and admins below your tier can't kick, mute or unseat you" },
 ];
 
-export const tierFor = (rupees: number) => SVIP_TIERS.filter((t) => rupees >= t.rupees).at(-1)?.tier ?? 0;
+export const tierFor = (coins: number) => SVIP_TIERS.filter((t) => coins >= t.coins).at(-1)?.tier ?? 0;
 
 const IST = sql.raw(`'Asia/Kolkata'`);
 const monthStart = sql`(date_trunc('month', now() at time zone ${IST}) at time zone ${IST})`;
-const tierValues = sql.raw(SVIP_TIERS.map((t) => `(${t.tier},${t.rupees})`).join(","));
-const monthRupeesSql = sql`(select coalesce(sum(r.price_paise), 0) / 100 from ${recharges} r where r.user_id = ${users.id} and r.status = 'SUCCESS' and r.created_at >= ${monthStart})`;
+const tierValues = sql.raw(SVIP_TIERS.map((t) => `(${t.tier},${t.coins})`).join(","));
+const monthCoinsSql = sql`(select coalesce(sum(r.coins), 0) from ${recharges} r where r.user_id = ${users.id} and r.status = 'SUCCESS' and r.created_at >= ${monthStart})`;
 
 // SVIP won as a prize (svip_grants), still running: the highest such tier.
 // ("users"."id" spelled out: drizzle can drop the table name, which would then mean svip_grants.id.)
@@ -57,39 +58,39 @@ const grantTierSql = sql`(select coalesce(max(g.tier), 0) from svip_grants g whe
 
 // Tier as a column, for any query that selects from users: from this month's recharges, or a prize, whichever is higher.
 // shortcut: one small sum per row; cache tiers in a column if lists of users get slow.
-export const svipSql = sql<number>`greatest((select coalesce(max(t.tier), 0) from (values ${tierValues}) t(tier, rupees) where t.rupees <= ${monthRupeesSql}), ${grantTierSql})`.mapWith(Number);
+export const svipSql = sql<number>`greatest((select coalesce(max(t.tier), 0) from (values ${tierValues}) t(tier, coins) where t.coins <= ${monthCoinsSql}), ${grantTierSql})`.mapWith(Number);
 
 export async function svipOf(userId: string) {
   const [row] = await db.select({ svip: svipSql }).from(users).where(eq(users.id, userId));
   return row?.svip ?? 0;
 }
 
-export async function monthRupeesOf(userId: string) {
-  const [row] = await db.select({ rupees: sql<number>`${monthRupeesSql}`.mapWith(Number) }).from(users).where(eq(users.id, userId));
-  return row?.rupees ?? 0;
+export async function monthCoinsOf(userId: string) {
+  const [row] = await db.select({ coins: sql<number>`${monthCoinsSql}`.mapWith(Number) }).from(users).where(eq(users.id, userId));
+  return row?.coins ?? 0;
 }
 
 // Your SVIP page: tier, this month's progress, and when the month (and so the tier) ends.
 export async function svipStatus(userId: string) {
   const [row] = await db
     .select({
-      rupees: sql<number>`${monthRupeesSql}`.mapWith(Number),
+      coins: sql<number>`${monthCoinsSql}`.mapWith(Number),
       monthEnd: sql<string>`((date_trunc('month', now() at time zone ${IST}) + interval '1 month') at time zone ${IST})`,
       grantTier: sql<number>`${grantTierSql}`.mapWith(Number),
       grantEnds: sql<string | null>`(select g.expires_at from svip_grants g where g.user_id = "users"."id" and g.expires_at > now() order by g.tier desc, g.expires_at desc limit 1)`,
     })
     .from(users)
     .where(eq(users.id, userId));
-  const earned = tierFor(row!.rupees);
+  const earned = tierFor(row!.coins);
   const tier = Math.max(earned, row!.grantTier);
   // A prize tier above what recharges earned lasts until the prize ends; otherwise until the month ends.
   const validUntil = tier === 0 ? null : row!.grantTier > earned && row!.grantEnds ? new Date(row!.grantEnds) : new Date(row!.monthEnd);
   const next = SVIP_TIERS.find((t) => t.tier > tier) ?? null;
   return {
     tier,
-    thisMonthRupees: row!.rupees,
+    thisMonthCoins: row!.coins,
     validUntil,
-    next: next && { tier: next.tier, rupees: next.rupees, remaining: next.rupees - row!.rupees },
+    next: next && { tier: next.tier, coins: next.coins, remaining: next.coins - row!.coins },
     tiers: SVIP_TIERS.map((t) => ({ ...t, perks: SVIP_PERK_TEXT.filter((p) => SVIP_PERKS[p.key] <= t.tier).map(({ title, detail }) => ({ title, detail })) })),
   };
 }

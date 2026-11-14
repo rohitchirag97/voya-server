@@ -72,14 +72,14 @@ export async function sell(seller: User, to: User, amount: number, key: string) 
       .insert(walletLedger)
       .values({ userId: to.id, entryType: "SELLER_PURCHASE", amount, referenceType: "SELLER_LEDGER", referenceId: String(entry!.id) })
       .returning({ id: walletLedger.id });
-    // Counts as a recharge for the buyer (SVIP is this month's recharges), and earns level points the same way.
+    // Counts as a recharge for the buyer (SVIP is this month's recharged coins), and earns level points the same way: 1 per coin.
     const pricePaise = sellerPricePaise(amount);
     await tx.insert(recharges).values({ userId: to.id, packageId: "seller", coins: amount, pricePaise, provider: "SELLER", idempotencyKey: `seller:${entry!.id}` });
     const rupees = Math.floor(pricePaise / 100);
-    const [u] = await tx.update(users).set({ xp: sql`${users.xp} + ${rupees}` }).where(eq(users.id, to.id)).returning({ xp: users.xp });
+    const [u] = await tx.update(users).set({ xp: sql`${users.xp} + ${amount}` }).where(eq(users.id, to.id)).returning({ xp: users.xp });
     return { balance, toBalance: w.balance, xp: u!.xp, rupees, txnId: `TXN${received!.id}`, to: { userId: to.id, displayName: to.displayName, publicId: to.publicId } };
   });
-  announceRecharge(to, rupees, levelOf(xp), levelOf(xp) > levelOf(xp - rupees)).catch(toSafeError);
+  announceRecharge(to, amount, levelOf(xp), levelOf(xp) > levelOf(xp - amount)).catch(toSafeError);
   notifyCoins(to.id, { kind: "SELLER", status: "SUCCESS", coins: amount, balance: toBalance, txnId }).catch(toSafeError);
   return result;
 }
