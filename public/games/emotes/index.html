@@ -418,8 +418,9 @@ const rand = (a, b) => a + Math.random() * (b - a);
 // o: at, vel, life (ms), g (gravity), drag, spin, size, grow, fade (true: own material that fades), twinkle
 function spawn(e, obj, o) {
   obj.position.copy(o.at);
+  if (o.face) obj.position.divideScalar(FXS); // starts on the emote (tears from the eyes...), then moves in the close-in space
   if (o.rot) obj.rotation.set(rand(0, 6), rand(0, 6), rand(0, 6));
-  e.group.add(obj);
+  e.fxg.add(obj);
   e.parts.push({ obj, vel: o.vel ?? V(), born: e.t, life: o.life ?? 800, g: o.g ?? 0, drag: o.drag ?? 0, spin: o.spin ?? 0, size: o.size ?? 0.1, grow: o.grow ?? 0, twinkle: o.twinkle ?? 0, tumble: !!o.rot, op: o.opacity ?? 1 });
 }
 const fadeMat = (m) => { const c = m.clone(); c.transparent = true; return c; };
@@ -430,7 +431,7 @@ function sparkles(e, at, n, color = 0xfff2b0, speed = 1.4, size = 0.16) {
   }
 }
 function ring(e, at, color, life = 650, to = 1.6) { spawn(e, new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })), { at, life, size: 1, grow: to }); }
-function puff(e, at, vel, size = 0.22, color = 0xffffff, life = 700) { spawn(e, sprite(glowTex, color, false), { at, vel, life, size, grow: 1.6, drag: 1.5, opacity: 0.85 }); }
+function puff(e, at, vel, size = 0.22, color = 0xffffff, life = 700) { spawn(e, sprite(glowTex, color, false), { at, vel, life, size, grow: 1.6, drag: 1.5, opacity: 0.85, face: true }); }
 
 // ---------- effects ----------
 const fx = [];
@@ -439,14 +440,17 @@ const easeOut = (x) => 1 - Math.pow(1 - clamp01(x), 3);
 const backOut = (x) => { x = clamp01(x); const c = 2.2; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
 const FINAL = { 1: new THREE.Euler(0, 0, 0), 6: new THREE.Euler(0, Math.PI, 0), 3: new THREE.Euler(0, -Math.PI / 2, 0), 4: new THREE.Euler(0, Math.PI / 2, 0), 2: new THREE.Euler(Math.PI / 2, 0, 0), 5: new THREE.Euler(-Math.PI / 2, 0, 0) };
 const ROLL = 1300;
-const SCALE = { dice: 0.95, coin: 1.05, roller: 1.15, heart: 1.15, hand: 1.2, help: 1.1, giftme: 1.1 }; // x the seat picture; faces 1.25
+// x the seat picture (faces 0.95): about the picture's size, so everything stays on the seat
+const SCALE = { dice: 0.72, coin: 0.8, roller: 0.9, heart: 0.88, hand: 0.8, help: 0.8, giftme: 0.8 };
+const FXS = 0.55; // particles, clouds, orbits... drawn at this scale round the emote, so they stay close
 const GLOW = { smile: 0xffd23f, laugh: 0xffd23f, cry: 0x58c4f5, kiss: 0xff5f9e, angry: 0xff4a2a, heart: 0xff2d55, hand: 0xffd23f, dice: 0xffffff, coin: 0xffc94a, roller: 0xffc94a, dance: 0xb44bff, sad: 0x6f9bd8, naughty: 0xc04cff, sick: 0x7fd14a, help: 0xff3b3b, giftme: 0xff7ab8 };
 const DUR = { smile: 3000, laugh: 3000, cry: 3200, kiss: 3200, angry: 3000, heart: 3200, hand: 2800, dice: 3800, coin: 3800, roller: 3800, dance: 3600, sad: 3300, naughty: 3000, sick: 3300, help: 3400, giftme: 3400 };
 
 function play({ emote: k, result, x, y, size }) {
   const group = new THREE.Group(), body = new THREE.Group();
   group.add(body);
-  const e = { k, result, group, body, t: 0, last: 0, dur: DUR[k] ?? 3000, parts: [], flags: {}, next: 0 };
+  const fxg = new THREE.Group(); fxg.scale.setScalar(FXS); group.add(fxg);
+  const e = { k, result, group, body, fxg, t: 0, last: 0, dur: DUR[k] ?? 3000, parts: [], flags: {}, next: 0 };
   let model;
   if (k === 'heart') model = new THREE.Mesh(heartGeo, heartMat);
   else if (k === 'hand') model = hand();
@@ -457,30 +461,30 @@ function play({ emote: k, result, x, y, size }) {
   e.model = model;
   body.add(model);
   // a soft coloured glow behind, a shadow under
-  e.glow = sprite(glowTex, GLOW[k] ?? 0xffffff); e.glow.position.z = -0.6; e.glow.scale.setScalar(2.2); group.add(e.glow);
+  e.glow = sprite(glowTex, GLOW[k] ?? 0xffffff); e.glow.position.z = -0.6; e.glow.scale.setScalar(2.4); fxg.add(e.glow);
   e.shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
   e.shadow.position.set(0, -0.66, -0.7); group.add(e.shadow);
-  if (k === 'cry') { e.cloud = cloud(); e.cloud.position.set(0, 1.25, -0.1); e.cloud.scale.setScalar(0.001); group.add(e.cloud); }
+  if (k === 'cry') { e.cloud = cloud(); e.cloud.position.set(0, 1.25, -0.1); e.cloud.scale.setScalar(0.001); fxg.add(e.cloud); }
   if (k === 'angry') { e.vein = vein(); e.vein.position.set(0.36, 0.42, 0.3); e.vein.scale.setScalar(0.001); group.add(e.vein); }
-  if (k === 'heart') { e.orbit = [0, 1, 2].map(() => { const m = new THREE.Mesh(heartGeo, pinkMat); m.scale.setScalar(0.001); group.add(m); return m; }); }
+  if (k === 'heart') { e.orbit = [0, 1, 2].map(() => { const m = new THREE.Mesh(heartGeo, pinkMat); m.scale.setScalar(0.001); fxg.add(m); return m; }); }
   e.trash = []; // per-emote objects to dispose at the end
   if (k === 'dance') {
-    e.disco = disco(); e.disco.position.set(0, 1.05, -0.15); e.disco.scale.setScalar(0.001); group.add(e.disco); e.trash.push(e.disco);
-    e.beams = [0, 1, 2].map((i) => { const b = sprite(glowTex, 0xffffff); b.position.z = -0.5; group.add(b); e.trash.push(b); return b; });
+    e.disco = disco(); e.disco.position.set(0, 1.05, -0.15); e.disco.scale.setScalar(0.001); fxg.add(e.disco); e.trash.push(e.disco);
+    e.beams = [0, 1, 2].map((i) => { const b = sprite(glowTex, 0xffffff); b.position.z = -0.5; fxg.add(b); e.trash.push(b); return b; });
   }
-  if (k === 'sad') { e.halves = halfHearts.map((geo) => { const h = new THREE.Mesh(geo, heartMat); h.scale.setScalar(0.001); h.position.y = 0.95; group.add(h); return h; }); }
+  if (k === 'sad') { e.halves = halfHearts.map((geo) => { const h = new THREE.Mesh(geo, heartMat); h.scale.setScalar(0.001); h.position.y = 0.95; fxg.add(h); return h; }); }
   if (k === 'naughty') { e.horns = horns(); e.horns.scale.setScalar(0.001); model.add(e.horns); e.trash.push(e.horns); }
   if (k === 'sick') {
     e.thermo = thermometer(); model.add(e.thermo); e.trash.push(e.thermo);
-    e.germs = [0, 1, 2, 3].map(() => { const m = new THREE.Mesh(germGeo, germMat); m.scale.setScalar(0.001); group.add(m); return m; });
+    e.germs = [0, 1, 2, 3].map(() => { const m = new THREE.Mesh(germGeo, germMat); m.scale.setScalar(0.001); fxg.add(m); return m; });
   }
   if (k === 'help' || k === 'giftme') {
     model.position.y = 0.22; // the face sits above the sign it holds
     e.sign = sign(k); e.sign.position.set(0, -0.5, 0.32); body.add(e.sign);
-    if (k === 'giftme') { e.gift = giftBox(); e.gift.position.set(0.95, -0.05, 0.1); e.gift.scale.setScalar(0.001); group.add(e.gift); e.trash.push(e.gift); }
+    if (k === 'giftme') { e.gift = giftBox(); e.gift.position.set(0.95, -0.05, 0.1); e.gift.scale.setScalar(0.001); fxg.add(e.gift); e.trash.push(e.gift); }
   }
   group.position.set(x - W / 2, H / 2 - y, 0);
-  group.scale.setScalar(size * (SCALE[k] ?? 1.25));
+  group.scale.setScalar(size * (SCALE[k] ?? 0.95));
   scene.add(group);
   fx.push(e);
   if (!running) { running = true; lastNow = performance.now(); requestAnimationFrame(frame); }
@@ -520,7 +524,7 @@ function update(e, dt) {
     b.position.y += 0.07 * ha;
     b.scale.y *= 1 + 0.07 * ha; b.scale.x *= 1 - 0.04 * ha;
     Object.assign(face, { mouth: ha });
-    if (t > e.next && t < e.dur - 500) { e.next = t + 180; for (const sx of [-1, 1]) spawn(e, new THREE.Mesh(ball, tearMat), { at: V(sx * 0.42, 0.12, 0.25), vel: V(sx * rand(1, 1.5), rand(0.8, 1.3), 0.4), g: -4, life: 650, size: 0.09 }); }
+    if (t > e.next && t < e.dur - 500) { e.next = t + 180; for (const sx of [-1, 1]) spawn(e, new THREE.Mesh(ball, tearMat), { at: V(sx * 0.42, 0.12, 0.25), face: true, vel: V(sx * rand(0.55, 0.85), rand(0.7, 1.1), 0.4), g: -4, life: 600, size: 0.09 }); }
   } else if (e.k === 'cry') {
     const sob = Math.abs(Math.sin(sec * 9));
     m.rotation.set(0.22, enter + 0.12 * Math.sin(sec * 18), 0.05 * Math.sin(sec * 4));
@@ -528,12 +532,12 @@ function update(e, dt) {
     Object.assign(face, { flow: sec * 1.4, mouth: 0.5 + 0.5 * Math.sin(sec * 17) });
     // a rain cloud drifts in above and rains on them
     const c = e.cloud, ca = easeOut((t - 250) / 500) * (t > e.dur - 450 ? 1 - easeOut((t - (e.dur - 450)) / 350) : 1);
-    c.scale.setScalar(Math.max(0.001, ca * 0.75)); c.position.x = 0.08 * Math.sin(sec * 2); c.position.y = 1.15 + 0.04 * Math.sin(sec * 3);
+    c.scale.setScalar(Math.max(0.001, ca * 0.75)); c.position.x = 0.08 * Math.sin(sec * 2); c.position.y = 0.98 + 0.04 * Math.sin(sec * 3);
     if (t > 700 && t > e.next && t < e.dur - 500) {
       e.next = t + 70;
       spawn(e, new THREE.Mesh(ball, tearMat), { at: V(c.position.x + rand(-0.3, 0.3), c.position.y - 0.15, rand(-0.05, 0.15)), vel: V(0, -2.2, 0), g: -3, life: 380, size: 0.05 });
     }
-    if (t > e.next2 || e.next2 === undefined) { e.next2 = t + 160; if (t > 400 && t < e.dur - 500) spawn(e, new THREE.Mesh(ball, tearMat), { at: V((Math.random() < 0.5 ? -1 : 1) * 0.2, -0.05, 0.42), vel: V(rand(-0.5, 0.5), 0.3, 0.2), g: -4.5, life: 700, size: 0.1 }); }
+    if (t > e.next2 || e.next2 === undefined) { e.next2 = t + 160; if (t > 400 && t < e.dur - 500) spawn(e, new THREE.Mesh(ball, tearMat), { at: V((Math.random() < 0.5 ? -1 : 1) * 0.2, -0.05, 0.42), face: true, vel: V(rand(-0.5, 0.5), 0.3, 0.2), g: -4.5, life: 700, size: 0.1 }); }
   } else if (e.k === 'kiss') {
     const lean = easeOut((t - 900) / 220) * (1 - easeOut((t - 1250) / 400));
     m.rotation.set(-0.25 * lean + 0.1 * (1 - lean) * Math.sin(sec * 3), enter + 0.3 * Math.sin(sec * 2.4) * (1 - lean), 0.12 * Math.sin(sec * 3));
@@ -541,10 +545,10 @@ function update(e, dt) {
     Object.assign(face, { blink: Math.max(blinkAt(500), blinkAt(2300)), pucker: t < 900 ? easeOut(t / 900) : t < 1150 ? 1.3 : 0.6 + 0.3 * Math.sin(sec * 6), blush: 0.6 + 0.4 * lean });
     if (!f.blown && t > 1080) { // the big kiss: a heart thrown at the viewer
       f.blown = true;
-      spawn(e, new THREE.Mesh(heartGeo, fadeMat(heartMat)), { at: V(0.05, -0.1, 0.5), vel: V(0, 0.15, 3.2), life: 900, size: 0.35, grow: 1.8, spin: 0 });
+      spawn(e, new THREE.Mesh(heartGeo, fadeMat(heartMat)), { at: V(0.05, -0.1, 0.5), vel: V(0, 0.15, 3.2), face: true, life: 900, size: 0.35, grow: 1.8, spin: 0 });
       sparkles(e, V(0.05, -0.1, 0.5), 10, 0xff9fc4, 1.6);
     }
-    if (t > 1300 && t > e.next && t < e.dur - 600) { e.next = t + 200; const sx = f.side = -(f.side ?? 1); spawn(e, new THREE.Mesh(heartGeo, fadeMat(pinkMat)), { at: V(sx * 0.3, -0.05, 0.3), vel: V(sx * rand(1.2, 1.7), rand(0.6, 1.1), 0.2), g: -0.8, life: 1000, size: 0.22, spin: 4 }); }
+    if (t > 1300 && t > e.next && t < e.dur - 600) { e.next = t + 200; const sx = f.side = -(f.side ?? 1); spawn(e, new THREE.Mesh(heartGeo, fadeMat(pinkMat)), { at: V(sx * 0.3, -0.05, 0.3), face: true, vel: V(sx * rand(1.2, 1.7), rand(0.6, 1.1), 0.2), g: -0.8, life: 1000, size: 0.22, spin: 4 }); }
   } else if (e.k === 'angry') {
     const boil = clamp01((t - 300) / 1600); // it gets angrier
     const shake = 0.015 + 0.05 * boil;
@@ -566,7 +570,7 @@ function update(e, dt) {
     Object.assign(face, { mouth: beat });
     const hue = (sec * 0.35) % 1;
     e.glow.material.color.setHSL(hue, 0.9, 0.6);
-    const d = e.disco; d.scale.setScalar(Math.max(0.001, easeOut((t - 200) / 400) * (t > e.dur - 400 ? 0 : 1))); d.rotation.y = sec * 3; d.position.y = 1.05 + 0.03 * Math.sin(sec * 3);
+    const d = e.disco; d.scale.setScalar(Math.max(0.001, easeOut((t - 200) / 400) * (t > e.dur - 400 ? 0 : 1))); d.rotation.y = sec * 3; d.position.y = 0.92 + 0.03 * Math.sin(sec * 3);
     e.beams.forEach((bm, i) => { // coloured lights sweeping round behind
       const a = sec * 2.2 + (i * Math.PI * 2) / 3;
       bm.position.set(Math.cos(a) * 0.75, 0.2 + Math.sin(a) * 0.45, -0.5);
@@ -591,7 +595,7 @@ function update(e, dt) {
     }
     if (!f.crack && t > 1300) { f.crack = true; sparkles(e, V(0, 1, 0.2), 6, 0xbfd6ff, 0.8, 0.1); }
     if (!f.sigh && t > 1600) { f.sigh = true; puff(e, V(0.05, -0.25, 0.5), V(0.25, -0.15, 0.4), 0.16, 0xcfe0ff, 900); }
-    if (t > 600 && t > e.next && t < e.dur - 500) { e.next = t + 850; const sx = f.side = -(f.side ?? 1); spawn(e, new THREE.Mesh(ball, tearMat), { at: V(sx * 0.2, -0.08, 0.42), vel: V(sx * 0.1, 0, 0.15), g: -3, life: 900, size: 0.09 }); }
+    if (t > 600 && t > e.next && t < e.dur - 500) { e.next = t + 850; const sx = f.side = -(f.side ?? 1); spawn(e, new THREE.Mesh(ball, tearMat), { at: V(sx * 0.2, -0.08, 0.42), face: true, vel: V(sx * 0.1, 0, 0.15), g: -3, life: 900, size: 0.09 }); }
   } else if (e.k === 'naughty') {
     m.rotation.set(-0.05 + 0.06 * Math.sin(sec * 9), enter + 0.35 * Math.sin(sec * 3), 0.22 * Math.sin(sec * 4.5));
     b.position.x = 0.05 * Math.sin(sec * 9);
@@ -614,7 +618,7 @@ function update(e, dt) {
       gm.scale.setScalar(Math.max(0.001, 0.13 * easeOut((t - 300 - i * 150) / 300) * (t > e.dur - 450 ? 0 : 1)));
     });
     if (!f.sneeze && t > 1880) { f.sneeze = true; for (let i = 0; i < 7; i++) puff(e, V(0, -0.2, 0.5), V(rand(-0.6, 0.6), rand(-0.3, 0.3), rand(1, 1.8)), 0.13, 0xb8e986, 700); }
-    if (t > 500 && t > e.next && t < e.dur - 500) { e.next = t + 650; spawn(e, new THREE.Mesh(ball, tearMat), { at: V(rand(0.25, 0.4), 0.3, 0.33), vel: V(0.1, -0.2, 0.1), g: -1.5, life: 900, size: 0.08 }); }
+    if (t > 500 && t > e.next && t < e.dur - 500) { e.next = t + 650; spawn(e, new THREE.Mesh(ball, tearMat), { at: V(rand(0.25, 0.4), 0.3, 0.33), face: true, vel: V(0.1, -0.2, 0.1), g: -1.5, life: 900, size: 0.08 }); }
   } else if (e.k === 'help' || e.k === 'giftme') {
     const help = e.k === 'help';
     const hop = help ? Math.abs(Math.sin(sec * 7)) : Math.abs(Math.sin(sec * 3.2));
@@ -627,7 +631,7 @@ function update(e, dt) {
     if (help) {
       const n = Math.floor(sec / 0.6);
       if (n !== f.alarm && t > 300 && t < e.dur - 500) { f.alarm = n; ring(e, V(0, 0.15, -0.3), 0xff3b3b, 600, 1.6); }
-      if (t > e.next && t < e.dur - 500) { e.next = t + 500; spawn(e, new THREE.Mesh(ball, tearMat), { at: V(0.45, 0.5, 0.2), vel: V(rand(0.6, 1), rand(0.8, 1.2), 0.2), g: -4, life: 600, size: 0.07 }); }
+      if (t > e.next && t < e.dur - 500) { e.next = t + 500; spawn(e, new THREE.Mesh(ball, tearMat), { at: V(0.45, 0.5, 0.2), face: true, vel: V(rand(0.6, 1), rand(0.8, 1.2), 0.2), g: -4, life: 600, size: 0.07 }); }
     } else {
       const gb = e.gift; gb.scale.setScalar(Math.max(0.001, backOut((t - 350) / 350) * 0.9 * (t > e.dur - 400 ? 0 : 1)));
       gb.position.y = -0.05 + 0.08 * Math.sin(sec * 4); gb.rotation.set(0.25, sec * 1.8, 0.12 * Math.sin(sec * 3));
@@ -710,7 +714,7 @@ function update(e, dt) {
 
   for (let i = e.parts.length - 1; i >= 0; i--) {
     const q = e.parts[i], a = (t - q.born) / q.life;
-    if (a >= 1) { e.group.remove(q.obj); if (q.obj.material !== tearMat && q.obj.material !== pinkMat && q.obj.material !== heartMat) q.obj.material.dispose(); if (q.obj.geometry && q.obj.geometry !== ball && q.obj.geometry !== heartGeo && q.obj.geometry !== ringGeo && q.obj.geometry !== confettiGeo) q.obj.geometry.dispose(); e.parts.splice(i, 1); continue; }
+    if (a >= 1) { e.fxg.remove(q.obj); if (q.obj.material !== tearMat && q.obj.material !== pinkMat && q.obj.material !== heartMat) q.obj.material.dispose(); if (q.obj.geometry && q.obj.geometry !== ball && q.obj.geometry !== heartGeo && q.obj.geometry !== ringGeo && q.obj.geometry !== confettiGeo) q.obj.geometry.dispose(); e.parts.splice(i, 1); continue; }
     q.vel.y += q.g * dt;
     q.vel.multiplyScalar(Math.max(0, 1 - q.drag * dt));
     q.obj.position.addScaledVector(q.vel, dt);
