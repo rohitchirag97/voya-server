@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Emotes</title>
+<style>
+  /* Room emotes in 3D (three.js): one transparent layer over the whole room; the app asks it to play an emote at a
+     seat's position. Nothing here is touchable, and it only renders while something is playing. */
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; pointer-events: none; }
+  canvas { display: block; }
+</style>
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.min.js" } }</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from '/vendor/three/RoundedBoxGeometry.js';
+import { RoomEnvironment } from '/vendor/three/RoomEnvironment.js';
+
+const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m));
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+} catch {
+  post({ type: 'ready', ok: false }); // no WebGL: the app keeps its own (2D) emotes
+  throw new Error('no webgl');
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.5));
+renderer.setClearColor(0x000000, 0);
+renderer.toneMapping = THREE.NeutralToneMapping; // keeps emoji colours saturated
+renderer.toneMappingExposure = 1.0;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; // soft studio reflections on every surface
+scene.environmentIntensity = 0.55;
+const sun = new THREE.DirectionalLight(0xffffff, 1.9);
+sun.position.set(-0.6, 1, 1.3);
+scene.add(sun, new THREE.AmbientLight(0xffffff, 0.15));
+
+// A camera that maps the z = 0 plane to CSS pixels, so an emote sits exactly where the app says.
+const camera = new THREE.PerspectiveCamera(30, 1, 1, 20000);
+let W = 1, H = 1;
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  renderer.setSize(W, H);
+  camera.aspect = W / H;
+  camera.position.set(0, 0, H / 2 / Math.tan(THREE.MathUtils.degToRad(15)));
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------- painted textures ----------
+function canvasTex(w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+// Faces: a sphere wrapped in an equirectangular picture; the front of the sphere is at (256, 256) of 1024 x 512.
+const INK = '#5a3412';
+function faceTex(kind) {
+  return canvasTex(1024, 512, (g) => {
+    const top = kind === 'angry' ? '#ffa04a' : '#ffe27a', bottom = kind === 'angry' ? '#e0321e' : '#f6a21c';
+    const grad = g.createLinearGradient(0, 0, 0, 512);
+    grad.addColorStop(0, top); grad.addColorStop(0.55, kind === 'angry' ? '#f86a2c' : '#ffc93c'); grad.addColorStop(1, bottom);
+    g.fillStyle = grad; g.fillRect(0, 0, 1024, 512);
+    const cx = 256, cy = 256;
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    const line = (w, pts, color = INK) => { g.strokeStyle = color; g.lineWidth = w; g.beginPath(); pts(g); g.stroke(); };
+    const blush = () => { g.save(); g.filter = 'blur(10px)'; g.fillStyle = 'rgba(255,90,110,.5)'; for (const s of [-1, 1]) { g.beginPath(); g.ellipse(cx + s * 100, cy + 32, 34, 20, 0, 0, Math.PI * 2); g.fill(); } g.restore(); };
+    const happyEyes = () => line(15, (g) => { for (const s of [-1, 1]) { g.moveTo(cx + s * 55 - 24, cy - 28); g.quadraticCurveTo(cx + s * 55, cy - 62, cx + s * 55 + 24, cy - 28); } });
+    const mouthOpen = (y, w, h) => {
+      g.save(); g.beginPath(); g.moveTo(cx - w, y); g.quadraticCurveTo(cx, y - 8, cx + w, y); g.quadraticCurveTo(cx + w * 0.8, y + h, cx, y + h); g.quadraticCurveTo(cx - w * 0.8, y + h, cx - w, y); g.closePath();
+      g.fillStyle = '#6b2410'; g.fill(); g.clip();
+      g.fillStyle = '#fff'; g.fillRect(cx - w, y - 10, w * 2, 22); // teeth
+      g.fillStyle = '#ff6f7d'; g.beginPath(); g.ellipse(cx, y + h, w * 0.55, h * 0.45, 0, 0, Math.PI * 2); g.fill(); // tongue
+      g.restore();
+    };
+    const eye = (x, y, rx = 15, ry = 21) => { g.fillStyle = INK; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fill(); g.fillStyle = '#fff'; g.beginPath(); g.arc(x - 5, y - 8, 5, 0, Math.PI * 2); g.fill(); };
+    if (kind === 'smile') {
+      happyEyes(); blush();
+      line(15, (g) => { g.moveTo(cx - 62, cy + 30); g.quadraticCurveTo(cx, cy + 92, cx + 62, cy + 30); });
+    } else if (kind === 'laugh') {
+      line(15, (g) => { for (const s of [-1, 1]) { g.moveTo(cx + s * 30, cy - 62); g.lineTo(cx + s * 75, cy - 42); g.lineTo(cx + s * 30, cy - 24); } });
+      mouthOpen(cy + 12, 92, 100);
+      g.fillStyle = '#58c4f5'; for (const s of [-1, 1]) { g.beginPath(); g.ellipse(cx + s * 108, cy - 30, 18, 30, s * 0.5, 0, Math.PI * 2); g.fill(); }
+    } else if (kind === 'cry') {
+      line(13, (g) => { for (const s of [-1, 1]) { g.moveTo(cx + s * 85, cy - 70); g.lineTo(cx + s * 30, cy - 88); } });
+      line(14, (g) => { for (const s of [-1, 1]) { g.moveTo(cx + s * 55 - 24, cy - 40); g.quadraticCurveTo(cx + s * 55, cy - 22, cx + s * 55 + 24, cy - 40); } });
+      for (const s of [-1, 1]) { const tg = g.createLinearGradient(cx + s * 55 - 16, 0, cx + s * 55 + 16, 0); tg.addColorStop(0, '#2fa8e8'); tg.addColorStop(0.5, '#9be3ff'); tg.addColorStop(1, '#2fa8e8'); g.fillStyle = tg; g.beginPath(); g.roundRect(cx + s * 55 - 16, cy - 30, 32, 200, 16); g.fill(); }
+      g.fillStyle = '#6b2410'; g.beginPath(); g.ellipse(cx, cy + 70, 52, 42, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#ff6f7d'; g.beginPath(); g.ellipse(cx, cy + 96, 30, 16, 0, 0, Math.PI * 2); g.fill();
+    } else if (kind === 'kiss') {
+      eye(cx - 55, cy - 32); blush();
+      line(14, (g) => { g.moveTo(cx + 31, cy - 30); g.quadraticCurveTo(cx + 55, cy - 56, cx + 79, cy - 30); });
+      g.fillStyle = '#d81b60';
+      g.beginPath(); g.ellipse(cx + 10, cy + 42, 20, 14, 0.2, 0, Math.PI * 2); g.ellipse(cx + 10, cy + 68, 20, 14, -0.2, 0, Math.PI * 2); g.fill();
+    } else if (kind === 'angry') {
+      line(18, (g) => { for (const s of [-1, 1]) { g.moveTo(cx + s * 100, cy - 78); g.lineTo(cx + s * 26, cy - 46); } });
+      eye(cx - 55, cy - 20, 15, 17); eye(cx + 55, cy - 20, 15, 17);
+      line(15, (g) => { g.moveTo(cx - 58, cy + 82); g.quadraticCurveTo(cx, cy + 34, cx + 58, cy + 82); });
+    }
+  });
+}
+
+function dieTex(n) {
+  const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+  return canvasTex(256, 256, (g) => {
+    const grad = g.createRadialGradient(100, 90, 10, 128, 128, 190); grad.addColorStop(0, '#ffffff'); grad.addColorStop(1, '#ece6d8');
+    g.fillStyle = grad; g.fillRect(0, 0, 256, 256);
+    for (const i of PIPS[n]) {
+      const x = 128 + ((i % 3) - 1) * 70, y = 128 + (Math.floor(i / 3) - 1) * 70, r = n === 1 ? 32 : 21;
+      const pg = g.createRadialGradient(x - r * 0.3, y - r * 0.3, 1, x, y, r);
+      pg.addColorStop(0, n === 1 ? '#ff6b5e' : '#4b4568'); pg.addColorStop(1, n === 1 ? '#a3121e' : '#0d0a1c');
+      g.fillStyle = pg; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    }
+  });
+}
+
+function coinTex(letter, turn) {
+  return canvasTex(512, 512, (g) => {
+    const grad = g.createRadialGradient(200, 180, 20, 256, 256, 300); grad.addColorStop(0, '#fff2b0'); grad.addColorStop(0.5, '#f5c242'); grad.addColorStop(1, '#b07408');
+    g.fillStyle = grad; g.fillRect(0, 0, 512, 512);
+    g.strokeStyle = '#a86a06'; g.lineWidth = 18; g.beginPath(); g.arc(256, 256, 200, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = 'rgba(255,245,200,.7)'; g.lineWidth = 6; g.beginPath(); g.arc(256, 256, 186, 0, Math.PI * 2); g.stroke();
+    g.translate(256, 256); g.rotate(turn); // cap UVs run sideways
+    g.font = '900 230px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#8a5300'; g.fillText(letter, 8, 16);
+    g.fillStyle = '#fff3c4'; g.fillText(letter, 0, 6);
+  });
+}
+
+// One reel strip: 0-9 around the drum, drawn sideways because the drum lies on its side.
+const reelTex = canvasTex(1024, 128, (g) => {
+  g.fillStyle = '#f7f2e6'; g.fillRect(0, 0, 1024, 128);
+  g.font = '900 100px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#2a1a4a';
+  for (let d = 0; d < 10; d++) { g.save(); g.translate((d + 0.5) * 102.4, 64); g.rotate(Math.PI / 2); g.fillText(String(d), 0, 6); g.restore(); }
+});
+
+const shadowTex = canvasTex(128, 128, (g) => {
+  const r = g.createRadialGradient(64, 64, 0, 64, 64, 64); r.addColorStop(0, 'rgba(0,0,0,.55)'); r.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+});
+
+// ---------- shared shapes and materials ----------
+const glossy = (o) => new THREE.MeshPhysicalMaterial({ roughness: 0.35, clearcoat: 0.8, clearcoatRoughness: 0.2, ...o });
+const sphere = new THREE.SphereGeometry(0.5, 64, 48);
+const faces = {};
+const faceMat = (kind) => (faces[kind] ??= glossy({ map: faceTex(kind) }));
+
+const heartGeo = (() => {
+  const pts = [];
+  for (let i = 0; i < 96; i++) {
+    const t = (i / 96) * Math.PI * 2;
+    pts.push(new THREE.Vector2(16 * Math.sin(t) ** 3, 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)).multiplyScalar(1 / 34));
+  }
+  const g = new THREE.ExtrudeGeometry(new THREE.Shape(pts), { depth: 0.22, bevelEnabled: true, bevelThickness: 0.14, bevelSize: 0.1, bevelSegments: 10, curveSegments: 48 });
+  g.center();
+  return g;
+})();
+const heartMat = glossy({ color: 0xff2d55, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.08 });
+const pinkMat = glossy({ color: 0xff6fa5, roughness: 0.25, clearcoat: 1 });
+const tearMat = glossy({ color: 0x5ac8fa, roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.02 });
+const skinMat = glossy({ color: 0xffc83d, roughness: 0.42, clearcoat: 0.5 });
+const ivory = (n) => glossy({ map: dieTex(n), roughness: 0.3, clearcoat: 0.7 });
+const dieMats = [3, 4, 2, 5, 1, 6].map(ivory); // +x -x +y -y +z -z
+const dieGeo = new RoundedBoxGeometry(1, 1, 1, 6, 0.16);
+const gold = (map) => new THREE.MeshPhysicalMaterial({ color: map ? 0xffffff : 0xe9a92a, metalness: 0.55, roughness: 0.3, map, clearcoat: 0.6 });
+const coinGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.09, 72);
+const coinMats = [gold(null), gold(coinTex('H', Math.PI / 2)), gold(coinTex('T', Math.PI / 2))]; // rim, heads (top), tails (bottom)
+const reelGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.36, 64, 1, true);
+const reelMat = glossy({ map: reelTex, roughness: 0.32, clearcoat: 0.6, side: THREE.DoubleSide });
+const frameMat = new THREE.MeshPhysicalMaterial({ color: 0xf2b632, metalness: 0.6, roughness: 0.28, clearcoat: 0.6 });
+const backMat = new THREE.MeshPhysicalMaterial({ color: 0x1b1035, roughness: 0.6 });
+
+function shadow(y, w) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
+  m.position.set(0, y, -0.6); m.scale.set(w, w * 0.28, 1);
+  return m;
+}
+
+function hand() {
+  const pivot = new THREE.Group(), g = new THREE.Group();
+  pivot.add(g); g.position.y = 0.42; // pivot at the wrist
+  const palm = new THREE.Mesh(sphere, skinMat); palm.scale.set(0.74, 0.74, 0.34); palm.position.y = -0.08; g.add(palm);
+  const finger = (x, len, tilt) => { const f = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, len, 8, 20), skinMat); f.position.set(x, 0.2 + len / 2, 0); f.rotation.z = tilt; f.scale.z = 0.9; g.add(f); };
+  finger(-0.24, 0.26, 0.12); finger(-0.08, 0.34, 0.04); finger(0.08, 0.34, -0.03); finger(0.23, 0.27, -0.12);
+  const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.095, 0.26, 8, 20), skinMat); thumb.position.set(-0.4, -0.06, 0.04); thumb.rotation.z = 0.95; g.add(thumb);
+  const wrist = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.12, 8, 20), skinMat); wrist.position.y = -0.42; wrist.scale.z = 0.7; g.add(wrist);
+  return pivot;
+}
+
+function roller(result) {
+  const g = new THREE.Group();
+  const back = new THREE.Mesh(new RoundedBoxGeometry(1.5, 0.78, 0.2, 4, 0.08), backMat); back.position.z = -0.12; g.add(back);
+  // top and bottom bars leave a narrow window, so the middle row is the one you read
+  for (const y of [-0.32, 0.32]) { const bar = new THREE.Mesh(new RoundedBoxGeometry(1.56, 0.17, 0.64, 4, 0.07), frameMat); bar.position.y = y; g.add(bar); }
+  for (const x of [-0.73, 0.73]) { const bar = new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.8, 0.64, 4, 0.05), frameMat); bar.position.x = x; g.add(bar); }
+  const reels = [-0.44, 0, 0.44].map((x) => {
+    const axle = new THREE.Group(); axle.position.x = x; axle.rotation.z = Math.PI / 2;
+    const m = new THREE.Mesh(reelGeo, reelMat); axle.add(m); g.add(axle);
+    return m;
+  });
+  g.userData.reels = reels;
+  g.userData.digits = [...String(result).padStart(3, '0')].map(Number);
+  return g;
+}
+
+// ---------- effects ----------
+const fx = [];
+const easeOut = (x) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
+const backOut = (x) => { x = Math.min(1, Math.max(0, x)); const c = 1.9; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const FINAL = { 1: new THREE.Euler(0, 0, 0), 6: new THREE.Euler(0, Math.PI, 0), 3: new THREE.Euler(0, -Math.PI / 2, 0), 4: new THREE.Euler(0, Math.PI / 2, 0), 2: new THREE.Euler(Math.PI / 2, 0, 0), 5: new THREE.Euler(-Math.PI / 2, 0, 0) };
+const ROLL = 1300;
+const SCALE = { dice: 0.95, coin: 1.05, roller: 1.15, heart: 1.15, hand: 1.2 }; // x the seat picture; faces 1.25
+
+function particle(fx, geo, mat, from, vel, opts = {}) {
+  const m = new THREE.Mesh(geo, opts.fade ? mat.clone() : mat);
+  m.position.copy(from); m.scale.setScalar(opts.size ?? 0.12);
+  if (opts.fade) m.material.transparent = true;
+  fx.group.add(m);
+  fx.parts.push({ m, vel, born: fx.t, life: opts.life ?? 900, g: opts.g ?? 0, grow: opts.grow ?? 0, fade: !!opts.fade, spin: opts.spin ?? 0, size: opts.size ?? 0.12 });
+}
+
+function play({ emote, result, x, y, size }) {
+  const group = new THREE.Group(), body = new THREE.Group();
+  group.add(body);
+  const k = emote;
+  let model;
+  if (k === 'heart') model = new THREE.Mesh(heartGeo, heartMat);
+  else if (k === 'hand') model = hand();
+  else if (k === 'dice') { model = new THREE.Mesh(dieGeo, dieMats); body.add(shadow(-0.62, 1)); }
+  else if (k === 'coin') { model = new THREE.Mesh(coinGeo, coinMats); body.add(shadow(-0.6, 0.95)); }
+  else if (k === 'roller') model = roller(result);
+  else model = new THREE.Mesh(sphere, faceMat(k));
+  body.add(model);
+  group.position.set(x - W / 2, H / 2 - y, 0);
+  const s = size * (SCALE[k] ?? 1.25);
+  group.scale.setScalar(s);
+  scene.add(group);
+  const dur = ['dice', 'coin', 'roller'].includes(k) ? 3800 : 2800;
+  fx.push({ k, result, group, body, model, t: 0, t0: performance.now(), dur, parts: [], next: 0 });
+  if (!running) { running = true; requestAnimationFrame(frame); }
+}
+
+function update(e) {
+  const t = e.t, p = t / e.dur, m = e.model, b = e.body;
+  // in with a spin and an overshoot, out with a shrink
+  const inn = backOut(t / 380), out = 1 - easeOut((t - (e.dur - 320)) / 320);
+  b.scale.setScalar(Math.max(0.0001, inn * out));
+  const enter = (1 - easeOut(t / 520)) * -Math.PI; // spins in from behind
+  m.rotation.order = 'YXZ';
+  const sec = t / 1000;
+  const eyes = (s) => new THREE.Vector3(s * 0.2, 0.08, 0.42);
+  if (e.k === 'smile') { m.rotation.set(0.12 * Math.sin(sec * 5), enter + 0.5 * Math.sin(sec * 3.6), 0); b.position.y = 0.04 * Math.sin(sec * 7); }
+  else if (e.k === 'laugh') {
+    m.rotation.set(-0.28, enter + 0.15 * Math.sin(sec * 9), 0.3 * Math.sin(sec * 18)); b.position.y = 0.07 * Math.abs(Math.sin(sec * 18));
+    if (t > e.next && t < e.dur - 500) { e.next = t + 220; for (const s of [-1, 1]) particle(e, sphere, tearMat, eyes(s).multiplyScalar(1.05), new THREE.Vector3(s * 1.1, 0.9, 0.3), { size: 0.1, g: -3, life: 700 }); }
+  } else if (e.k === 'cry') {
+    m.rotation.set(0.25, enter + 0.14 * Math.sin(sec * 26), 0); b.position.y = -0.03 * Math.abs(Math.sin(sec * 13));
+    if (t > e.next && t < e.dur - 500) { e.next = t + 170; const s = Math.random() < 0.5 ? -1 : 1; particle(e, sphere, tearMat, new THREE.Vector3(s * 0.2, -0.1, 0.4), new THREE.Vector3(s * 0.35, 0.2, 0.2), { size: 0.11, g: -4.5, life: 800 }); }
+  } else if (e.k === 'kiss') {
+    const turn = easeOut(t / 900) * Math.PI * 2;
+    m.rotation.set(-0.12 * easeOut((t - 800) / 300), enter + turn, 0.1 * Math.sin(sec * 6));
+    if (t > 900 && t > e.next && t < e.dur - 600) { e.next = t + 260; const s = e.parts.length % 2 ? 1 : -1; particle(e, heartGeo, pinkMat, new THREE.Vector3(0.08, -0.1, 0.5), new THREE.Vector3(s * 0.9, 0.7, 0.4), { size: 0.26, life: 1000, spin: 3 }); }
+  } else if (e.k === 'angry') {
+    b.position.x = 0.04 * Math.sin(sec * 90); m.rotation.set(0.12, enter + 0.05 * Math.sin(sec * 40), 0.09 * Math.sin(sec * 60));
+    b.scale.multiplyScalar(1 + 0.06 * Math.max(0, Math.sin(sec * 8)));
+    if (t > e.next && t < e.dur - 500) { e.next = t + 140; for (const s of [-1, 1]) particle(e, sphere, new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 1 }), new THREE.Vector3(s * 0.32, 0.42, 0), new THREE.Vector3(s * 0.4, 1.1, 0), { size: 0.12, grow: 0.5, fade: true, life: 600 }); }
+  } else if (e.k === 'heart') {
+    m.rotation.set(0, enter + sec * 3.2, 0);
+    m.scale.setScalar(1 + 0.14 * Math.pow(Math.max(0, Math.sin(sec * 8)), 6));
+    if (t > e.next && t < e.dur - 600) { e.next = t + 330; particle(e, heartGeo, pinkMat, new THREE.Vector3((Math.random() - 0.5) * 0.8, 0.1, 0.2), new THREE.Vector3((Math.random() - 0.5) * 0.4, 1.0, 0), { size: 0.22, life: 1100, spin: 2 }); }
+  } else if (e.k === 'hand') {
+    m.rotation.set(0, enter + 0.35 * Math.sin(sec * 5), 0.5 * Math.sin(sec * 11));
+  } else if (e.k === 'dice') {
+    const r = t / ROLL, left = Math.pow(1 - Math.min(1, r), 3), sign = e.result % 2 ? 1 : -1;
+    const spin = new THREE.Quaternion().setFromEuler(new THREE.Euler(14.1 * left * sign, -20.4 * left, 7 * left * sign));
+    m.quaternion.copy(spin.multiply(new THREE.Quaternion().setFromEuler(FINAL[e.result] ?? FINAL[1])));
+    m.position.y = 0.45 * Math.abs(Math.sin(Math.min(1, r) * Math.PI * 2.5)) * (1 - Math.min(1, r));
+  } else if (e.k === 'coin') {
+    const r = Math.min(1, t / ROLL), heads = e.result !== 'Tails';
+    const flip = new THREE.Quaternion().setFromEuler(new THREE.Euler((1 - easeOut(r)) * Math.PI * 12, 0, 0));
+    m.quaternion.copy(flip.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(heads ? Math.PI / 2 : -Math.PI / 2, 0, 0))));
+    m.position.y = 0.75 * Math.sin(Math.PI * Math.min(1, r / 0.85));
+  } else if (e.k === 'roller') {
+    const total = ROLL + 400;
+    m.rotation.set(0.18 * Math.sin(sec * 2), enter * 0.3 + 0.25 * Math.sin(sec * 1.7), 0);
+    m.userData.reels.forEach((reel, i) => {
+      const stop = (total - 800 + i * 400) / total, d = m.userData.digits[i];
+      const pos = d + (18 + i * 6) * (1 - easeOut(t / total / stop));
+      reel.rotation.y = -Math.PI * 2 * (pos + 0.5) / 10;
+    });
+  }
+  // particles
+  for (let i = e.parts.length - 1; i >= 0; i--) {
+    const q = e.parts[i], a = (t - q.born) / q.life;
+    if (a >= 1) { e.group.remove(q.m); if (q.fade) q.m.material.dispose(); e.parts.splice(i, 1); continue; }
+    const dt = 1 / 60;
+    q.vel.y += q.g * dt;
+    q.m.position.addScaledVector(q.vel, dt);
+    q.m.rotation.y += q.spin * dt;
+    q.m.scale.setScalar(q.size * (1 + q.grow * a) * (a < 0.15 ? a / 0.15 : 1));
+    if (q.fade) q.m.material.opacity = 1 - a;
+  }
+}
+
+let running = false;
+const q = new URLSearchParams(location.search), FREEZE = Number(q.get('freeze')) || 0; // preview: hold every emote at this ms
+function frame(now) {
+  if (FREEZE) { for (const e of fx) { e.t = FREEZE; update(e); } renderer.render(scene, camera); return; }
+  for (let i = fx.length - 1; i >= 0; i--) {
+    const e = fx[i];
+    e.t = now - e.t0;
+    if (e.t >= e.dur) { scene.remove(e.group); fx.splice(i, 1); continue; }
+    update(e);
+  }
+  renderer.render(scene, camera);
+  if (fx.length) requestAnimationFrame(frame);
+  else running = false; // idle: nothing renders until the next emote
+}
+
+window.voyaPlay = (o) => { try { play(o); } catch (err) { post({ type: 'error', message: String(err) }); } };
+// warm up every shader once, off screen, so the first emote doesn't stutter
+const warm = new THREE.Group(); warm.position.set(0, 0, -1e5);
+for (const k of ['smile', 'laugh', 'cry', 'kiss', 'angry']) warm.add(new THREE.Mesh(sphere, faceMat(k)));
+warm.add(new THREE.Mesh(heartGeo, heartMat), new THREE.Mesh(dieGeo, dieMats), new THREE.Mesh(coinGeo, coinMats), roller('000'), hand());
+scene.add(warm); renderer.compile(scene, camera); scene.remove(warm);
+post({ type: 'ready', ok: true });
+
+// Local preview: /fx/emotes/?demo plays everything in a grid.
+if (q.has('demo')) {
+  const all = [['hand'], ['smile'], ['laugh'], ['cry'], ['kiss'], ['angry'], ['heart'], ['dice', 5], ['coin', 'Heads'], ['roller', '472'], ['coin', 'Tails'], ['dice', 2]];
+  const sz = Number(q.get('size')) || 56;
+  const at = (i) => ({ x: sz * 1.1 + (i % 4) * sz * 2, y: sz * 1.25 + Math.floor(i / 4) * sz * 2.3, size: sz });
+  window.demo = (ms = 0) => all.forEach(([emote, result], i) => play({ emote, result, ...at(i) }));
+  window.demo();
+}
+</script>
+</body>
+</html>

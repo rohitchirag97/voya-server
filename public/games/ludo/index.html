@@ -43,14 +43,31 @@
   #lobby .btn { padding: 1.3vmin 2.8vmin; font-size: 2.7vmin; border-radius: 99px; white-space: nowrap; }
   .seat .tag { position: absolute; top: 17%; right: 17%; font-size: 2.3vmin; font-weight: 900; color: #fff; background: rgba(0,0,0,.5); padding: .2vmin 1.2vmin; border-radius: 99px; }
   @keyframes pulse { 50% { box-shadow: 0 0 0 1.4vmin rgba(255,255,255,.45); } }
-  /* One dice per player, in the outer corner of their base: dimmed until it's their turn. */
-  .dice { position: absolute; width: calc(100% / 15 * 1.1); height: calc(100% / 15 * 1.1); transform: translate(-50%, -50%); border-radius: 1.6vmin; background: #fff; box-shadow: 0 2px 5px rgba(0,0,0,.4); display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: 1.1vmin; z-index: 5; border: 0; opacity: .45; filter: grayscale(.6); transition: opacity .2s, filter .2s; }
-  .dice i { width: 1.5vmin; height: 1.5vmin; border-radius: 50%; background: var(--ink); place-self: center; visibility: hidden; }
-  .dice.turn { opacity: 1; filter: none; }
-  .dice.live { cursor: pointer; animation: glow 1s ease-in-out infinite; }
-  .dice.rolling { opacity: 1; filter: none; animation: tumble .45s linear infinite; }
-  @keyframes glow { 50% { box-shadow: 0 0 0 1.2vmin rgba(255,255,255,.9), 0 0 3vmin rgba(255,255,255,.9); } }
-  @keyframes tumble { 0% { transform: translate(-50%,-50%) rotate(0); } 100% { transform: translate(-50%,-50%) rotate(360deg); } }
+  /* One dice per player, in the outer corner of their base: dimmed until it's their turn. A real 3D cube: six ivory
+     faces with sunken pips, shown at an angle; a roll tumbles it through the air and lands it on the number. */
+  .dice { --h: calc(100vmin / 15 * .55); position: absolute; width: calc(100% / 15 * 1.1); height: calc(100% / 15 * 1.1); transform: translate(-50%, -50%); perspective: 40vmin; z-index: 5; opacity: .5; filter: grayscale(.7) brightness(.92); transition: opacity .2s, filter .2s; }
+  .dice::before { content: ""; position: absolute; inset: -32%; border-radius: 50%; background: radial-gradient(circle, var(--c, transparent) 0, transparent 66%); opacity: 0; transition: opacity .2s; }
+  .dice::after { content: ""; position: absolute; left: 6%; right: 6%; bottom: -14%; height: 26%; border-radius: 50%; background: radial-gradient(closest-side, rgba(0,0,0,.45), transparent); }
+  .dice.turn, .dice.rolling { opacity: 1; filter: none; }
+  .dice.turn::before { opacity: .85; }
+  .dice.live { cursor: pointer; }
+  .dice.live::before { animation: halo 1s ease-in-out infinite; }
+  .dice .lift { position: absolute; inset: 0; transform-style: preserve-3d; }
+  .dice.rolling .lift { animation: dhop .85s cubic-bezier(.3,.7,.4,1); }
+  .cube { position: absolute; inset: 0; transform-style: preserve-3d; }
+  .cube.spin { transition: transform .85s cubic-bezier(.15,.7,.25,1); }
+  .cube b { position: absolute; inset: 0; border-radius: 20%; backface-visibility: hidden; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: 13%;
+    background: radial-gradient(circle at 30% 25%, #fff 0, #f4f0e7 50%, #d6cfbf 100%); box-shadow: inset 0 0 .9vmin rgba(60,40,10,.22); }
+  .cube b i { width: 74%; aspect-ratio: 1; border-radius: 50%; place-self: center; visibility: hidden; background: radial-gradient(circle at 40% 35%, #4b4568 0, #1d1838 60%, #090716 100%); box-shadow: inset 0 .3vmin .35vmin rgba(0,0,0,.65), 0 .1vmin 0 rgba(255,255,255,.8); }
+  .cube b i.on { visibility: visible; }
+  .cube .f1 i { width: 100%; background: radial-gradient(circle at 40% 35%, #ff6b5e 0, #d4222f 60%, #7d0d16 100%); }
+  .cube u { position: absolute; inset: 3%; background: #cfc7b6; } /* inner planes: no gaps at the rounded corners */
+  .cube .c2 { transform: rotateY(90deg); } .cube .c3 { transform: rotateX(90deg); }
+  .cube .f1 { transform: translateZ(var(--h)); } .cube .f6 { transform: rotateY(180deg) translateZ(var(--h)); }
+  .cube .f3 { transform: rotateY(90deg) translateZ(var(--h)); } .cube .f4 { transform: rotateY(-90deg) translateZ(var(--h)); }
+  .cube .f2 { transform: rotateX(90deg) translateZ(var(--h)); } .cube .f5 { transform: rotateX(-90deg) translateZ(var(--h)); }
+  @keyframes halo { 50% { transform: scale(1.2); opacity: 1; } }
+  @keyframes dhop { 0% { transform: none; } 28% { transform: scale(1.45); } 56% { transform: scale(1); } 72% { transform: scale(1.1); } 86%, 100% { transform: none; } } /* thrown up toward the camera */
   #hint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 5; font-size: 2.6vmin; font-weight: 900; color: #fff; background: rgba(29,24,56,.82); padding: .5vmin 1.8vmin; border-radius: 99px; white-space: nowrap; pointer-events: none; }
   #hint:empty { display: none; }
   #panel { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(18,11,46,.55); border-radius: 18px; backdrop-filter: blur(2px); }
@@ -254,19 +271,42 @@ function seats() {
 
 const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
 const diceEls = [];
+// Turning the cube so face n points at the viewer (rotateX, rotateY: the inverse of where that face sits), then
+// tilting it so the top and a side show too.
+const FRONT = { 1: [0, 0], 6: [0, 180], 3: [0, -90], 4: [0, 90], 2: [-90, 0], 5: [90, 0] };
+const orient = (n, spin = [0, 0, 0]) => {
+  const [x, y] = FRONT[n] ?? FRONT[1];
+  return `rotateX(-24deg) rotateY(-32deg) rotateX(${spin[0]}deg) rotateY(${spin[1]}deg) rotateZ(${spin[2]}deg) rotateX(${x}deg) rotateY(${y}deg)`;
+};
+const faceHtml = (n) => `<b class="f${n}">${Array.from({ length: 9 }, (_, i) => `<i class="${PIPS[n].includes(i) ? 'on' : ''}"></i>`).join('')}</b>`;
 function dieEl(color) {
   if (diceEls[color]) return diceEls[color];
   const d = document.createElement('div'); d.className = 'dice'; d.setAttribute('role', 'button');
+  d.innerHTML = `<div class="lift"><div class="cube"><u></u><u class="c2"></u><u class="c3"></u>${[1, 2, 3, 4, 5, 6].map(faceHtml).join('')}</div></div>`;
   const [r, c] = DICE[color]; d.style.left = `${(c / 15) * 100}%`; d.style.top = `${(r / 15) * 100}%`;
   d.onclick = () => rollTap(color);
   $('wrap').append(d); face(d, 0);
   return (diceEls[color] = d);
 }
-function face(d, n) { d.innerHTML = Array.from({ length: 9 }, (_, i) => `<i style="visibility:${PIPS[n]?.includes(i) ? 'visible' : 'hidden'}"></i>`).join(''); d.setAttribute('aria-label', n ? `Dice shows ${n}` : 'Dice'); }
+function face(d, n) {
+  const cube = d.querySelector('.cube');
+  if (d.dataset.n !== String(n) && !cube.classList.contains('spin')) cube.style.transform = orient(n || 5);
+  d.dataset.n = n;
+  d.setAttribute('aria-label', n ? `Dice shows ${n}` : 'Dice');
+}
+// Whole turns on every axis first (so it starts from what's showing), unwound while it lands on n.
 async function rollDice(color, n) {
-  const d = dieEl(color); d.classList.add('rolling');
-  for (let k = 0; k < 6; k++) { face(d, 1 + Math.floor(Math.random() * 6)); await sleep(70); }
-  d.classList.remove('rolling'); face(d, n); await sleep(n === 6 ? 450 : 300);
+  const d = dieEl(color), cube = d.querySelector('.cube'), prev = Number(d.dataset.n) || 5, s = () => (Math.random() < 0.5 ? -1 : 1);
+  cube.classList.remove('spin');
+  cube.style.transform = orient(prev, [720 * s(), 1080 * s(), 360 * s()]);
+  void cube.offsetWidth; // apply the start before the transition
+  d.classList.add('rolling'); cube.classList.add('spin');
+  cube.style.transform = orient(n);
+  d.dataset.n = n;
+  d.setAttribute('aria-label', `Dice shows ${n}`);
+  await sleep(850);
+  d.classList.remove('rolling'); cube.classList.remove('spin');
+  await sleep(n === 6 ? 350 : 200);
 }
 
 function render() {
@@ -276,12 +316,12 @@ function render() {
   const cur = playing ? s.players[s.turn] : null;
   const myTurn = cur && cur.userId === me?.userId;
   const colors = playing ? s.players.map((p) => p.color) : [];
-  [0, 1, 2, 3].forEach((c) => { if (colors.includes(c)) dieEl(c); if (diceEls[c]) diceEls[c].style.display = colors.includes(c) ? 'grid' : 'none'; });
+  [0, 1, 2, 3].forEach((c) => { if (colors.includes(c)) dieEl(c); if (diceEls[c]) diceEls[c].style.display = colors.includes(c) ? 'block' : 'none'; });
   for (const p of playing ? s.players : []) {
     const d = dieEl(p.color), on = p === cur;
     d.classList.toggle('turn', on);
     d.classList.toggle('live', on && !!myTurn && s.step === 'roll');
-    d.style.boxShadow = on ? `0 0 0 .6vmin ${HEX[p.color]}, 0 2px 5px rgba(0,0,0,.4)` : '';
+    d.style.setProperty('--c', HEX[p.color]);
     if (on && !busy) face(d, s.dice ?? (s.last?.userId === p.userId ? s.last.dice : 0)); // the roll waiting to be used, else their last one
   }
   $('hint').textContent = !playing ? '' : myTurn ? (s.step === 'roll' ? 'Your turn · tap your dice' : 'Tap a glowing token') : cur.auto ? `${cur.displayName} (auto) is playing` : `${cur.displayName}'s turn`;
