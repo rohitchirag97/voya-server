@@ -29,7 +29,6 @@ try {
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.5));
 renderer.setClearColor(0x000000, 0);
 renderer.toneMapping = THREE.NeutralToneMapping; // keeps emoji colours saturated
-renderer.toneMappingExposure = 1.0;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
@@ -39,7 +38,9 @@ scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; // sof
 scene.environmentIntensity = 0.55;
 const sun = new THREE.DirectionalLight(0xffffff, 1.9);
 sun.position.set(-0.6, 1, 1.3);
-scene.add(sun, new THREE.AmbientLight(0xffffff, 0.15));
+const rim = new THREE.DirectionalLight(0xffe6c8, 0.9); // a warm back light: a bright edge round every shape
+rim.position.set(0.8, 0.4, -1);
+scene.add(sun, rim, new THREE.AmbientLight(0xffffff, 0.15));
 
 // A camera that maps the z = 0 plane to CSS pixels, so an emote sits exactly where the app says.
 const camera = new THREE.PerspectiveCamera(30, 1, 1, 20000);
@@ -55,7 +56,7 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// ---------- painted textures ----------
+// ---------- textures ----------
 function canvasTex(w, h, draw) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -65,52 +66,105 @@ function canvasTex(w, h, draw) {
   t.anisotropy = 4;
   return t;
 }
+const glowTex = canvasTex(128, 128, (g) => {
+  const r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.3, 'rgba(255,255,255,.5)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+});
+const starTex = canvasTex(128, 128, (g) => {
+  const r = g.createRadialGradient(64, 64, 0, 64, 64, 30); r.addColorStop(0, 'rgba(255,255,255,.9)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+  g.fillStyle = '#fff'; g.beginPath(); g.moveTo(64, 4);
+  g.quadraticCurveTo(64, 64, 124, 64); g.quadraticCurveTo(64, 64, 64, 124); g.quadraticCurveTo(64, 64, 4, 64); g.quadraticCurveTo(64, 64, 64, 4); g.fill();
+});
+const shadowTex = canvasTex(128, 128, (g) => {
+  const r = g.createRadialGradient(64, 64, 0, 64, 64, 64); r.addColorStop(0, 'rgba(0,0,0,.5)'); r.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+});
 
-// Faces: a sphere wrapped in an equirectangular picture; the front of the sphere is at (256, 256) of 1024 x 512.
+// Faces: a sphere wrapped in an equirectangular picture, repainted every frame so the face can blink, talk, cry and
+// blush. The front of the sphere is at (256, 256) in 1024 x 512 units (drawn at half size).
 const INK = '#5a3412';
-function faceTex(kind) {
-  return canvasTex(1024, 512, (g) => {
-    const top = kind === 'angry' ? '#ffa04a' : '#ffe27a', bottom = kind === 'angry' ? '#e0321e' : '#f6a21c';
-    const grad = g.createLinearGradient(0, 0, 0, 512);
-    grad.addColorStop(0, top); grad.addColorStop(0.55, kind === 'angry' ? '#f86a2c' : '#ffc93c'); grad.addColorStop(1, bottom);
-    g.fillStyle = grad; g.fillRect(0, 0, 1024, 512);
-    const cx = 256, cy = 256;
-    g.lineCap = 'round'; g.lineJoin = 'round';
-    const line = (w, pts, color = INK) => { g.strokeStyle = color; g.lineWidth = w; g.beginPath(); pts(g); g.stroke(); };
-    const blush = () => { g.save(); g.filter = 'blur(10px)'; g.fillStyle = 'rgba(255,90,110,.5)'; for (const s of [-1, 1]) { g.beginPath(); g.ellipse(cx + s * 100, cy + 32, 34, 20, 0, 0, Math.PI * 2); g.fill(); } g.restore(); };
-    const happyEyes = () => line(15, (g) => { for (const s of [-1, 1]) { g.moveTo(cx + s * 55 - 24, cy - 28); g.quadraticCurveTo(cx + s * 55, cy - 62, cx + s * 55 + 24, cy - 28); } });
-    const mouthOpen = (y, w, h) => {
-      g.save(); g.beginPath(); g.moveTo(cx - w, y); g.quadraticCurveTo(cx, y - 8, cx + w, y); g.quadraticCurveTo(cx + w * 0.8, y + h, cx, y + h); g.quadraticCurveTo(cx - w * 0.8, y + h, cx - w, y); g.closePath();
-      g.fillStyle = '#6b2410'; g.fill(); g.clip();
-      g.fillStyle = '#fff'; g.fillRect(cx - w, y - 10, w * 2, 22); // teeth
-      g.fillStyle = '#ff6f7d'; g.beginPath(); g.ellipse(cx, y + h, w * 0.55, h * 0.45, 0, 0, Math.PI * 2); g.fill(); // tongue
-      g.restore();
-    };
-    const eye = (x, y, rx = 15, ry = 21) => { g.fillStyle = INK; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fill(); g.fillStyle = '#fff'; g.beginPath(); g.arc(x - 5, y - 8, 5, 0, Math.PI * 2); g.fill(); };
-    if (kind === 'smile') {
-      happyEyes(); blush();
-      line(15, (g) => { g.moveTo(cx - 62, cy + 30); g.quadraticCurveTo(cx, cy + 92, cx + 62, cy + 30); });
-    } else if (kind === 'laugh') {
-      line(15, (g) => { for (const s of [-1, 1]) { g.moveTo(cx + s * 30, cy - 62); g.lineTo(cx + s * 75, cy - 42); g.lineTo(cx + s * 30, cy - 24); } });
-      mouthOpen(cy + 12, 92, 100);
-      g.fillStyle = '#58c4f5'; for (const s of [-1, 1]) { g.beginPath(); g.ellipse(cx + s * 108, cy - 30, 18, 30, s * 0.5, 0, Math.PI * 2); g.fill(); }
-    } else if (kind === 'cry') {
-      line(13, (g) => { for (const s of [-1, 1]) { g.moveTo(cx + s * 85, cy - 70); g.lineTo(cx + s * 30, cy - 88); } });
-      line(14, (g) => { for (const s of [-1, 1]) { g.moveTo(cx + s * 55 - 24, cy - 40); g.quadraticCurveTo(cx + s * 55, cy - 22, cx + s * 55 + 24, cy - 40); } });
-      for (const s of [-1, 1]) { const tg = g.createLinearGradient(cx + s * 55 - 16, 0, cx + s * 55 + 16, 0); tg.addColorStop(0, '#2fa8e8'); tg.addColorStop(0.5, '#9be3ff'); tg.addColorStop(1, '#2fa8e8'); g.fillStyle = tg; g.beginPath(); g.roundRect(cx + s * 55 - 16, cy - 30, 32, 200, 16); g.fill(); }
-      g.fillStyle = '#6b2410'; g.beginPath(); g.ellipse(cx, cy + 70, 52, 42, 0, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#ff6f7d'; g.beginPath(); g.ellipse(cx, cy + 96, 30, 16, 0, 0, Math.PI * 2); g.fill();
-    } else if (kind === 'kiss') {
-      eye(cx - 55, cy - 32); blush();
-      line(14, (g) => { g.moveTo(cx + 31, cy - 30); g.quadraticCurveTo(cx + 55, cy - 56, cx + 79, cy - 30); });
-      g.fillStyle = '#d81b60';
-      g.beginPath(); g.ellipse(cx + 10, cy + 42, 20, 14, 0.2, 0, Math.PI * 2); g.ellipse(cx + 10, cy + 68, 20, 14, -0.2, 0, Math.PI * 2); g.fill();
-    } else if (kind === 'angry') {
-      line(18, (g) => { for (const s of [-1, 1]) { g.moveTo(cx + s * 100, cy - 78); g.lineTo(cx + s * 26, cy - 46); } });
-      eye(cx - 55, cy - 20, 15, 17); eye(cx + 55, cy - 20, 15, 17);
-      line(15, (g) => { g.moveTo(cx - 58, cy + 82); g.quadraticCurveTo(cx, cy + 34, cx + 58, cy + 82); });
+const mixHex = (a, b, t) => {
+  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16)), pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
+  return `rgb(${pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(',')})`;
+};
+function paintFace(g, kind, f) {
+  g.setTransform(0.5, 0, 0, 0.5, 0, 0);
+  const heat = f.heat ?? 0;
+  const grad = g.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0, mixHex('#ffe27a', '#ff9d4a', heat)); grad.addColorStop(0.55, mixHex('#ffc93c', '#f2502a', heat)); grad.addColorStop(1, mixHex('#f6a21c', '#c51b1b', heat));
+  g.fillStyle = grad; g.fillRect(0, 0, 1024, 512);
+  const cx = 256, cy = 256;
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  const stroke = (w, path, color = INK) => { g.strokeStyle = color; g.lineWidth = w; g.beginPath(); path(); g.stroke(); };
+  const blush = (a) => { if (a <= 0) return; g.save(); g.filter = 'blur(10px)'; g.fillStyle = `rgba(255,80,110,${0.55 * a})`; for (const s of [-1, 1]) { g.beginPath(); g.ellipse(cx + s * 100, cy + 32, 36, 21, 0, 0, Math.PI * 2); g.fill(); } g.restore(); };
+  const eye = (x, y, open, rx = 15, ry = 21) => {
+    if (open < 0.2) return stroke(10, () => { g.moveTo(x - rx, y); g.lineTo(x + rx, y); });
+    g.fillStyle = INK; g.beginPath(); g.ellipse(x, y, rx, ry * open, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(x - 5, y - 8 * open, 5, 0, Math.PI * 2); g.fill();
+  };
+  const mouthOpen = (y, w, h) => {
+    g.save(); g.beginPath(); g.moveTo(cx - w, y); g.quadraticCurveTo(cx, y - 8, cx + w, y); g.quadraticCurveTo(cx + w * 0.8, y + h, cx, y + h); g.quadraticCurveTo(cx - w * 0.8, y + h, cx - w, y); g.closePath();
+    g.fillStyle = '#6b2410'; g.fill(); g.clip();
+    g.fillStyle = '#fff'; g.fillRect(cx - w, y - 10, w * 2, 22);
+    g.fillStyle = '#ff6f7d'; g.beginPath(); g.ellipse(cx, y + h, w * 0.55, h * 0.45, 0, 0, Math.PI * 2); g.fill();
+    g.restore();
+  };
+  if (kind === 'smile') {
+    const lift = 34 * (1 - 0.7 * (f.blink ?? 0));
+    stroke(15, () => { for (const s of [-1, 1]) { g.moveTo(cx + s * 55 - 24, cy - 28); g.quadraticCurveTo(cx + s * 55, cy - 28 - lift, cx + s * 55 + 24, cy - 28); } });
+    blush(f.blush ?? 1);
+    const d = 62 * (0.85 + 0.35 * (f.mouth ?? 0));
+    stroke(15, () => { g.moveTo(cx - 62, cy + 30); g.quadraticCurveTo(cx, cy + 30 + d, cx + 62, cy + 30); });
+  } else if (kind === 'laugh') {
+    const sq = 18 * (f.mouth ?? 0);
+    stroke(15, () => { for (const s of [-1, 1]) { g.moveTo(cx + s * 30, cy - 62 + sq * 0.3); g.lineTo(cx + s * 75, cy - 42); g.lineTo(cx + s * 30, cy - 24 - sq * 0.3); } });
+    mouthOpen(cy + 12, 92, 45 + 70 * (f.mouth ?? 1));
+    g.fillStyle = '#58c4f5'; for (const s of [-1, 1]) { g.beginPath(); g.ellipse(cx + s * 108, cy - 30, 18, 30, s * 0.5, 0, Math.PI * 2); g.fill(); }
+    blush(0.6);
+  } else if (kind === 'cry') {
+    stroke(13, () => { for (const s of [-1, 1]) { g.moveTo(cx + s * 85, cy - 70); g.lineTo(cx + s * 30, cy - 88); } });
+    stroke(14, () => { for (const s of [-1, 1]) { g.moveTo(cx + s * 55 - 24, cy - 40); g.quadraticCurveTo(cx + s * 55, cy - 22, cx + s * 55 + 24, cy - 40); } });
+    for (const s of [-1, 1]) { // streams with drops running down them
+      const x = cx + s * 55;
+      const tg = g.createLinearGradient(x - 16, 0, x + 16, 0); tg.addColorStop(0, '#2fa8e8'); tg.addColorStop(0.5, '#9be3ff'); tg.addColorStop(1, '#2fa8e8');
+      g.fillStyle = tg; g.beginPath(); g.roundRect(x - 16, cy - 30, 32, 210, 16); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.85)';
+      for (let k = 0; k < 3; k++) { const y = cy - 20 + (((f.flow ?? 0) * 220 + k * 73) % 200); g.beginPath(); g.ellipse(x - 3, y, 5, 12, 0, 0, Math.PI * 2); g.fill(); }
     }
-  });
+    const wob = f.mouth ?? 0.5;
+    g.fillStyle = '#6b2410'; g.beginPath(); g.ellipse(cx, cy + 70, 46 + 10 * wob, 34 + 16 * wob, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ff6f7d'; g.beginPath(); g.ellipse(cx, cy + 92 + 6 * wob, 28, 14, 0, 0, Math.PI * 2); g.fill();
+  } else if (kind === 'kiss') {
+    eye(cx - 55, cy - 32, 1 - (f.blink ?? 0));
+    stroke(14, () => { g.moveTo(cx + 31, cy - 30); g.quadraticCurveTo(cx + 55, cy - 56, cx + 79, cy - 30); });
+    blush(f.blush ?? 1);
+    const p = 0.75 + 0.6 * (f.pucker ?? 0.5);
+    g.fillStyle = '#d81b60';
+    g.beginPath(); g.ellipse(cx + 10, cy + 46, 20 * p, 13 * p, 0.2, 0, Math.PI * 2); g.ellipse(cx + 10, cy + 46 + 24 * p, 20 * p, 13 * p, -0.2, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.5)'; g.beginPath(); g.ellipse(cx + 4, cy + 42, 6 * p, 3 * p, 0.2, 0, Math.PI * 2); g.fill();
+  } else if (kind === 'angry') {
+    const b = 14 * (f.brow ?? 0);
+    stroke(18, () => { for (const s of [-1, 1]) { g.moveTo(cx + s * 100, cy - 80); g.lineTo(cx + s * 26, cy - 46 + b); } });
+    eye(cx - 55, cy - 18 + b * 0.4, 0.8 - 0.25 * (f.brow ?? 0), 15, 17); eye(cx + 55, cy - 18 + b * 0.4, 0.8 - 0.25 * (f.brow ?? 0), 15, 17);
+    if (heat > 0.55) { // gritted teeth once it boils
+      g.fillStyle = '#6b2410'; g.beginPath(); g.roundRect(cx - 56, cy + 52, 112, 40, 14); g.fill();
+      g.fillStyle = '#fff'; g.beginPath(); g.roundRect(cx - 48, cy + 58, 96, 28, 8); g.fill();
+      stroke(4, () => { for (let i = -2; i <= 2; i++) { g.moveTo(cx + i * 18, cy + 58); g.lineTo(cx + i * 18, cy + 86); } g.moveTo(cx - 48, cy + 72); g.lineTo(cx + 48, cy + 72); }, '#c9b9a8');
+    } else stroke(15, () => { g.moveTo(cx - 58, cy + 82); g.quadraticCurveTo(cx, cy + 34, cx + 58, cy + 82); });
+  }
+}
+function liveFace(kind) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 256;
+  const g = c.getContext('2d');
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const mat = new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.35, clearcoat: 0.8, clearcoatRoughness: 0.2, sheen: 0.4, sheenColor: new THREE.Color(0xfff2c0) });
+  const paint = (f) => { paintFace(g, kind, f); tex.needsUpdate = true; };
+  paint({});
+  return { mat, paint, dispose: () => { tex.dispose(); mat.dispose(); } };
 }
 
 function dieTex(n) {
@@ -126,20 +180,18 @@ function dieTex(n) {
     }
   });
 }
-
-function coinTex(letter, turn) {
+function coinTex(letter) {
   return canvasTex(512, 512, (g) => {
     const grad = g.createRadialGradient(200, 180, 20, 256, 256, 300); grad.addColorStop(0, '#fff2b0'); grad.addColorStop(0.5, '#f5c242'); grad.addColorStop(1, '#b07408');
     g.fillStyle = grad; g.fillRect(0, 0, 512, 512);
     g.strokeStyle = '#a86a06'; g.lineWidth = 18; g.beginPath(); g.arc(256, 256, 200, 0, Math.PI * 2); g.stroke();
     g.strokeStyle = 'rgba(255,245,200,.7)'; g.lineWidth = 6; g.beginPath(); g.arc(256, 256, 186, 0, Math.PI * 2); g.stroke();
-    g.translate(256, 256); g.rotate(turn); // cap UVs run sideways
+    g.translate(256, 256); g.rotate(Math.PI / 2); // cap UVs run sideways
     g.font = '900 230px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = '#8a5300'; g.fillText(letter, 8, 16);
     g.fillStyle = '#fff3c4'; g.fillText(letter, 0, 6);
   });
 }
-
 // One reel strip: 0-9 around the drum, drawn sideways because the drum lies on its side.
 const reelTex = canvasTex(1024, 128, (g) => {
   g.fillStyle = '#f7f2e6'; g.fillRect(0, 0, 1024, 128);
@@ -147,17 +199,10 @@ const reelTex = canvasTex(1024, 128, (g) => {
   for (let d = 0; d < 10; d++) { g.save(); g.translate((d + 0.5) * 102.4, 64); g.rotate(Math.PI / 2); g.fillText(String(d), 0, 6); g.restore(); }
 });
 
-const shadowTex = canvasTex(128, 128, (g) => {
-  const r = g.createRadialGradient(64, 64, 0, 64, 64, 64); r.addColorStop(0, 'rgba(0,0,0,.55)'); r.addColorStop(1, 'rgba(0,0,0,0)');
-  g.fillStyle = r; g.fillRect(0, 0, 128, 128);
-});
-
-// ---------- shared shapes and materials ----------
+// ---------- shapes and materials ----------
 const glossy = (o) => new THREE.MeshPhysicalMaterial({ roughness: 0.35, clearcoat: 0.8, clearcoatRoughness: 0.2, ...o });
 const sphere = new THREE.SphereGeometry(0.5, 64, 48);
-const faces = {};
-const faceMat = (kind) => (faces[kind] ??= glossy({ map: faceTex(kind) }));
-
+const ball = new THREE.SphereGeometry(0.5, 20, 14); // small things
 const heartGeo = (() => {
   const pts = [];
   for (let i = 0; i < 96; i++) {
@@ -168,162 +213,315 @@ const heartGeo = (() => {
   g.center();
   return g;
 })();
-const heartMat = glossy({ color: 0xff2d55, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.08 });
-const pinkMat = glossy({ color: 0xff6fa5, roughness: 0.25, clearcoat: 1 });
-const tearMat = glossy({ color: 0x5ac8fa, roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.02 });
-const skinMat = glossy({ color: 0xffc83d, roughness: 0.42, clearcoat: 0.5 });
-const ivory = (n) => glossy({ map: dieTex(n), roughness: 0.3, clearcoat: 0.7 });
-const dieMats = [3, 4, 2, 5, 1, 6].map(ivory); // +x -x +y -y +z -z
+const heartMat = glossy({ color: 0xff2d55, roughness: 0.2, clearcoat: 1, clearcoatRoughness: 0.06, sheen: 0.6, sheenColor: new THREE.Color(0xff9fb8) });
+const pinkMat = glossy({ color: 0xff5f9e, roughness: 0.25, clearcoat: 1 });
+const tearMat = glossy({ color: 0x5ac8fa, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02 });
+const skinMat = glossy({ color: 0xffc83d, roughness: 0.4, clearcoat: 0.55 });
+const cloudMat = new THREE.MeshPhysicalMaterial({ color: 0xdfe6f2, roughness: 0.85, sheen: 1, sheenColor: new THREE.Color(0xffffff) });
+const veinMat = glossy({ color: 0xff2a2a, roughness: 0.25, clearcoat: 1 });
+const dieMats = [3, 4, 2, 5, 1, 6].map((n) => glossy({ map: dieTex(n), roughness: 0.3, clearcoat: 0.7 })); // +x -x +y -y +z -z
 const dieGeo = new RoundedBoxGeometry(1, 1, 1, 6, 0.16);
 const gold = (map) => new THREE.MeshPhysicalMaterial({ color: map ? 0xffffff : 0xe9a92a, metalness: 0.55, roughness: 0.3, map, clearcoat: 0.6 });
 const coinGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.09, 72);
-const coinMats = [gold(null), gold(coinTex('H', Math.PI / 2)), gold(coinTex('T', Math.PI / 2))]; // rim, heads (top), tails (bottom)
+const coinMats = [gold(null), gold(coinTex('H')), gold(coinTex('T'))]; // rim, heads (top), tails (bottom)
 const reelGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.36, 64, 1, true);
 const reelMat = glossy({ map: reelTex, roughness: 0.32, clearcoat: 0.6, side: THREE.DoubleSide });
 const frameMat = new THREE.MeshPhysicalMaterial({ color: 0xf2b632, metalness: 0.6, roughness: 0.28, clearcoat: 0.6 });
 const backMat = new THREE.MeshPhysicalMaterial({ color: 0x1b1035, roughness: 0.6 });
-
-function shadow(y, w) {
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
-  m.position.set(0, y, -0.6); m.scale.set(w, w * 0.28, 1);
-  return m;
-}
+const bulbOn = new THREE.MeshBasicMaterial({ color: 0xfff6c8 });
+const bulbOff = new THREE.MeshPhysicalMaterial({ color: 0x9a4a10, roughness: 0.4 });
+const ringGeo = new THREE.RingGeometry(0.46, 0.5, 64);
+const confettiGeo = new THREE.PlaneGeometry(0.07, 0.11);
 
 function hand() {
   const pivot = new THREE.Group(), g = new THREE.Group();
   pivot.add(g); g.position.y = 0.42; // pivot at the wrist
   const palm = new THREE.Mesh(sphere, skinMat); palm.scale.set(0.74, 0.74, 0.34); palm.position.y = -0.08; g.add(palm);
-  const finger = (x, len, tilt) => { const f = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, len, 8, 20), skinMat); f.position.set(x, 0.2 + len / 2, 0); f.rotation.z = tilt; f.scale.z = 0.9; g.add(f); };
-  finger(-0.24, 0.26, 0.12); finger(-0.08, 0.34, 0.04); finger(0.08, 0.34, -0.03); finger(0.23, 0.27, -0.12);
+  const fingers = [];
+  const finger = (x, len, tilt) => {
+    const knuckle = new THREE.Group(); knuckle.position.set(x, 0.18, 0); knuckle.rotation.z = tilt; g.add(knuckle);
+    const f = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, len, 8, 20), skinMat); f.position.y = len / 2 + 0.04; f.scale.z = 0.9; knuckle.add(f);
+    fingers.push(knuckle);
+  };
+  finger(-0.24, 0.26, 0.14); finger(-0.08, 0.34, 0.05); finger(0.08, 0.34, -0.03); finger(0.23, 0.27, -0.13);
   const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.095, 0.26, 8, 20), skinMat); thumb.position.set(-0.4, -0.06, 0.04); thumb.rotation.z = 0.95; g.add(thumb);
   const wrist = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.12, 8, 20), skinMat); wrist.position.y = -0.42; wrist.scale.z = 0.7; g.add(wrist);
+  pivot.userData.fingers = fingers;
   return pivot;
 }
-
+function cloud() {
+  const g = new THREE.Group();
+  for (const [x, y, z, r] of [[-0.26, 0, 0, 0.27], [0, 0.09, 0, 0.34], [0.26, 0, 0, 0.27], [-0.12, -0.07, 0.12, 0.24], [0.13, -0.07, 0.12, 0.24], [0.42, -0.05, 0, 0.18], [-0.42, -0.05, 0, 0.18]]) {
+    const m = new THREE.Mesh(ball, cloudMat); m.position.set(x, y, z); m.scale.setScalar(r * 2); g.add(m);
+  }
+  return g;
+}
+function vein() { // 💢: four arcs bowing towards the middle
+  const g = new THREE.Group(), arc = new THREE.TorusGeometry(0.1, 0.03, 10, 24, Math.PI / 2);
+  for (const [x, y, r] of [[0.12, 0.12, Math.PI], [-0.12, 0.12, -Math.PI / 2], [-0.12, -0.12, 0], [0.12, -0.12, Math.PI / 2]]) {
+    const m = new THREE.Mesh(arc, veinMat); m.position.set(x, y, 0); m.rotation.z = r; g.add(m);
+  }
+  return g;
+}
 function roller(result) {
   const g = new THREE.Group();
   const back = new THREE.Mesh(new RoundedBoxGeometry(1.5, 0.78, 0.2, 4, 0.08), backMat); back.position.z = -0.12; g.add(back);
   // top and bottom bars leave a narrow window, so the middle row is the one you read
   for (const y of [-0.32, 0.32]) { const bar = new THREE.Mesh(new RoundedBoxGeometry(1.56, 0.17, 0.64, 4, 0.07), frameMat); bar.position.y = y; g.add(bar); }
   for (const x of [-0.73, 0.73]) { const bar = new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.8, 0.64, 4, 0.05), frameMat); bar.position.x = x; g.add(bar); }
+  const bulbs = [];
+  for (const y of [-0.32, 0.32]) for (let i = 0; i < 11; i++) { const b = new THREE.Mesh(ball, bulbOff); b.scale.setScalar(0.06); b.position.set(-0.65 + i * 0.13, y, 0.33); g.add(b); bulbs.push(b); }
   const reels = [-0.44, 0, 0.44].map((x) => {
     const axle = new THREE.Group(); axle.position.x = x; axle.rotation.z = Math.PI / 2;
     const m = new THREE.Mesh(reelGeo, reelMat); axle.add(m); g.add(axle);
     return m;
   });
-  g.userData.reels = reels;
-  g.userData.digits = [...String(result).padStart(3, '0')].map(Number);
+  Object.assign(g.userData, { reels, bulbs, digits: [...String(result).padStart(3, '0')].map(Number), stopped: 0 });
   return g;
 }
 
+// ---------- particles ----------
+const sprite = (tex, color, additive = true) => new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color, transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending }));
+const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+const rand = (a, b) => a + Math.random() * (b - a);
+// o: at, vel, life (ms), g (gravity), drag, spin, size, grow, fade (true: own material that fades), twinkle
+function spawn(e, obj, o) {
+  obj.position.copy(o.at);
+  if (o.rot) obj.rotation.set(rand(0, 6), rand(0, 6), rand(0, 6));
+  e.group.add(obj);
+  e.parts.push({ obj, vel: o.vel ?? V(), born: e.t, life: o.life ?? 800, g: o.g ?? 0, drag: o.drag ?? 0, spin: o.spin ?? 0, size: o.size ?? 0.1, grow: o.grow ?? 0, twinkle: o.twinkle ?? 0, tumble: !!o.rot, op: o.opacity ?? 1 });
+}
+const fadeMat = (m) => { const c = m.clone(); c.transparent = true; return c; };
+function sparkles(e, at, n, color = 0xfff2b0, speed = 1.4, size = 0.16) {
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + rand(-0.2, 0.2), s = speed * rand(0.7, 1.15);
+    spawn(e, sprite(starTex, color), { at: at.clone(), vel: V(Math.cos(a) * s, Math.sin(a) * s, rand(-0.3, 0.6)), life: rand(500, 800), drag: 2.6, size: size * rand(0.7, 1.3), spin: rand(-4, 4), twinkle: 1 });
+  }
+}
+function ring(e, at, color, life = 650, to = 1.6) { spawn(e, new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })), { at, life, size: 1, grow: to }); }
+function puff(e, at, vel, size = 0.22, color = 0xffffff, life = 700) { spawn(e, sprite(glowTex, color, false), { at, vel, life, size, grow: 1.6, drag: 1.5, opacity: 0.85 }); }
+
 // ---------- effects ----------
 const fx = [];
-const easeOut = (x) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
-const backOut = (x) => { x = Math.min(1, Math.max(0, x)); const c = 1.9; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const easeOut = (x) => 1 - Math.pow(1 - clamp01(x), 3);
+const backOut = (x) => { x = clamp01(x); const c = 2.2; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
 const FINAL = { 1: new THREE.Euler(0, 0, 0), 6: new THREE.Euler(0, Math.PI, 0), 3: new THREE.Euler(0, -Math.PI / 2, 0), 4: new THREE.Euler(0, Math.PI / 2, 0), 2: new THREE.Euler(Math.PI / 2, 0, 0), 5: new THREE.Euler(-Math.PI / 2, 0, 0) };
 const ROLL = 1300;
 const SCALE = { dice: 0.95, coin: 1.05, roller: 1.15, heart: 1.15, hand: 1.2 }; // x the seat picture; faces 1.25
+const GLOW = { smile: 0xffd23f, laugh: 0xffd23f, cry: 0x58c4f5, kiss: 0xff5f9e, angry: 0xff4a2a, heart: 0xff2d55, hand: 0xffd23f, dice: 0xffffff, coin: 0xffc94a, roller: 0xffc94a };
+const DUR = { smile: 3000, laugh: 3000, cry: 3200, kiss: 3200, angry: 3000, heart: 3200, hand: 2800, dice: 3800, coin: 3800, roller: 3800 };
 
-function particle(fx, geo, mat, from, vel, opts = {}) {
-  const m = new THREE.Mesh(geo, opts.fade ? mat.clone() : mat);
-  m.position.copy(from); m.scale.setScalar(opts.size ?? 0.12);
-  if (opts.fade) m.material.transparent = true;
-  fx.group.add(m);
-  fx.parts.push({ m, vel, born: fx.t, life: opts.life ?? 900, g: opts.g ?? 0, grow: opts.grow ?? 0, fade: !!opts.fade, spin: opts.spin ?? 0, size: opts.size ?? 0.12 });
-}
-
-function play({ emote, result, x, y, size }) {
+function play({ emote: k, result, x, y, size }) {
   const group = new THREE.Group(), body = new THREE.Group();
   group.add(body);
-  const k = emote;
+  const e = { k, result, group, body, t: 0, last: 0, dur: DUR[k] ?? 3000, parts: [], flags: {}, next: 0 };
   let model;
   if (k === 'heart') model = new THREE.Mesh(heartGeo, heartMat);
   else if (k === 'hand') model = hand();
-  else if (k === 'dice') { model = new THREE.Mesh(dieGeo, dieMats); body.add(shadow(-0.62, 1)); }
-  else if (k === 'coin') { model = new THREE.Mesh(coinGeo, coinMats); body.add(shadow(-0.6, 0.95)); }
+  else if (k === 'dice') model = new THREE.Mesh(dieGeo, dieMats);
+  else if (k === 'coin') model = new THREE.Mesh(coinGeo, coinMats);
   else if (k === 'roller') model = roller(result);
-  else model = new THREE.Mesh(sphere, faceMat(k));
+  else { e.face = liveFace(k); model = new THREE.Mesh(sphere, e.face.mat); }
+  e.model = model;
   body.add(model);
+  // a soft coloured glow behind, a shadow under
+  e.glow = sprite(glowTex, GLOW[k] ?? 0xffffff); e.glow.position.z = -0.6; e.glow.scale.setScalar(2.2); group.add(e.glow);
+  e.shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
+  e.shadow.position.set(0, -0.66, -0.7); group.add(e.shadow);
+  if (k === 'cry') { e.cloud = cloud(); e.cloud.position.set(0, 1.25, -0.1); e.cloud.scale.setScalar(0.001); group.add(e.cloud); }
+  if (k === 'angry') { e.vein = vein(); e.vein.position.set(0.36, 0.42, 0.3); e.vein.scale.setScalar(0.001); group.add(e.vein); }
+  if (k === 'heart') { e.orbit = [0, 1, 2].map(() => { const m = new THREE.Mesh(heartGeo, pinkMat); m.scale.setScalar(0.001); group.add(m); return m; }); }
   group.position.set(x - W / 2, H / 2 - y, 0);
-  const s = size * (SCALE[k] ?? 1.25);
-  group.scale.setScalar(s);
+  group.scale.setScalar(size * (SCALE[k] ?? 1.25));
   scene.add(group);
-  const dur = ['dice', 'coin', 'roller'].includes(k) ? 3800 : 2800;
-  fx.push({ k, result, group, body, model, t: 0, t0: performance.now(), dur, parts: [], next: 0 });
-  if (!running) { running = true; requestAnimationFrame(frame); }
+  fx.push(e);
+  if (!running) { running = true; lastNow = performance.now(); requestAnimationFrame(frame); }
 }
 
-function update(e) {
-  const t = e.t, p = t / e.dur, m = e.model, b = e.body;
-  // in with a spin and an overshoot, out with a shrink
-  const inn = backOut(t / 380), out = 1 - easeOut((t - (e.dur - 320)) / 320);
-  b.scale.setScalar(Math.max(0.0001, inn * out));
-  const enter = (1 - easeOut(t / 520)) * -Math.PI; // spins in from behind
+function update(e, dt) {
+  const t = e.t, sec = t / 1000, m = e.model, b = e.body, f = e.flags;
+  // ---- common: springy pop out of the seat, sparkles, glow, then a pop away ----
+  const grow = backOut(t / 420);
+  const jelly = Math.exp(-t / 170) * Math.sin(t / 36) * 0.3; // squash and stretch as it lands
+  let s = grow;
+  const outAt = e.dur - 360;
+  if (t > outAt) {
+    const a = (t - outAt) / 360;
+    s = a < 0.3 ? 1 + 0.18 * Math.sin((a / 0.3) * (Math.PI / 2)) : 1.18 * (1 - easeOut((a - 0.3) / 0.7));
+    if (!f.popped && a > 0.3) { f.popped = true; sparkles(e, V(0, 0, 0.3), 10, GLOW[e.k], 1.8, 0.14); }
+  }
+  b.scale.set(s * (1 - jelly * 0.55), s * (1 + jelly), s * (1 - jelly * 0.55));
+  b.position.set(0, -0.4 * (1 - easeOut(t / 450)), 0);
+  if (!f.burst && t > 60) { f.burst = true; sparkles(e, V(0, 0, 0.2), 12, 0xfff2b0, 1.6); }
+  e.glow.material.opacity = Math.min(1, grow) * (0.32 + 0.12 * Math.sin(sec * 6)) * (t > outAt ? 1 - clamp01((t - outAt) / 360) : 1);
+  const enter = (1 - easeOut(t / 560)) * -Math.PI; // turns to face you as it arrives
   m.rotation.order = 'YXZ';
-  const sec = t / 1000;
-  const eyes = (s) => new THREE.Vector3(s * 0.2, 0.08, 0.42);
-  if (e.k === 'smile') { m.rotation.set(0.12 * Math.sin(sec * 5), enter + 0.5 * Math.sin(sec * 3.6), 0); b.position.y = 0.04 * Math.sin(sec * 7); }
-  else if (e.k === 'laugh') {
-    m.rotation.set(-0.28, enter + 0.15 * Math.sin(sec * 9), 0.3 * Math.sin(sec * 18)); b.position.y = 0.07 * Math.abs(Math.sin(sec * 18));
-    if (t > e.next && t < e.dur - 500) { e.next = t + 220; for (const s of [-1, 1]) particle(e, sphere, tearMat, eyes(s).multiplyScalar(1.05), new THREE.Vector3(s * 1.1, 0.9, 0.3), { size: 0.1, g: -3, life: 700 }); }
+  const face = e.face ? {} : null;
+  const blinkAt = (at) => Math.max(0, 1 - Math.abs(t - at) / 90); // a quick blink centred on `at`
+
+  if (e.k === 'smile') {
+    const bob = Math.abs(Math.sin(sec * 4.2));
+    m.rotation.set(0.1 * Math.sin(sec * 4.2), enter + 0.45 * Math.sin(sec * 2.6), 0.22 * Math.sin(sec * 2.1));
+    b.position.y += 0.08 * bob;
+    b.scale.y *= 1 + 0.05 * (1 - bob); b.scale.x *= 1 - 0.03 * (1 - bob);
+    Object.assign(face, { blink: Math.max(blinkAt(900), blinkAt(2100)), blush: 0.7 + 0.3 * Math.sin(sec * 5), mouth: 0.5 + 0.5 * Math.sin(sec * 3) });
+    if (t > e.next && t < e.dur - 500) { e.next = t + 260; spawn(e, sprite(starTex, 0xfff0a0), { at: V(rand(-0.7, 0.7), rand(-0.3, 0.7), 0.4), life: 700, size: rand(0.1, 0.18), twinkle: 1, spin: 2 }); }
+  } else if (e.k === 'laugh') {
+    const ha = 0.5 + 0.5 * Math.sin(sec * 26); // ha-ha-ha
+    m.rotation.set(-0.3 + 0.08 * ha, enter + 0.15 * Math.sin(sec * 5), 0.28 * Math.sin(sec * 7));
+    b.position.y += 0.07 * ha;
+    b.scale.y *= 1 + 0.07 * ha; b.scale.x *= 1 - 0.04 * ha;
+    Object.assign(face, { mouth: ha });
+    if (t > e.next && t < e.dur - 500) { e.next = t + 180; for (const sx of [-1, 1]) spawn(e, new THREE.Mesh(ball, tearMat), { at: V(sx * 0.42, 0.12, 0.25), vel: V(sx * rand(1, 1.5), rand(0.8, 1.3), 0.4), g: -4, life: 650, size: 0.09 }); }
   } else if (e.k === 'cry') {
-    m.rotation.set(0.25, enter + 0.14 * Math.sin(sec * 26), 0); b.position.y = -0.03 * Math.abs(Math.sin(sec * 13));
-    if (t > e.next && t < e.dur - 500) { e.next = t + 170; const s = Math.random() < 0.5 ? -1 : 1; particle(e, sphere, tearMat, new THREE.Vector3(s * 0.2, -0.1, 0.4), new THREE.Vector3(s * 0.35, 0.2, 0.2), { size: 0.11, g: -4.5, life: 800 }); }
+    const sob = Math.abs(Math.sin(sec * 9));
+    m.rotation.set(0.22, enter + 0.12 * Math.sin(sec * 18), 0.05 * Math.sin(sec * 4));
+    b.position.y -= 0.04 * sob; b.scale.y *= 1 - 0.05 * sob; b.scale.x *= 1 + 0.03 * sob;
+    Object.assign(face, { flow: sec * 1.4, mouth: 0.5 + 0.5 * Math.sin(sec * 17) });
+    // a rain cloud drifts in above and rains on them
+    const c = e.cloud, ca = easeOut((t - 250) / 500) * (t > e.dur - 450 ? 1 - easeOut((t - (e.dur - 450)) / 350) : 1);
+    c.scale.setScalar(Math.max(0.001, ca * 0.75)); c.position.x = 0.08 * Math.sin(sec * 2); c.position.y = 1.15 + 0.04 * Math.sin(sec * 3);
+    if (t > 700 && t > e.next && t < e.dur - 500) {
+      e.next = t + 70;
+      spawn(e, new THREE.Mesh(ball, tearMat), { at: V(c.position.x + rand(-0.3, 0.3), c.position.y - 0.15, rand(-0.05, 0.15)), vel: V(0, -2.2, 0), g: -3, life: 380, size: 0.05 });
+    }
+    if (t > e.next2 || e.next2 === undefined) { e.next2 = t + 160; if (t > 400 && t < e.dur - 500) spawn(e, new THREE.Mesh(ball, tearMat), { at: V((Math.random() < 0.5 ? -1 : 1) * 0.2, -0.05, 0.42), vel: V(rand(-0.5, 0.5), 0.3, 0.2), g: -4.5, life: 700, size: 0.1 }); }
   } else if (e.k === 'kiss') {
-    const turn = easeOut(t / 900) * Math.PI * 2;
-    m.rotation.set(-0.12 * easeOut((t - 800) / 300), enter + turn, 0.1 * Math.sin(sec * 6));
-    if (t > 900 && t > e.next && t < e.dur - 600) { e.next = t + 260; const s = e.parts.length % 2 ? 1 : -1; particle(e, heartGeo, pinkMat, new THREE.Vector3(0.08, -0.1, 0.5), new THREE.Vector3(s * 0.9, 0.7, 0.4), { size: 0.26, life: 1000, spin: 3 }); }
+    const lean = easeOut((t - 900) / 220) * (1 - easeOut((t - 1250) / 400));
+    m.rotation.set(-0.25 * lean + 0.1 * (1 - lean) * Math.sin(sec * 3), enter + 0.3 * Math.sin(sec * 2.4) * (1 - lean), 0.12 * Math.sin(sec * 3));
+    b.position.z = 0.5 * lean;
+    Object.assign(face, { blink: Math.max(blinkAt(500), blinkAt(2300)), pucker: t < 900 ? easeOut(t / 900) : t < 1150 ? 1.3 : 0.6 + 0.3 * Math.sin(sec * 6), blush: 0.6 + 0.4 * lean });
+    if (!f.blown && t > 1080) { // the big kiss: a heart thrown at the viewer
+      f.blown = true;
+      spawn(e, new THREE.Mesh(heartGeo, fadeMat(heartMat)), { at: V(0.05, -0.1, 0.5), vel: V(0, 0.15, 3.2), life: 900, size: 0.35, grow: 1.8, spin: 0 });
+      sparkles(e, V(0.05, -0.1, 0.5), 10, 0xff9fc4, 1.6);
+    }
+    if (t > 1300 && t > e.next && t < e.dur - 600) { e.next = t + 200; const sx = f.side = -(f.side ?? 1); spawn(e, new THREE.Mesh(heartGeo, fadeMat(pinkMat)), { at: V(sx * 0.3, -0.05, 0.3), vel: V(sx * rand(1.2, 1.7), rand(0.6, 1.1), 0.2), g: -0.8, life: 1000, size: 0.22, spin: 4 }); }
   } else if (e.k === 'angry') {
-    b.position.x = 0.04 * Math.sin(sec * 90); m.rotation.set(0.12, enter + 0.05 * Math.sin(sec * 40), 0.09 * Math.sin(sec * 60));
-    b.scale.multiplyScalar(1 + 0.06 * Math.max(0, Math.sin(sec * 8)));
-    if (t > e.next && t < e.dur - 500) { e.next = t + 140; for (const s of [-1, 1]) particle(e, sphere, new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 1 }), new THREE.Vector3(s * 0.32, 0.42, 0), new THREE.Vector3(s * 0.4, 1.1, 0), { size: 0.12, grow: 0.5, fade: true, life: 600 }); }
+    const boil = clamp01((t - 300) / 1600); // it gets angrier
+    const shake = 0.015 + 0.05 * boil;
+    b.position.x = shake * Math.sin(sec * 95); b.position.y += shake * 0.5 * Math.sin(sec * 77);
+    m.rotation.set(0.14, enter + 0.04 * Math.sin(sec * 40), 0.1 * boil * Math.sin(sec * 60));
+    b.scale.multiplyScalar(1 + 0.05 * boil * Math.max(0, Math.sin(sec * 10)));
+    Object.assign(face, { heat: boil, brow: boil, blink: blinkAt(700) });
+    const v = e.vein; v.scale.setScalar(Math.max(0.001, easeOut((t - 400) / 250) * (1 + 0.25 * Math.max(0, Math.sin(sec * 14))) * (t > e.dur - 400 ? 0 : 1)));
+    if (t > 500 && t > e.next && t < e.dur - 450) { // steam jets from both sides, stronger as it boils
+      e.next = t + 110 - 50 * boil;
+      for (const sx of [-1, 1]) puff(e, V(sx * 0.5, 0.15, 0), V(sx * rand(0.8, 1.3), rand(0.6, 1.1), 0), 0.12 + 0.1 * boil, 0xffffff, 600);
+    }
+    if (!f.blow && boil >= 1 && t > 2000) { f.blow = true; for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; puff(e, V(Math.cos(a) * 0.4, 0.55 + Math.sin(a) * 0.15, 0), V(Math.cos(a) * 1.2, 1 + Math.sin(a) * 0.6, 0), 0.25, 0xffffff, 700); } }
   } else if (e.k === 'heart') {
-    m.rotation.set(0, enter + sec * 3.2, 0);
-    m.scale.setScalar(1 + 0.14 * Math.pow(Math.max(0, Math.sin(sec * 8)), 6));
-    if (t > e.next && t < e.dur - 600) { e.next = t + 330; particle(e, heartGeo, pinkMat, new THREE.Vector3((Math.random() - 0.5) * 0.8, 0.1, 0.2), new THREE.Vector3((Math.random() - 0.5) * 0.4, 1.0, 0), { size: 0.22, life: 1100, spin: 2 }); }
+    const ph = (sec % 0.85) / 0.85, beat = 0.2 * Math.exp(-((ph / 0.06) ** 2)) + 0.13 * Math.exp(-(((ph - 0.22) / 0.06) ** 2)); // lub-dub
+    m.rotation.set(0.1 * Math.sin(sec * 2), enter + 0.6 * Math.sin(sec * 1.8), 0);
+    m.scale.setScalar(1 + beat);
+    e.glow.material.opacity += beat * 1.2;
+    const n = Math.floor(sec / 0.85);
+    if (n !== f.beat && t > 300 && t < e.dur - 600) { f.beat = n; ring(e, V(0, 0, -0.1), 0xff5f8a, 700, 1.7); }
+    e.orbit.forEach((h, i) => { // little hearts circling round it, in front and behind
+      const a = sec * 2.6 + (i * Math.PI * 2) / 3;
+      h.position.set(Math.cos(a) * 0.78, 0.12 * Math.sin(a * 2) + 0.05, Math.sin(a) * 0.5);
+      h.rotation.y = -a;
+      h.scale.setScalar(Math.max(0.001, 0.22 * easeOut((t - 300 - i * 120) / 300) * (t > e.dur - 700 ? 0 : 1)));
+    });
+    if (!f.boom && t > e.dur - 700) { // bursts into hearts
+      f.boom = true;
+      for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; spawn(e, new THREE.Mesh(heartGeo, fadeMat(i % 2 ? heartMat : pinkMat)), { at: V(Math.cos(a) * 0.2, Math.sin(a) * 0.2, 0.2), vel: V(Math.cos(a) * 2, Math.sin(a) * 2 + 0.5, rand(-0.5, 0.8)), g: -2, drag: 1.2, life: 800, size: 0.2, spin: 5 }); }
+      ring(e, V(0, 0, 0), 0xff7aa8, 600, 2.4);
+    }
   } else if (e.k === 'hand') {
-    m.rotation.set(0, enter + 0.35 * Math.sin(sec * 5), 0.5 * Math.sin(sec * 11));
+    const w = Math.sin(sec * 11);
+    m.rotation.set(0, enter + 0.35 * Math.sin(sec * 5), 0.5 * w);
+    m.userData.fingers.forEach((k, i) => (k.rotation.x = 0.25 * Math.sin(sec * 22 + i * 0.8))); // fingers wiggle
+    const side = Math.sign(w);
+    if (Math.abs(w) > 0.97 && side !== f.side && t > 300 && t < e.dur - 400) { // motion arcs at the end of each swing
+      f.side = side;
+      for (let i = 0; i < 2; i++) {
+        const arc = new THREE.Mesh(new THREE.RingGeometry(0.95 + i * 0.12, 0.98 + i * 0.12, 32, 1, Math.PI / 2 - side * 0.15 - (side > 0 ? 0.7 : 0), 0.7), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+        spawn(e, arc, { at: V(0, -0.4, 0.2), life: 380, size: 1, opacity: 0.8 });
+      }
+      sparkles(e, V(side * 0.55, 0.65, 0.2), 4, 0xfff2b0, 0.9, 0.12);
+    }
   } else if (e.k === 'dice') {
-    const r = t / ROLL, left = Math.pow(1 - Math.min(1, r), 3), sign = e.result % 2 ? 1 : -1;
+    const r = t / ROLL, left = Math.pow(1 - clamp01(r), 3), sign = e.result % 2 ? 1 : -1;
     const spin = new THREE.Quaternion().setFromEuler(new THREE.Euler(14.1 * left * sign, -20.4 * left, 7 * left * sign));
     m.quaternion.copy(spin.multiply(new THREE.Quaternion().setFromEuler(FINAL[e.result] ?? FINAL[1])));
-    m.position.y = 0.45 * Math.abs(Math.sin(Math.min(1, r) * Math.PI * 2.5)) * (1 - Math.min(1, r));
+    const hop = Math.abs(Math.sin(clamp01(r) * Math.PI * 2.5)) * (1 - clamp01(r));
+    m.position.y = 0.55 * hop;
+    const bounce = Math.floor(clamp01(r) * 2.5);
+    if (r < 1 && bounce !== f.bounce && r > 0.1) { f.bounce = bounce; for (const sx of [-1, 1]) puff(e, V(sx * 0.3, -0.5, 0.1), V(sx * 0.9, 0.3, 0), 0.18, 0xd8d0c0, 500); }
+    if (!f.landed && r >= 1) { f.landed = true; ring(e, V(0, -0.1, -0.2), 0xffffff, 700, 1.8); sparkles(e, V(0, 0, 0.4), 14, 0xffffff, 1.8); }
+    if (r >= 1) m.rotation.z += 0; // rests face-on
   } else if (e.k === 'coin') {
-    const r = Math.min(1, t / ROLL), heads = e.result !== 'Tails';
+    const r = clamp01(t / ROLL), heads = e.result !== 'Tails';
     const flip = new THREE.Quaternion().setFromEuler(new THREE.Euler((1 - easeOut(r)) * Math.PI * 12, 0, 0));
     m.quaternion.copy(flip.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(heads ? Math.PI / 2 : -Math.PI / 2, 0, 0))));
-    m.position.y = 0.75 * Math.sin(Math.PI * Math.min(1, r / 0.85));
+    m.position.y = 0.8 * Math.sin(Math.PI * Math.min(1, r / 0.85));
+    if (t < ROLL && t > e.next) { e.next = t + 90; spawn(e, sprite(starTex, 0xffe08a), { at: V(rand(-0.3, 0.3), m.position.y + rand(-0.2, 0.2), 0.2), life: 400, size: 0.1, twinkle: 1 }); }
+    if (!f.landed && r >= 1) { f.landed = true; ring(e, V(0, 0, -0.2), 0xffd36a, 700, 1.8); sparkles(e, V(0, 0, 0.3), 14, 0xffe08a, 1.9); }
+    if (r >= 1) m.rotation.y = 0.25 * Math.sin(sec * 3); // a slow shimmer once it's down
   } else if (e.k === 'roller') {
-    const total = ROLL + 400;
-    m.rotation.set(0.18 * Math.sin(sec * 2), enter * 0.3 + 0.25 * Math.sin(sec * 1.7), 0);
-    m.userData.reels.forEach((reel, i) => {
-      const stop = (total - 800 + i * 400) / total, d = m.userData.digits[i];
+    const total = ROLL + 400, u = m.userData;
+    m.rotation.set(0.15 * Math.sin(sec * 2), enter * 0.3 + 0.22 * Math.sin(sec * 1.7), 0);
+    u.reels.forEach((reel, i) => {
+      const stop = (total - 800 + i * 400) / total, d = u.digits[i];
       const pos = d + (18 + i * 6) * (1 - easeOut(t / total / stop));
-      reel.rotation.y = -Math.PI * 2 * (pos + 0.5) / 10;
+      reel.rotation.y = (-Math.PI * 2 * (pos + 0.5)) / 10;
+      if (t / total >= stop && u.stopped <= i) { u.stopped = i + 1; sparkles(e, V(-0.44 + i * 0.44, 0, 0.4), 7, 0xffe08a, 1.1, 0.12); }
     });
+    const step = Math.floor(sec * (u.stopped === 3 ? 14 : 8)); // marquee lights, racing once it's done
+    u.bulbs.forEach((bl, i) => (bl.material = (i + step) % 3 === 0 ? bulbOn : bulbOff));
+    if (!f.jackpot && u.stopped === 3) {
+      f.jackpot = true;
+      if (u.digits[0] === u.digits[1] && u.digits[1] === u.digits[2]) { // jackpot: confetti
+        for (let i = 0; i < 40; i++) spawn(e, new THREE.Mesh(confettiGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(Math.random(), 0.9, 0.6), side: THREE.DoubleSide, transparent: true })), { at: V(rand(-0.3, 0.3), 0.3, 0.3), vel: V(rand(-2, 2), rand(1.5, 3), rand(-0.5, 1)), g: -5, drag: 0.6, life: 1300, size: 1, rot: true, spin: 6 });
+      }
+      ring(e, V(0, 0, -0.2), 0xffd36a, 700, 2);
+    }
   }
-  // particles
+  if (face) e.face.paint(face);
+
+  // the shadow shrinks as things rise off the ground
+  const lift = b.position.y + (m.position?.y ?? 0);
+  e.shadow.scale.set(0.95 * s * (1 - lift * 0.4), 0.22 * s * (1 - lift * 0.4), 1);
+  e.shadow.material.opacity = Math.max(0, 0.9 - lift * 0.8) * Math.min(1, s);
+
   for (let i = e.parts.length - 1; i >= 0; i--) {
     const q = e.parts[i], a = (t - q.born) / q.life;
-    if (a >= 1) { e.group.remove(q.m); if (q.fade) q.m.material.dispose(); e.parts.splice(i, 1); continue; }
-    const dt = 1 / 60;
+    if (a >= 1) { e.group.remove(q.obj); if (q.obj.material !== tearMat && q.obj.material !== pinkMat && q.obj.material !== heartMat) q.obj.material.dispose(); if (q.obj.geometry && q.obj.geometry !== ball && q.obj.geometry !== heartGeo && q.obj.geometry !== ringGeo && q.obj.geometry !== confettiGeo) q.obj.geometry.dispose(); e.parts.splice(i, 1); continue; }
     q.vel.y += q.g * dt;
-    q.m.position.addScaledVector(q.vel, dt);
-    q.m.rotation.y += q.spin * dt;
-    q.m.scale.setScalar(q.size * (1 + q.grow * a) * (a < 0.15 ? a / 0.15 : 1));
-    if (q.fade) q.m.material.opacity = 1 - a;
+    q.vel.multiplyScalar(Math.max(0, 1 - q.drag * dt));
+    q.obj.position.addScaledVector(q.vel, dt);
+    if (q.obj.isSprite) q.obj.material.rotation += q.spin * dt;
+    else if (q.tumble) { q.obj.rotation.x += q.spin * dt; q.obj.rotation.y += q.spin * 0.7 * dt; }
+    else q.obj.rotation.y += q.spin * dt;
+    q.obj.scale.setScalar(q.size * (1 + q.grow * a) * (a < 0.12 ? 0.3 + (0.7 * a) / 0.12 : 1));
+    if (q.obj.material.transparent) q.obj.material.opacity = q.op * Math.pow(1 - a, 1.3) * (q.twinkle ? 0.65 + 0.35 * Math.sin(t / 40 + i) : 1);
   }
 }
 
-let running = false;
-const q = new URLSearchParams(location.search), FREEZE = Number(q.get('freeze')) || 0; // preview: hold every emote at this ms
+function finish(e) {
+  scene.remove(e.group);
+  for (const q of e.parts) if (q.obj.material && ![tearMat, pinkMat, heartMat].includes(q.obj.material)) q.obj.material.dispose();
+  e.glow.material.dispose(); e.shadow.material.dispose(); e.shadow.geometry.dispose();
+  e.face?.dispose();
+}
+
+let running = false, lastNow = 0;
+const q = new URLSearchParams(location.search), FREEZE = Number(q.get('freeze')) || 0; // preview: run every emote up to this ms and hold
 function frame(now) {
-  if (FREEZE) { for (const e of fx) { e.t = FREEZE; update(e); } renderer.render(scene, camera); return; }
+  const dt = Math.min(0.05, (now - lastNow) / 1000);
+  lastNow = now;
+  if (FREEZE) {
+    for (const e of fx) for (e.t = 0; e.t <= FREEZE; e.t += 16) update(e, 0.016);
+    renderer.render(scene, camera);
+    return;
+  }
   for (let i = fx.length - 1; i >= 0; i--) {
     const e = fx[i];
-    e.t = now - e.t0;
-    if (e.t >= e.dur) { scene.remove(e.group); fx.splice(i, 1); continue; }
-    update(e);
+    e.t += dt * 1000;
+    if (e.t >= e.dur) { finish(e); fx.splice(i, 1); continue; }
+    update(e, dt);
   }
   renderer.render(scene, camera);
   if (fx.length) requestAnimationFrame(frame);
@@ -331,19 +529,20 @@ function frame(now) {
 }
 
 window.voyaPlay = (o) => { try { play(o); } catch (err) { post({ type: 'error', message: String(err) }); } };
-// warm up every shader once, off screen, so the first emote doesn't stutter
+// Warm up every shader once, off screen, so the first emote doesn't stutter.
 const warm = new THREE.Group(); warm.position.set(0, 0, -1e5);
-for (const k of ['smile', 'laugh', 'cry', 'kiss', 'angry']) warm.add(new THREE.Mesh(sphere, faceMat(k)));
-warm.add(new THREE.Mesh(heartGeo, heartMat), new THREE.Mesh(dieGeo, dieMats), new THREE.Mesh(coinGeo, coinMats), roller('000'), hand());
-scene.add(warm); renderer.compile(scene, camera); scene.remove(warm);
+const warmFace = liveFace('smile');
+warm.add(new THREE.Mesh(sphere, warmFace.mat), new THREE.Mesh(heartGeo, heartMat), new THREE.Mesh(dieGeo, dieMats), new THREE.Mesh(coinGeo, coinMats), roller('000'), hand(), cloud(), vein(), sprite(glowTex, 0xffffff), new THREE.Mesh(ball, tearMat));
+scene.add(warm); renderer.compile(scene, camera); scene.remove(warm); warmFace.dispose();
 post({ type: 'ready', ok: true });
 
-// Local preview: /fx/emotes/?demo plays everything in a grid.
+// Local preview: /fx/emotes/?demo plays everything in a grid (&size=, &freeze=ms).
 if (q.has('demo')) {
-  const all = [['hand'], ['smile'], ['laugh'], ['cry'], ['kiss'], ['angry'], ['heart'], ['dice', 5], ['coin', 'Heads'], ['roller', '472'], ['coin', 'Tails'], ['dice', 2]];
+  if (q.has('dark')) document.body.style.background = 'radial-gradient(#3a2a6a, #120c26)';
+  const all = [['hand'], ['smile'], ['laugh'], ['cry'], ['kiss'], ['angry'], ['heart'], ['dice', 5], ['coin', 'Heads'], ['roller', '777'], ['coin', 'Tails'], ['dice', 2]];
   const sz = Number(q.get('size')) || 56;
-  const at = (i) => ({ x: sz * 1.1 + (i % 4) * sz * 2, y: sz * 1.25 + Math.floor(i / 4) * sz * 2.3, size: sz });
-  window.demo = (ms = 0) => all.forEach(([emote, result], i) => play({ emote, result, ...at(i) }));
+  const at = (i) => ({ x: sz * 1.2 + (i % 4) * sz * 2.2, y: sz * 1.8 + Math.floor(i / 4) * sz * 2.6, size: sz });
+  window.demo = () => all.forEach(([emote, result], i) => play({ emote, result, ...at(i) }));
   window.demo();
 }
 </script>
