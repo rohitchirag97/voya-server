@@ -85,15 +85,19 @@ const shadowTex = canvasTex(128, 128, (g) => {
 // Faces: a sphere wrapped in an equirectangular picture, repainted every frame so the face can blink, talk, cry and
 // blush. The front of the sphere is at (256, 256) in 1024 x 512 units (drawn at half size).
 const INK = '#5a3412';
-const mixHex = (a, b, t) => {
-  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16)), pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
-  return `rgb(${pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(',')})`;
-};
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const mixRgb = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+const css = (c) => `rgb(${c.map(Math.round).join(',')})`;
+// face colour, top / middle / bottom, and what each mood tints it towards
+const SKIN = [hex('#ffe27a'), hex('#ffc93c'), hex('#f6a21c')];
+const TINTS = { heat: ['#ff9d4a', '#f2502a', '#c51b1b'], blue: ['#d8e6ff', '#a6bde9', '#7187c6'], green: ['#dcef8e', '#a8d055', '#6f9e2e'] };
 function paintFace(g, kind, f) {
   g.setTransform(0.5, 0, 0, 0.5, 0, 0);
   const heat = f.heat ?? 0;
+  let skin = SKIN;
+  for (const k of ['heat', 'blue', 'green']) if (f[k]) skin = skin.map((c, i) => mixRgb(c, hex(TINTS[k][i]), f[k]));
   const grad = g.createLinearGradient(0, 0, 0, 512);
-  grad.addColorStop(0, mixHex('#ffe27a', '#ff9d4a', heat)); grad.addColorStop(0.55, mixHex('#ffc93c', '#f2502a', heat)); grad.addColorStop(1, mixHex('#f6a21c', '#c51b1b', heat));
+  grad.addColorStop(0, css(skin[0])); grad.addColorStop(0.55, css(skin[1])); grad.addColorStop(1, css(skin[2]));
   g.fillStyle = grad; g.fillRect(0, 0, 1024, 512);
   const cx = 256, cy = 256;
   g.lineCap = 'round'; g.lineJoin = 'round';
@@ -144,6 +148,61 @@ function paintFace(g, kind, f) {
     g.fillStyle = '#d81b60';
     g.beginPath(); g.ellipse(cx + 10, cy + 46, 20 * p, 13 * p, 0.2, 0, Math.PI * 2); g.ellipse(cx + 10, cy + 46 + 24 * p, 20 * p, 13 * p, -0.2, 0, Math.PI * 2); g.fill();
     g.fillStyle = 'rgba(255,255,255,.5)'; g.beginPath(); g.ellipse(cx + 4, cy + 42, 6 * p, 3 * p, 0.2, 0, Math.PI * 2); g.fill();
+  } else if (kind === 'dance') { // grooving in sunglasses
+    for (const s of [-1, 1]) {
+      const lg = g.createLinearGradient(0, cy - 70, 0, cy - 10); lg.addColorStop(0, '#3a3a4a'); lg.addColorStop(1, '#0c0c14');
+      g.fillStyle = lg; g.beginPath(); g.roundRect(cx + s * 58 - 46, cy - 66, 92, 56, 22); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.35)'; g.beginPath(); g.moveTo(cx + s * 58 - 30, cy - 62); g.lineTo(cx + s * 58 - 6, cy - 62); g.lineTo(cx + s * 58 - 34, cy - 16); g.lineTo(cx + s * 58 - 44, cy - 30); g.fill();
+    }
+    stroke(10, () => { g.moveTo(cx - 14, cy - 50); g.quadraticCurveTo(cx, cy - 60, cx + 14, cy - 50); g.moveTo(cx - 104, cy - 56); g.lineTo(cx - 150, cy - 64); g.moveTo(cx + 104, cy - 56); g.lineTo(cx + 150, cy - 64); }, '#111');
+    mouthOpen(cy + 26, 78, 40 + 30 * (f.mouth ?? 0.5));
+    blush(0.5);
+  } else if (kind === 'sad') {
+    stroke(12, () => { for (const s of [-1, 1]) { g.moveTo(cx + s * 98, cy - 54); g.lineTo(cx + s * 32, cy - 76); } });
+    for (const s of [-1, 1]) {
+      eye(cx + s * 55, cy - 18, 0.55 * (1 - (f.blink ?? 0)) + 0.05, 14, 20);
+      stroke(7, () => { g.moveTo(cx + s * 55 - 20, cy - 30); g.quadraticCurveTo(cx + s * 55, cy - 36, cx + s * 55 + 20, cy - 30); });
+    }
+    stroke(13, () => { g.moveTo(cx - 40, cy + 82); g.quadraticCurveTo(cx, cy + 56, cx + 40, cy + 82); });
+  } else if (kind === 'naughty') { // 😜
+    stroke(14, () => { g.moveTo(cx - 79, cy - 34); g.quadraticCurveTo(cx - 55, cy - 60, cx - 31, cy - 34); });
+    eye(cx + 55, cy - 34, 1 - (f.blink ?? 0), 17, 24);
+    mouthOpen(cy + 16, 78, 44);
+    const tx = cx + 14 + 14 * (f.tongue ?? 0);
+    const tg = g.createLinearGradient(0, cy + 40, 0, cy + 130); tg.addColorStop(0, '#ff7d8e'); tg.addColorStop(1, '#e8455c');
+    g.fillStyle = tg; g.beginPath(); g.ellipse(tx, cy + 82, 30, 42, 0.15 * (f.tongue ?? 0), 0, Math.PI * 2); g.fill();
+    stroke(5, () => { g.moveTo(tx, cy + 60); g.lineTo(tx + 2, cy + 100); }, '#c2324a');
+    blush(0.8);
+  } else if (kind === 'sick') {
+    stroke(10, () => { for (const s of [-1, 1]) { g.moveTo(cx + s * 92, cy - 62); g.lineTo(cx + s * 32, cy - 72); } });
+    for (const s of [-1, 1]) {
+      eye(cx + s * 55, cy - 22, 0.45, 15, 20);
+      stroke(9, () => { g.moveTo(cx + s * 55 - 21, cy - 30); g.lineTo(cx + s * 55 + 21, cy - 30); });
+    }
+    stroke(11, () => { g.moveTo(cx - 52, cy + 66); for (let i = 0; i < 4; i++) g.quadraticCurveTo(cx - 39 + i * 26, cy + 66 + (i % 2 ? 12 : -12) * (1 + 0.3 * (f.mouth ?? 0)), cx - 26 + i * 26, cy + 66); });
+    g.save(); g.filter = 'blur(10px)'; g.fillStyle = 'rgba(255,90,80,.35)'; for (const s of [-1, 1]) { g.beginPath(); g.ellipse(cx + s * 100, cy + 26, 34, 20, 0, 0, Math.PI * 2); g.fill(); } g.restore();
+  } else if (kind === 'help') { // worried, wide-eyed
+    stroke(12, () => { for (const s of [-1, 1]) { g.moveTo(cx + s * 95, cy - 70); g.quadraticCurveTo(cx + s * 60, cy - 100, cx + s * 28, cy - 92); } });
+    for (const s of [-1, 1]) {
+      g.fillStyle = '#fff'; g.beginPath(); g.ellipse(cx + s * 55, cy - 28, 26, 31, 0, 0, Math.PI * 2); g.fill();
+      stroke(4, () => g.ellipse(cx + s * 55, cy - 28, 26, 31, 0, 0, Math.PI * 2), 'rgba(90,52,18,.4)');
+      g.fillStyle = INK; g.beginPath(); g.arc(cx + s * 55 + 9 * (f.look ?? 0), cy - 24, 11, 0, Math.PI * 2); g.fill();
+    }
+    g.fillStyle = '#6b2410'; g.beginPath(); g.ellipse(cx, cy + 66, 22, 24 * (0.8 + 0.4 * (f.mouth ?? 0)), 0, 0, Math.PI * 2); g.fill();
+    const sw = g.createLinearGradient(cx + 110, cy - 110, cx + 140, cy - 50); sw.addColorStop(0, '#bfeaff'); sw.addColorStop(1, '#3aa7e6');
+    g.fillStyle = sw; g.beginPath(); g.moveTo(cx + 122, cy - 118); g.quadraticCurveTo(cx + 144, cy - 70, cx + 122, cy - 62); g.quadraticCurveTo(cx + 100, cy - 70, cx + 122, cy - 118); g.fill();
+  } else if (kind === 'giftme') { // 🥺 pleading
+    stroke(10, () => { for (const s of [-1, 1]) { g.moveTo(cx + s * 92, cy - 68); g.lineTo(cx + s * 34, cy - 86); } });
+    for (const s of [-1, 1]) {
+      const x = cx + s * 55, y = cy - 26;
+      g.fillStyle = '#2d1a0c'; g.beginPath(); g.ellipse(x, y, 31, 36, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#fff'; const sh = 3 * (f.shine ?? 0);
+      g.beginPath(); g.arc(x - 9 + sh, y - 12, 11, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(x + 11 - sh, y + 12, 6, 0, Math.PI * 2); g.fill();
+      stroke(6, () => { g.moveTo(x - 26, y + 34); g.quadraticCurveTo(x, y + 44, x + 26, y + 34); }, 'rgba(90,190,255,.9)');
+    }
+    stroke(10, () => { g.moveTo(cx - 26, cy + 84); g.quadraticCurveTo(cx, cy + 70 + 4 * (f.mouth ?? 0), cx + 26, cy + 84); });
+    blush(0.95);
   } else if (kind === 'angry') {
     const b = 14 * (f.brow ?? 0);
     stroke(18, () => { for (const s of [-1, 1]) { g.moveTo(cx + s * 100, cy - 80); g.lineTo(cx + s * 26, cy - 46 + b); } });
@@ -263,6 +322,78 @@ function vein() { // 💢: four arcs bowing towards the middle
   }
   return g;
 }
+// A sign held up on two poles by two little hands; the cloth waves (wave(t) moves its vertices).
+const SIGNS = {
+  help: canvasTex(512, 160, (g) => { const r = g.createLinearGradient(0, 0, 0, 160); r.addColorStop(0, '#ffffff'); r.addColorStop(1, '#ffe4e4'); g.fillStyle = r; g.beginPath(); g.roundRect(4, 4, 504, 152, 28); g.fill(); g.strokeStyle = '#e8263a'; g.lineWidth = 10; g.stroke(); g.font = '900 92px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#9b0f1e'; g.fillText('HELP ME!', 260, 88); g.fillStyle = '#e8263a'; g.fillText('HELP ME!', 256, 84); }),
+  giftme: canvasTex(512, 160, (g) => { const r = g.createLinearGradient(0, 0, 512, 160); r.addColorStop(0, '#ff6fae'); r.addColorStop(1, '#ff3d7f'); g.fillStyle = r; g.beginPath(); g.roundRect(4, 4, 504, 152, 28); g.fill(); g.strokeStyle = '#ffd45a'; g.lineWidth = 10; g.stroke(); g.font = '900 92px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#a3124a'; g.fillText('GIFT ME!', 260, 88); g.fillStyle = '#fff6d0'; g.fillText('GIFT ME!', 256, 84); }),
+};
+const poleMat = new THREE.MeshPhysicalMaterial({ color: 0xc98a3a, roughness: 0.5, clearcoat: 0.4 });
+function sign(kind) {
+  const g = new THREE.Group();
+  const geo = new THREE.PlaneGeometry(1.5, 0.47, 30, 2), base = geo.attributes.position.array.slice();
+  const cloth = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ map: SIGNS[kind], side: THREE.DoubleSide, roughness: 0.55, clearcoat: 0.3 }));
+  g.add(cloth);
+  for (const x of [-0.78, 0.78]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.85, 12), poleMat); pole.position.set(x, -0.12, 0); g.add(pole);
+    const hand = new THREE.Mesh(ball, skinMat); hand.scale.set(0.16, 0.18, 0.14); hand.position.set(x, -0.38, 0.04); g.add(hand);
+  }
+  g.userData.wave = (t) => {
+    const p = geo.attributes.position.array;
+    for (let i = 0; i < p.length; i += 3) { const x = base[i]; p[i + 2] = 0.07 * Math.sin(x * 4.5 - t * 7) * (0.35 + 0.65 * Math.abs(x) / 0.75) * (Math.abs(x) > 0.72 ? 0.3 : 1); }
+    geo.attributes.position.needsUpdate = true; geo.computeVertexNormals();
+  };
+  g.userData.dispose = () => { geo.dispose(); cloth.material.dispose(); g.children.forEach((c) => c !== cloth && c.geometry.type === 'CylinderGeometry' && c.geometry.dispose()); };
+  return g;
+}
+const giftRed = glossy({ color: 0xe8263a, roughness: 0.25, clearcoat: 1 });
+const giftGold = new THREE.MeshPhysicalMaterial({ color: 0xffc94a, metalness: 0.7, roughness: 0.25, clearcoat: 0.6 });
+function giftBox() {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(new RoundedBoxGeometry(0.42, 0.36, 0.42, 3, 0.04), giftRed));
+  const r1 = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.37, 0.07), giftGold), r2 = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.37, 0.44), giftGold); g.add(r1, r2);
+  const lid = new THREE.Mesh(new RoundedBoxGeometry(0.47, 0.09, 0.47, 3, 0.03), giftRed); lid.position.y = 0.2; g.add(lid);
+  for (const s of [-1, 1]) { const bow = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.026, 10, 24), giftGold); bow.position.set(s * 0.07, 0.3, 0); bow.rotation.set(0, s * 0.5, s * 0.6); g.add(bow); }
+  return g;
+}
+const discoMat = new THREE.MeshPhysicalMaterial({ color: 0xdfe6f5, metalness: 1, roughness: 0.12, flatShading: true });
+function disco() {
+  const g = new THREE.Group();
+  const ball2 = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 2), discoMat); g.add(ball2);
+  const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.5, 6), poleMat); wire.position.y = 0.45; g.add(wire);
+  return g;
+}
+const hornMat = glossy({ color: 0xd8213a, roughness: 0.22, clearcoat: 1 });
+function horns() {
+  const g = new THREE.Group();
+  for (const s of [-1, 1]) { const h = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.24, 24), hornMat); h.position.set(s * 0.21, 0.47, 0.06); h.rotation.z = -s * 0.42; g.add(h); }
+  return g;
+}
+function thermometer() {
+  const g = new THREE.Group(), arm = new THREE.Group(); g.add(arm);
+  const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.42, 16), glossy({ color: 0xffffff, roughness: 0.1, clearcoat: 1 })); glass.position.y = 0.21; arm.add(glass);
+  const red = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.3, 10), new THREE.MeshBasicMaterial({ color: 0xff2a2a })); red.position.set(0, 0.17, 0.018); arm.add(red);
+  const bulb = new THREE.Mesh(ball, new THREE.MeshBasicMaterial({ color: 0xff2a2a })); bulb.scale.setScalar(0.08); arm.add(bulb);
+  arm.rotation.set(0.7, 0, -2.0); // out of the corner of the mouth, towards you
+  g.position.set(0.08, -0.2, 0.44);
+  g.userData.red = red;
+  return g;
+}
+const germMat = new THREE.MeshPhysicalMaterial({ color: 0x7fd14a, roughness: 0.5, flatShading: true, clearcoat: 0.4 });
+const germGeo = new THREE.IcosahedronGeometry(0.5, 0);
+// A heart that cracks: two halves sharing a zig-zag edge.
+const halfHearts = (() => {
+  const P = (t) => new THREE.Vector2(16 * Math.sin(t) ** 3, 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)).multiplyScalar(1 / 34);
+  const zig = []; for (let i = 0; i <= 6; i++) zig.push(new THREE.Vector2(i % 2 ? 0.05 : -0.03, 5 / 34 - (i / 6) * (22 / 34)));
+  const right = [], left = [];
+  for (let i = 0; i <= 48; i++) right.push(P((i / 48) * Math.PI));
+  right.push(...[...zig].reverse());
+  for (let i = 0; i <= 48; i++) left.push(P(Math.PI + (i / 48) * Math.PI));
+  left.push(...zig);
+  const opts = { depth: 0.18, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.05, bevelSegments: 6, curveSegments: 24 };
+  return [left, right].map((pts) => { const g = new THREE.ExtrudeGeometry(new THREE.Shape(pts), opts); g.translate(0, 0.1, -0.09); return g; });
+})();
+const noteTex = ['\u266A', '\u266B'].map((ch) => canvasTex(128, 128, (g) => { g.font = '900 104px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.shadowColor = 'rgba(255,255,255,.8)'; g.shadowBlur = 12; g.fillText(ch, 64, 70); }));
+
 function roller(result) {
   const g = new THREE.Group();
   const back = new THREE.Mesh(new RoundedBoxGeometry(1.5, 0.78, 0.2, 4, 0.08), backMat); back.position.z = -0.12; g.add(back);
@@ -308,9 +439,9 @@ const easeOut = (x) => 1 - Math.pow(1 - clamp01(x), 3);
 const backOut = (x) => { x = clamp01(x); const c = 2.2; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
 const FINAL = { 1: new THREE.Euler(0, 0, 0), 6: new THREE.Euler(0, Math.PI, 0), 3: new THREE.Euler(0, -Math.PI / 2, 0), 4: new THREE.Euler(0, Math.PI / 2, 0), 2: new THREE.Euler(Math.PI / 2, 0, 0), 5: new THREE.Euler(-Math.PI / 2, 0, 0) };
 const ROLL = 1300;
-const SCALE = { dice: 0.95, coin: 1.05, roller: 1.15, heart: 1.15, hand: 1.2 }; // x the seat picture; faces 1.25
-const GLOW = { smile: 0xffd23f, laugh: 0xffd23f, cry: 0x58c4f5, kiss: 0xff5f9e, angry: 0xff4a2a, heart: 0xff2d55, hand: 0xffd23f, dice: 0xffffff, coin: 0xffc94a, roller: 0xffc94a };
-const DUR = { smile: 3000, laugh: 3000, cry: 3200, kiss: 3200, angry: 3000, heart: 3200, hand: 2800, dice: 3800, coin: 3800, roller: 3800 };
+const SCALE = { dice: 0.95, coin: 1.05, roller: 1.15, heart: 1.15, hand: 1.2, help: 1.1, giftme: 1.1 }; // x the seat picture; faces 1.25
+const GLOW = { smile: 0xffd23f, laugh: 0xffd23f, cry: 0x58c4f5, kiss: 0xff5f9e, angry: 0xff4a2a, heart: 0xff2d55, hand: 0xffd23f, dice: 0xffffff, coin: 0xffc94a, roller: 0xffc94a, dance: 0xb44bff, sad: 0x6f9bd8, naughty: 0xc04cff, sick: 0x7fd14a, help: 0xff3b3b, giftme: 0xff7ab8 };
+const DUR = { smile: 3000, laugh: 3000, cry: 3200, kiss: 3200, angry: 3000, heart: 3200, hand: 2800, dice: 3800, coin: 3800, roller: 3800, dance: 3600, sad: 3300, naughty: 3000, sick: 3300, help: 3400, giftme: 3400 };
 
 function play({ emote: k, result, x, y, size }) {
   const group = new THREE.Group(), body = new THREE.Group();
@@ -332,6 +463,22 @@ function play({ emote: k, result, x, y, size }) {
   if (k === 'cry') { e.cloud = cloud(); e.cloud.position.set(0, 1.25, -0.1); e.cloud.scale.setScalar(0.001); group.add(e.cloud); }
   if (k === 'angry') { e.vein = vein(); e.vein.position.set(0.36, 0.42, 0.3); e.vein.scale.setScalar(0.001); group.add(e.vein); }
   if (k === 'heart') { e.orbit = [0, 1, 2].map(() => { const m = new THREE.Mesh(heartGeo, pinkMat); m.scale.setScalar(0.001); group.add(m); return m; }); }
+  e.trash = []; // per-emote objects to dispose at the end
+  if (k === 'dance') {
+    e.disco = disco(); e.disco.position.set(0, 1.05, -0.15); e.disco.scale.setScalar(0.001); group.add(e.disco); e.trash.push(e.disco);
+    e.beams = [0, 1, 2].map((i) => { const b = sprite(glowTex, 0xffffff); b.position.z = -0.5; group.add(b); e.trash.push(b); return b; });
+  }
+  if (k === 'sad') { e.halves = halfHearts.map((geo) => { const h = new THREE.Mesh(geo, heartMat); h.scale.setScalar(0.001); h.position.y = 0.95; group.add(h); return h; }); }
+  if (k === 'naughty') { e.horns = horns(); e.horns.scale.setScalar(0.001); model.add(e.horns); e.trash.push(e.horns); }
+  if (k === 'sick') {
+    e.thermo = thermometer(); model.add(e.thermo); e.trash.push(e.thermo);
+    e.germs = [0, 1, 2, 3].map(() => { const m = new THREE.Mesh(germGeo, germMat); m.scale.setScalar(0.001); group.add(m); return m; });
+  }
+  if (k === 'help' || k === 'giftme') {
+    model.position.y = 0.22; // the face sits above the sign it holds
+    e.sign = sign(k); e.sign.position.set(0, -0.5, 0.32); body.add(e.sign);
+    if (k === 'giftme') { e.gift = giftBox(); e.gift.position.set(0.95, -0.05, 0.1); e.gift.scale.setScalar(0.001); group.add(e.gift); e.trash.push(e.gift); }
+  }
   group.position.set(x - W / 2, H / 2 - y, 0);
   group.scale.setScalar(size * (SCALE[k] ?? 1.25));
   scene.add(group);
@@ -411,6 +558,81 @@ function update(e, dt) {
       for (const sx of [-1, 1]) puff(e, V(sx * 0.5, 0.15, 0), V(sx * rand(0.8, 1.3), rand(0.6, 1.1), 0), 0.12 + 0.1 * boil, 0xffffff, 600);
     }
     if (!f.blow && boil >= 1 && t > 2000) { f.blow = true; for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; puff(e, V(Math.cos(a) * 0.4, 0.55 + Math.sin(a) * 0.15, 0), V(Math.cos(a) * 1.2, 1 + Math.sin(a) * 0.6, 0), 0.25, 0xffffff, 700); } }
+  } else if (e.k === 'dance') {
+    const beat = Math.abs(Math.sin(sec * Math.PI * 2)), sway = Math.sin(sec * Math.PI); // two beats a second, swaying on every other
+    b.position.x = 0.13 * sway; b.position.y += 0.11 * beat;
+    b.scale.y *= 1 + 0.08 * (1 - beat); b.scale.x *= 1 - 0.05 * (1 - beat);
+    m.rotation.set(0.12 * beat - 0.05, enter + 0.45 * sway, 0.28 * sway);
+    Object.assign(face, { mouth: beat });
+    const hue = (sec * 0.35) % 1;
+    e.glow.material.color.setHSL(hue, 0.9, 0.6);
+    const d = e.disco; d.scale.setScalar(Math.max(0.001, easeOut((t - 200) / 400) * (t > e.dur - 400 ? 0 : 1))); d.rotation.y = sec * 3; d.position.y = 1.05 + 0.03 * Math.sin(sec * 3);
+    e.beams.forEach((bm, i) => { // coloured lights sweeping round behind
+      const a = sec * 2.2 + (i * Math.PI * 2) / 3;
+      bm.position.set(Math.cos(a) * 0.75, 0.2 + Math.sin(a) * 0.45, -0.5);
+      bm.material.color.setHSL((hue + i / 3) % 1, 1, 0.55);
+      bm.material.opacity = 0.45 * Math.min(1, grow) * (t > outAt ? 0 : 1);
+      bm.scale.setScalar(1.1);
+    });
+    if (t > 300 && t > e.next && t < e.dur - 500) { e.next = t + 300; const sx = f.side = -(f.side ?? 1); const n = sprite(noteTex[Math.random() < 0.5 ? 0 : 1], new THREE.Color().setHSL(Math.random(), 0.9, 0.65)); spawn(e, n, { at: V(sx * 0.55, 0.2, 0.3), vel: V(sx * rand(0.3, 0.7), rand(0.7, 1.1), 0.2), life: 1100, size: 0.26, spin: sx * 1.5 }); }
+  } else if (e.k === 'sad') {
+    const sink = easeOut(t / 1200);
+    b.position.y -= 0.08 * sink;
+    m.rotation.set(0.32 * sink, enter + 0.12 * Math.sin(sec * 1.3), 0.08 * Math.sin(sec * 1.1));
+    b.scale.multiplyScalar(1 + 0.025 * Math.sin(sec * 2.2));
+    Object.assign(face, { blue: 0.3 * easeOut(t / 1500), blink: blinkAt(1700) });
+    e.glow.material.opacity *= 0.7;
+    // a heart appears above them, cracks in two and falls apart
+    const [l, r] = e.halves, ap = backOut((t - 300) / 350), crack = easeOut((t - 1300) / 300), fall = Math.max(0, (t - 1900) / 1000);
+    for (const [h, sx] of [[l, -1], [r, 1]]) {
+      h.scale.setScalar(Math.max(0.001, 0.42 * ap * (1 - clamp01(fall * 1.2))));
+      h.position.set(sx * (0.1 * crack + 0.25 * fall), 0.95 - 1.6 * fall * fall, 0.1);
+      h.rotation.set(0, enter * 0.3, sx * -(0.35 * crack + 1.2 * fall));
+    }
+    if (!f.crack && t > 1300) { f.crack = true; sparkles(e, V(0, 1, 0.2), 6, 0xbfd6ff, 0.8, 0.1); }
+    if (!f.sigh && t > 1600) { f.sigh = true; puff(e, V(0.05, -0.25, 0.5), V(0.25, -0.15, 0.4), 0.16, 0xcfe0ff, 900); }
+    if (t > 600 && t > e.next && t < e.dur - 500) { e.next = t + 850; const sx = f.side = -(f.side ?? 1); spawn(e, new THREE.Mesh(ball, tearMat), { at: V(sx * 0.2, -0.08, 0.42), vel: V(sx * 0.1, 0, 0.15), g: -3, life: 900, size: 0.09 }); }
+  } else if (e.k === 'naughty') {
+    m.rotation.set(-0.05 + 0.06 * Math.sin(sec * 9), enter + 0.35 * Math.sin(sec * 3), 0.22 * Math.sin(sec * 4.5));
+    b.position.x = 0.05 * Math.sin(sec * 9);
+    const lean = Math.exp(-(((t - 1500) / 140) ** 2));
+    b.position.z = 0.35 * lean; b.scale.multiplyScalar(1 + 0.08 * lean);
+    Object.assign(face, { tongue: Math.sin(sec * 14), blink: blinkAt(2300) });
+    e.horns.scale.setScalar(Math.max(0.001, backOut((t - 350) / 300) * (1 + 0.06 * Math.sin(sec * 12))));
+    if (!f.hehe && t > 1450) { f.hehe = true; sparkles(e, V(0, 0, 0.5), 10, 0xe39bff, 1.6); }
+    if (t > e.next && t < e.dur - 500) { e.next = t + 280; spawn(e, sprite(starTex, Math.random() < 0.5 ? 0xd27bff : 0xff7ac0), { at: V(rand(-0.7, 0.7), rand(-0.3, 0.8), 0.4), life: 650, size: rand(0.1, 0.17), twinkle: 1, spin: 3 }); }
+  } else if (e.k === 'sick') {
+    const sneeze = Math.exp(-(((t - 1900) / 120) ** 2));
+    m.rotation.set(0.15 + 0.12 * Math.sin(sec * 2.2) - 0.35 * sneeze, enter + 0.2 * Math.cos(sec * 2.2), 0.15 * Math.sin(sec * 2.2));
+    b.position.x = 0.012 * Math.sin(sec * 70); b.position.z = 0.25 * sneeze;
+    Object.assign(face, { green: 0.4 + 0.2 * Math.sin(sec * 1.5) ** 2, mouth: Math.sin(sec * 4) });
+    e.thermo.userData.red.scale.y = 0.85 + 0.15 * Math.sin(sec * 3);
+    e.germs.forEach((gm, i) => { // germs drifting round the head
+      const a = sec * 1.6 + (i * Math.PI) / 2;
+      gm.position.set(Math.cos(a) * 0.72, 0.3 + 0.12 * Math.sin(a * 2 + i), Math.sin(a) * 0.45);
+      gm.rotation.set(sec * 2 + i, sec * 3, 0);
+      gm.scale.setScalar(Math.max(0.001, 0.13 * easeOut((t - 300 - i * 150) / 300) * (t > e.dur - 450 ? 0 : 1)));
+    });
+    if (!f.sneeze && t > 1880) { f.sneeze = true; for (let i = 0; i < 7; i++) puff(e, V(0, -0.2, 0.5), V(rand(-0.6, 0.6), rand(-0.3, 0.3), rand(1, 1.8)), 0.13, 0xb8e986, 700); }
+    if (t > 500 && t > e.next && t < e.dur - 500) { e.next = t + 650; spawn(e, new THREE.Mesh(ball, tearMat), { at: V(rand(0.25, 0.4), 0.3, 0.33), vel: V(0.1, -0.2, 0.1), g: -1.5, life: 900, size: 0.08 }); }
+  } else if (e.k === 'help' || e.k === 'giftme') {
+    const help = e.k === 'help';
+    const hop = help ? Math.abs(Math.sin(sec * 7)) : Math.abs(Math.sin(sec * 3.2));
+    b.position.y += (help ? 0.12 : 0.05) * hop;
+    m.rotation.set(help ? -0.1 : 0.08 * Math.sin(sec * 2), enter + (help ? 0.2 * Math.sin(sec * 5) : 0.25 * Math.sin(sec * 1.6)), help ? 0.12 * Math.sin(sec * 7) : 0.15 * Math.sin(sec * 2.4));
+    e.sign.userData.wave(sec);
+    e.sign.rotation.z = (help ? 0.08 : 0.05) * Math.sin(sec * (help ? 7 : 3));
+    e.sign.position.y = -0.5 + (help ? 0.05 : 0.02) * hop;
+    Object.assign(face, help ? { look: Math.sin(sec * 4), mouth: hop } : { shine: Math.sin(sec * 3), mouth: Math.sin(sec * 5) });
+    if (help) {
+      const n = Math.floor(sec / 0.6);
+      if (n !== f.alarm && t > 300 && t < e.dur - 500) { f.alarm = n; ring(e, V(0, 0.15, -0.3), 0xff3b3b, 600, 1.6); }
+      if (t > e.next && t < e.dur - 500) { e.next = t + 500; spawn(e, new THREE.Mesh(ball, tearMat), { at: V(0.45, 0.5, 0.2), vel: V(rand(0.6, 1), rand(0.8, 1.2), 0.2), g: -4, life: 600, size: 0.07 }); }
+    } else {
+      const gb = e.gift; gb.scale.setScalar(Math.max(0.001, backOut((t - 350) / 350) * 0.9 * (t > e.dur - 400 ? 0 : 1)));
+      gb.position.y = -0.05 + 0.08 * Math.sin(sec * 4); gb.rotation.set(0.25, sec * 1.8, 0.12 * Math.sin(sec * 3));
+      if (t > e.next && t < e.dur - 500) { e.next = t + 300; const heart = Math.random() < 0.45; spawn(e, heart ? new THREE.Mesh(heartGeo, fadeMat(pinkMat)) : sprite(starTex, 0xffe08a), { at: V(rand(-0.6, 1.1), rand(0, 0.6), 0.35), vel: V(0, 0.6, 0), life: 900, size: heart ? 0.14 : 0.14, twinkle: heart ? 0 : 1, spin: 2 }); }
+    }
   } else if (e.k === 'heart') {
     const ph = (sec % 0.85) / 0.85, beat = 0.2 * Math.exp(-((ph / 0.06) ** 2)) + 0.13 * Math.exp(-(((ph - 0.22) / 0.06) ** 2)); // lub-dub
     m.rotation.set(0.1 * Math.sin(sec * 2), enter + 0.6 * Math.sin(sec * 1.8), 0);
@@ -505,6 +727,8 @@ function finish(e) {
   for (const q of e.parts) if (q.obj.material && ![tearMat, pinkMat, heartMat].includes(q.obj.material)) q.obj.material.dispose();
   e.glow.material.dispose(); e.shadow.material.dispose(); e.shadow.geometry.dispose();
   e.face?.dispose();
+  e.sign?.userData.dispose();
+  for (const o of e.trash) { if (o.isSprite) o.material.dispose(); }
 }
 
 let running = false, lastNow = 0;
@@ -532,18 +756,21 @@ window.voyaPlay = (o) => { try { play(o); } catch (err) { post({ type: 'error', 
 // Warm up every shader once, off screen, so the first emote doesn't stutter.
 const warm = new THREE.Group(); warm.position.set(0, 0, -1e5);
 const warmFace = liveFace('smile');
-warm.add(new THREE.Mesh(sphere, warmFace.mat), new THREE.Mesh(heartGeo, heartMat), new THREE.Mesh(dieGeo, dieMats), new THREE.Mesh(coinGeo, coinMats), roller('000'), hand(), cloud(), vein(), sprite(glowTex, 0xffffff), new THREE.Mesh(ball, tearMat));
+warm.add(sign('help'), giftBox(), disco(), horns(), thermometer(), new THREE.Mesh(germGeo, germMat), new THREE.Mesh(halfHearts[0], heartMat), sprite(noteTex[0], 0xffffff), new THREE.Mesh(sphere, warmFace.mat), new THREE.Mesh(heartGeo, heartMat), new THREE.Mesh(dieGeo, dieMats), new THREE.Mesh(coinGeo, coinMats), roller('000'), hand(), cloud(), vein(), sprite(glowTex, 0xffffff), new THREE.Mesh(ball, tearMat));
 scene.add(warm); renderer.compile(scene, camera); scene.remove(warm); warmFace.dispose();
 post({ type: 'ready', ok: true });
 
 // Local preview: /games/emotes/?demo plays everything in a grid (&size=, &freeze=ms).
 if (q.has('demo')) {
   if (q.has('dark')) document.body.style.background = 'radial-gradient(#3a2a6a, #120c26)';
-  const all = [['hand'], ['smile'], ['laugh'], ['cry'], ['kiss'], ['angry'], ['heart'], ['dice', 5], ['coin', 'Heads'], ['roller', '777'], ['coin', 'Tails'], ['dice', 2]];
+  const only = q.get('only');
+  const all = only ? [[only]] : [['hand'], ['smile'], ['laugh'], ['cry'], ['kiss'], ['angry'], ['heart'], ['dice', 5], ['coin', 'Heads'], ['roller', '777'], ['dance'], ['sad'], ['naughty'], ['sick'], ['help'], ['giftme']];
   const sz = Number(q.get('size')) || 56;
   const at = (i) => ({ x: sz * 1.2 + (i % 4) * sz * 2.2, y: sz * 1.8 + Math.floor(i / 4) * sz * 2.6, size: sz });
   window.demo = () => all.forEach(([emote, result], i) => play({ emote, result, ...at(i) }));
   window.demo();
+  // picker artwork: the model alone (no glow, shadow or particles) as a transparent PNG
+  window.snap = () => { for (const e of fx) { e.glow.visible = false; e.shadow.visible = false; e.parts.forEach((p) => (p.obj.visible = false)); e.beams?.forEach((b) => (b.visible = false)); [e.disco, ...(e.halves ?? []), ...(e.germs ?? [])].forEach((o) => o && (o.visible = false)); } renderer.render(scene, camera); return renderer.domElement.toDataURL('image/png'); };
 }
 </script>
 </body>
