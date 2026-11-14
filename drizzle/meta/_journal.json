@@ -617,6 +617,13 @@
       "when": 1794636314577,
       "tag": "0087_levels_svip_in_coins",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1794722714577,
+      "tag": "0088_pool_mode",
+      "breakpoints": true
     }
   ]
 }

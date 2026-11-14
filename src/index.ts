@@ -6,6 +6,7 @@ import { runMicLoop } from "./services/hostMonth";
 import { purgeUndelivered } from "./services/dmPush";
 import { runGreedyLoop } from "./services/greedy";
 import { runLudoLoop } from "./services/ludo";
+import { runPoolLoop } from "./services/pool";
 import { runRocketLoop } from "./services/rocket";
 import { runEventLoop } from "./services/events";
 import { runTaskAnnouncer } from "./services/tasks";
@@ -19,6 +20,7 @@ console.log(JSON.stringify({ level: "info", msg: "listening", port: server.port 
 void runGreedyLoop();
 void runRocketLoop();
 void runLudoLoop();
+void runPoolLoop();
 runCpLoop();
 runMicLoop();
 runItemSweep(); // prize items and Special IDs that ran out

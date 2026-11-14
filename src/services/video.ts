@@ -44,6 +44,7 @@ export async function setMode(actor: User, roomId: string, on: boolean) {
   if (room.kind === "LIVE") throw new AppError("VIDEO_NOT_IN_LIVE", 400, "Video mode is for audio rooms");
   if (!!room.video === on) return { video: room.video };
   if (on && room.ludo) throw new AppError("LUDO_ON", 409, "Turn off Ludo first");
+  if (on && room.pool) throw new AppError("POOL_ON", 409, "Turn off 8 Ball Pool first");
   const result = await save(roomId, on ? { videoId: null, title: null, position: 0, playing: false, at: new Date().toISOString() } : null);
   await systemMessage(roomId, on ? `${actor.displayName} switched the room to Video mode` : `${actor.displayName} turned Video mode off`, { kind: "VIDEO", userId: actor.id });
   return result;

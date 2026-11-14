@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>8 Ball Pool</title>
+<style>
+  /* 8 Ball Pool table for a room in Pool mode, shown inline under the seat row. Everyone watches; only the shooter
+     gets the power bar and spin. The server simulates every shot; this page replays it with the same physics. */
+  :root { --ink:#f4f1ea; --muted:#b9c2bd; --gold:#f2c14e; --panel:rgba(12,18,16,.92); }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: transparent; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; }
+  #app { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; border-radius: 18px; overflow: hidden;
+    background: radial-gradient(120% 80% at 50% 40%, #23302b 0%, #101614 70%); box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+  #hud { height: 48px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; gap: 6px; }
+  .pl { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; opacity: .55; transition: opacity .2s; }
+  .pl.r { flex-direction: row-reverse; text-align: right; }
+  .pl.turn { opacity: 1; }
+  .av { position: relative; flex: none; width: 34px; height: 34px; border-radius: 50%; padding: 3px; background: conic-gradient(var(--gold) calc(var(--p, 0) * 1turn), rgba(255,255,255,.14) 0); }
+  .pl:not(.turn) .av { background: rgba(255,255,255,.14); }
+  .av i { display: flex; width: 100%; height: 100%; border-radius: 50%; background: #2c3a35 center/cover no-repeat; align-items: center; justify-content: center; font-weight: 900; font-size: 13px; font-style: normal; }
+  .who { min-width: 0; }
+  .nm { font-size: 12px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grp { display: flex; gap: 2px; margin-top: 3px; min-height: 9px; font-size: 9px; color: var(--muted); font-weight: 700; letter-spacing: .04em; }
+  .pl.r .grp { justify-content: flex-end; }
+  .grp b { width: 9px; height: 9px; border-radius: 50%; box-shadow: inset -1px -1px 2px rgba(0,0,0,.45); }
+  .grp b.st { background: #f8f6ee !important; box-shadow: inset 0 0 0 2.5px var(--c), inset -1px -1px 2px rgba(0,0,0,.45); }
+  .grp b.gone { opacity: .18; }
+  #mid { flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  #mid .eight { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #555 0, #111 45%, #000 100%); display: flex; align-items: center; justify-content: center; }
+  #mid .eight span { width: 11px; height: 11px; border-radius: 50%; background: #fff; color: #000; font-size: 8px; font-weight: 900; display: flex; align-items: center; justify-content: center; }
+  #resign { border: 0; background: none; color: var(--muted); font-size: 10px; font-weight: 800; padding: 0; text-decoration: underline; }
+  #resign[hidden] { display: none; }
+  #stage { position: relative; flex: 1; min-height: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  /* The shooter's controls in the margins beside the table: pull the cue back on the left, pick spin on the right. */
+  #power { position: absolute; width: 30px; display: flex; flex-direction: column; align-items: center; gap: 6px; visibility: hidden; }
+  #power .track { position: relative; width: 16px; flex: 1; border-radius: 9px; background: rgba(10,14,12,.75); box-shadow: inset 0 0 0 2px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.4); overflow: hidden; }
+  #power .track i { position: absolute; left: 0; right: 0; top: 0; background: linear-gradient(#ffd25e, #f08a24 55%, #e0362b); }
+  #power .knob { position: absolute; left: -5px; right: -5px; height: 8px; margin-top: -4px; border-radius: 4px; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+  #power span, #spin span { font-size: 9px; font-weight: 900; letter-spacing: .08em; color: var(--muted); }
+  #spin { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 4px; visibility: hidden; }
+  #spinball { position: relative; width: 44px; height: 44px; border-radius: 50%; background: radial-gradient(circle at 36% 30%, #fff 0, #ece9df 45%, #b9b5a8 100%); box-shadow: 0 2px 6px rgba(0,0,0,.5); }
+  #spinball::before, #spinball::after { content: ""; position: absolute; background: rgba(0,0,0,.14); }
+  #spinball::before { left: 50%; top: 8%; bottom: 8%; width: 1px; }
+  #spinball::after { top: 50%; left: 8%; right: 8%; height: 1px; }
+  #spindot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #e0362b; box-shadow: 0 0 0 2px rgba(255,255,255,.8); left: 50%; top: 50%; }
+  .live { visibility: visible !important; }
+  #hint { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); font-size: 11px; font-weight: 800; color: #fff; background: rgba(0,0,0,.55); padding: 4px 11px; border-radius: 99px; white-space: nowrap; pointer-events: none; }
+  #hint:empty { display: none; }
+  #panel { position: absolute; inset: 48px 0 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(6,10,9,.45); backdrop-filter: blur(1.5px); }
+  #panel[hidden] { display: none; }
+  .card { width: min(86%, 320px); background: var(--panel); border: 1px solid rgba(255,255,255,.08); border-radius: 18px; padding: 16px 14px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .card h2 { margin: 0; font-size: 18px; letter-spacing: -.01em; }
+  .card p { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+  .slots { display: flex; gap: 10px; justify-content: center; margin: 14px 0 4px; }
+  .slot { position: relative; flex: 1; max-width: 118px; border-radius: 14px; padding: 10px 6px; background: rgba(255,255,255,.06); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .slot .av { width: 44px; height: 44px; background: rgba(255,255,255,.14); }
+  .slot .nm { max-width: 100%; font-size: 12px; }
+  .slot.free { border: 1.5px dashed rgba(255,255,255,.25); background: none; }
+  .slot.free .av i { background: none; font-size: 20px; color: var(--muted); }
+  .kick { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: #e0362b; color: #fff; font-size: 11px; font-weight: 900; line-height: 1; padding: 0; }
+  .btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+  .btn { border: 0; border-radius: 99px; padding: 9px 18px; font-size: 13px; font-weight: 800; background: linear-gradient(#2fb57a, #138a57); color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+  .btn.ghost { background: rgba(255,255,255,.1); }
+  .btn.small { padding: 5px 12px; font-size: 11px; }
+  .btn[disabled] { opacity: .4; }
+  #toast { position: absolute; left: 50%; top: 56px; transform: translateX(-50%) translateY(-8px); opacity: 0; visibility: hidden; z-index: 20; background: rgba(0,0,0,.82); color: #fff; padding: 8px 14px; border-radius: 12px; font-size: 12px; font-weight: 800; transition: transform .25s, opacity .25s, visibility .25s; max-width: 90%; text-align: center; }
+  #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; visibility: visible; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hud">
+    <div class="pl" id="p0"></div>
+    <div id="mid"><div class="eight"><span>8</span></div><button id="resign" hidden>Resign</button></div>
+    <div class="pl r" id="p1"></div>
+  </div>
+  <div id="stage">
+    <canvas id="c"></canvas>
+    <div id="power" aria-label="Power: drag down and let go to shoot"><div class="track"><i id="pfill"></i><div class="knob" id="pknob"></div></div><span>POWER</span></div>
+    <div id="spin" aria-label="Spin: tap where the cue hits the ball"><div id="spinball"><i id="spindot"></i></div><span>SPIN</span></div>
+    <div id="hint" aria-live="polite"></div>
+  </div>
+  <div id="panel"><div class="card" id="card"><h2>🎱 8 Ball Pool</h2><p>Connecting…</p></div></div>
+  <div id="toast" role="status"></div>
+</div>
+<script src="/games/socket.io.min.js"></script>
+<script type="module">
+import * as P from './physics.js';
+
+const ROOM = new URLSearchParams(location.search).get('room');
+const $ = (id) => document.getElementById(id);
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const { L, W, R } = P;
+const COLORS = ['#f8f6ee', '#f4c20d', '#1b4fc4', '#d42a1e', '#5b2a86', '#f2731d', '#0d7a3e', '#8a1c1c', '#111111'];
+const colorOf = (n) => COLORS[n > 8 ? n - 8 : n];
+const groupOf = (n) => (n === 8 ? 8 : n < 8 ? 'solid' : 'stripe');
+const FOUL = { SCRATCH: 'cue ball pocketed', NO_HIT: 'no ball hit', WRONG_BALL: 'wrong ball hit first', NO_RAIL: 'no ball reached a cushion', TIMEOUT: 'out of time' };
+
+let state = null, me = null, admin = false, offset = 0, turnMs = 30000;
+let balls = []; // what's drawn when no shot is rolling: [{ n, x, y }]
+let anim = null; // a shot being replayed: { sim, start, last }
+const queue = []; // states waiting for the current shot to finish rolling
+const dropping = []; // balls falling into a pocket: { n, x, y, at }
+let aim = { dx: 1, dy: 0 }, power = 0, spin = { x: 0, y: 0 }, aimedFor = -1;
+let place = null; // my cue ball placement while I have ball in hand
+let remote = null; // the shooter's aim as relayed by the server
+let pulling = false;
+
+// ---------- layout: physics metres -> screen ----------
+const cv = $('c'), ctx = cv.getContext('2d');
+const RAIL = 0.065; // wooden rail outside the cushions
+const BORDER = P.JAW + RAIL; // cushion + wooden rail around the cloth
+let k = { s: 1, ox: 0, oy: 0, dpr: 1, w: 0, h: 0 };
+const sx = (x, y) => k.ox + (W - y) * k.s; // the head rail at the bottom, the rack at the top
+const sy = (x, y) => k.oy + (L - x) * k.s;
+const toTable = (X, Y) => ({ x: L - (Y - k.oy) / k.s, y: W - (X - k.ox) / k.s });
+
+function layout() {
+  const r = $('stage').getBoundingClientRect();
+  if (r.width < 20 || r.height < 20) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const side = 40; // room for the power bar and spin either side
+  const s = Math.min((r.height - 6) / (L + 2 * BORDER), (r.width - 2 * side) / (W + 2 * BORDER));
+  k = { s, dpr, w: r.width, h: r.height, ox: (r.width - (W + 2 * BORDER) * s) / 2 + BORDER * s, oy: (r.height - (L + 2 * BORDER) * s) / 2 + BORDER * s };
+  cv.width = Math.round(r.width * dpr);
+  cv.height = Math.round(r.height * dpr);
+  const left = k.ox - BORDER * s, right = k.ox + (W + BORDER) * s;
+  Object.assign($('power').style, { left: `${left / 2 - 15}px`, top: `${k.oy + L * s * 0.18}px`, height: `${L * s * 0.62}px` });
+  Object.assign($('spin').style, { left: `${(right + r.width) / 2 - 22}px`, top: `${k.oy + L * s * 0.62}px` });
+  drawCloth();
+  sprites.clear();
+}
+
+// ---------- the table, drawn once per size ----------
+const bg = document.createElement('canvas');
+let seed = 7;
+const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+const tableT = (c) => c.setTransform(0, -k.s * k.dpr, -k.s * k.dpr, 0, k.dpr * (k.ox + W * k.s), k.dpr * (k.oy + L * k.s));
+function poly(c, pts) { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); }
+function rrect(c, x, y, w, h, r) { c.beginPath(); c.roundRect(x, y, w, h, r); }
+
+function drawCloth() {
+  bg.width = cv.width; bg.height = cv.height;
+  const c = bg.getContext('2d');
+  seed = 7;
+  tableT(c);
+  const B = BORDER, J = P.JAW;
+  // shadow on the floor, then the wooden frame with its grain
+  c.save(); c.shadowColor = 'rgba(0,0,0,.6)'; c.shadowBlur = 18 * k.dpr; c.shadowOffsetX = -4 * k.dpr;
+  rrect(c, -B, -B, L + 2 * B, W + 2 * B, 0.06); c.fillStyle = '#3b1d0c'; c.fill(); c.restore();
+  const wood = c.createLinearGradient(0, -B, 0, W + B);
+  wood.addColorStop(0, '#6b3416'); wood.addColorStop(0.08, '#8e4d22'); wood.addColorStop(0.5, '#7a3f1a'); wood.addColorStop(0.92, '#8e4d22'); wood.addColorStop(1, '#5a2a10');
+  rrect(c, -B, -B, L + 2 * B, W + 2 * B, 0.06); c.fillStyle = wood; c.fill();
+  c.save(); rrect(c, -B, -B, L + 2 * B, W + 2 * B, 0.06); c.clip();
+  for (let i = 0; i < 140; i++) { // grain along the rails
+    const y = -B + rnd() * (W + 2 * B), a = rnd() * 0.12;
+    c.strokeStyle = rnd() > 0.5 ? `rgba(40,16,4,${a})` : `rgba(200,130,70,${a * 0.6})`; c.lineWidth = 0.002 + rnd() * 0.004;
+    c.beginPath(); c.moveTo(-B, y); c.bezierCurveTo(L * 0.3, y + (rnd() - 0.5) * 0.03, L * 0.7, y + (rnd() - 0.5) * 0.03, L + B, y + (rnd() - 0.5) * 0.02); c.stroke();
+  }
+  c.restore();
+  rrect(c, -B + 0.006, -B + 0.006, L + 2 * B - 0.012, W + 2 * B - 0.012, 0.055); c.strokeStyle = 'rgba(255,210,160,.25)'; c.lineWidth = 0.004; c.stroke();
+  // the cloth: lit from a lamp above the middle
+  c.fillStyle = '#0b4f34'; c.fillRect(-J, -J, L + 2 * J, W + 2 * J);
+  const lamp = c.createRadialGradient(L / 2, W / 2, 0.05, L / 2, W / 2, L * 0.62);
+  lamp.addColorStop(0, '#1d9a63'); lamp.addColorStop(0.55, '#147a4d'); lamp.addColorStop(1, '#0a5134');
+  c.fillStyle = lamp; c.fillRect(0, 0, L, W);
+  // felt texture
+  c.save(); c.setTransform(1, 0, 0, 1, 0, 0);
+  const n = document.createElement('canvas'); n.width = n.height = 96;
+  const nc = n.getContext('2d'), id = nc.createImageData(96, 96);
+  for (let i = 0; i < id.data.length; i += 4) { const v = rnd() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 14; }
+  nc.putImageData(id, 0, 0);
+  c.globalCompositeOperation = 'overlay'; c.fillStyle = c.createPattern(n, 'repeat');
+  c.fillRect(k.dpr * (k.ox - J * k.s), k.dpr * (k.oy - J * k.s), k.dpr * (W + 2 * J) * k.s, k.dpr * (L + 2 * J) * k.s);
+  c.restore(); tableT(c);
+  // cushions, with the jaws the physics uses
+  const C = P.CORNER, S = P.SIDE, h = L / 2;
+  const cushions = [
+    [[C, 0], [h - S, 0], [h - S + 0.01, -J], [C - J, -J]], [[h + S, 0], [L - C, 0], [L - C + J, -J], [h + S - 0.01, -J]],
+    [[C, W], [h - S, W], [h - S + 0.01, W + J], [C - J, W + J]], [[h + S, W], [L - C, W], [L - C + J, W + J], [h + S - 0.01, W + J]],
+    [[0, C], [0, W - C], [-J, W - C + J], [-J, C - J]], [[L, C], [L, W - C], [L + J, W - C + J], [L + J, C - J]],
+  ];
+  for (const q of cushions) {
+    poly(c, q); c.fillStyle = '#0d6040'; c.fill();
+    c.beginPath(); c.moveTo(...q[0]); c.lineTo(...q[1]); c.strokeStyle = 'rgba(120,230,170,.35)'; c.lineWidth = 0.005; c.stroke(); // the lit nose
+    c.beginPath(); c.moveTo(...q[2]); c.lineTo(...q[3]); c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 0.006; c.stroke();
+  }
+  // cloth shading under the cushions
+  for (const [x0, y0, x1, y1] of [[0, 0, 0, 0.03], [0, W, 0, W - 0.03], [0, 0, 0.03, 0], [L, 0, L - 0.03, 0]]) {
+    const g = c.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, 'rgba(0,0,0,.28)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g; c.fillRect(0, 0, L, W);
+  }
+  // pockets: leather-lined holes
+  for (const p of P.POCKETS) {
+    const r = p.r * 0.98;
+    const rim = c.createRadialGradient(p.x, p.y, r * 0.6, p.x, p.y, r * 1.18);
+    rim.addColorStop(0, '#000'); rim.addColorStop(0.75, '#1a1410'); rim.addColorStop(0.9, '#4a3a2a'); rim.addColorStop(1, 'rgba(0,0,0,0)');
+    c.beginPath(); c.arc(p.x, p.y, r * 1.18, 0, Math.PI * 2); c.fillStyle = rim; c.fill();
+    const hole = c.createRadialGradient(p.x + 0.008, p.y + 0.008, 0, p.x, p.y, r);
+    hole.addColorStop(0, '#000'); hole.addColorStop(1, '#0b0a09');
+    c.beginPath(); c.arc(p.x, p.y, r * 0.86, 0, Math.PI * 2); c.fillStyle = hole; c.fill();
+  }
+  // diamonds on the rails
+  const mid = J + RAIL / 2;
+  const diamond = (x, y) => { c.beginPath(); c.moveTo(x - 0.011, y); c.lineTo(x, y - 0.006); c.lineTo(x + 0.011, y); c.lineTo(x, y + 0.006); c.closePath(); c.fillStyle = '#f3ead2'; c.fill(); };
+  for (let i = 1; i < 8; i++) if (i !== 4) { diamond((L * i) / 8, -mid); diamond((L * i) / 8, W + mid); }
+  for (let i = 1; i < 4; i++) { c.save(); c.translate(-mid, (W * i) / 4); c.rotate(Math.PI / 2); diamond(0, 0); c.restore(); c.save(); c.translate(L + mid, (W * i) / 4); c.rotate(Math.PI / 2); diamond(0, 0); c.restore(); }
+  // head string and spots
+  c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = 0.002; c.beginPath(); c.moveTo(P.HEAD_X, 0); c.lineTo(P.HEAD_X, W); c.stroke();
+  for (const p of [P.HEAD, P.FOOT]) { c.beginPath(); c.arc(p.x, p.y, 0.005, 0, Math.PI * 2); c.fillStyle = 'rgba(255,255,255,.35)'; c.fill(); }
+}
+
+// ---------- balls: shaded per pixel, rolling for real ----------
+const orient = new Map(); // ball -> 3x3 rotation (columns = the ball's own axes, in table coordinates); looks only
+const sprites = new Map();
+function rotation(n) {
+  if (!orient.has(n)) {
+    const a = n * 2.1 + 0.7, ax = [Math.sin(n * 1.7), Math.cos(n * 2.3), 0.6];
+    orient.set(n, rotate([1, 0, 0, 0, 1, 0, 0, 0, 1], ax, a));
+  }
+  return orient.get(n);
+}
+function rotate(m, axis, angle) {
+  const l = Math.sqrt(axis[0] ** 2 + axis[1] ** 2 + axis[2] ** 2);
+  if (l < 1e-9 || angle === 0) return m;
+  const [x, y, z] = axis.map((v) => v / l), c = Math.cos(angle), s = Math.sin(angle), t = 1 - c;
+  const r = [t * x * x + c, t * x * y - s * z, t * x * z + s * y, t * x * y + s * z, t * y * y + c, t * y * z - s * x, t * x * z - s * y, t * y * z + s * x, t * z * z + c];
+  const o = new Array(9);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o[i * 3 + j] = r[i * 3] * m[j] + r[i * 3 + 1] * m[3 + j] + r[i * 3 + 2] * m[6 + j];
+  return o;
+}
+const LIGHT = (() => { const v = [0.38, 0.3, 0.87], l = Math.hypot(...v); return v.map((x) => x / l); })();
+const HALF = (() => { const v = [LIGHT[0], LIGHT[1], LIGHT[2] + 1], l = Math.hypot(...v); return v.map((x) => x / l); })();
+const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+function sprite(n) {
+  const rp = R * k.s * k.dpr, D = Math.ceil(rp * 2) + 2, c0 = D / 2;
+  let sp = sprites.get(n);
+  if (!sp || sp.D !== D) {
+    const cn = document.createElement('canvas'); cn.width = cn.height = D;
+    sp = { cn, c: cn.getContext('2d'), img: null, D, key: '' };
+    sp.img = sp.c.createImageData(D, D);
+    sprites.set(n, sp);
+  }
+  const m = rotation(n), key = m.map((v) => v.toFixed(3)).join();
+  if (sp.key === key) return sp;
+  sp.key = key;
+  const base = rgb(colorOf(n)), white = [248, 246, 238], red = [200, 30, 40], d = sp.img.data;
+  const stripe = n > 8;
+  for (let j = 0; j < D; j++) for (let i = 0; i < D; i++) {
+    const p = (j * D + i) * 4, dx = (i + 0.5 - c0) / rp, dy = (j + 0.5 - c0) / rp, r2 = dx * dx + dy * dy;
+    const edge = (1 - Math.sqrt(r2)) * rp + 0.5;
+    if (edge <= 0) { d[p + 3] = 0; continue; }
+    const nz = Math.sqrt(Math.max(0, 1 - r2)), N = [-dy, -dx, nz]; // screen right = table -y, screen down = table -x
+    const b0 = m[0] * N[0] + m[3] * N[1] + m[6] * N[2], b1 = m[1] * N[0] + m[4] * N[1] + m[7] * N[2], b2 = m[2] * N[0] + m[5] * N[1] + m[8] * N[2];
+    let col;
+    if (n === 0) col = b0 > 0.94 || b0 < -0.94 ? red : white;
+    else if (b2 > 0.83) col = white; // the number spot
+    else col = stripe && Math.abs(b1) > 0.5 ? white : base;
+    const diff = Math.max(0, N[0] * LIGHT[0] + N[1] * LIGHT[1] + N[2] * LIGHT[2]);
+    const spec = Math.pow(Math.max(0, N[0] * HALF[0] + N[1] * HALF[1] + N[2] * HALF[2]), 70) * 235;
+    const lit = 0.32 + 0.78 * diff, rim = 0.72 + 0.28 * nz;
+    d[p] = Math.min(255, col[0] * lit * rim + spec); d[p + 1] = Math.min(255, col[1] * lit * rim + spec); d[p + 2] = Math.min(255, col[2] * lit * rim + spec);
+    d[p + 3] = Math.min(1, edge) * 255;
+  }
+  sp.c.putImageData(sp.img, 0, 0);
+  if (n > 0) { // the number, foreshortened as it rolls away
+    const az = m[8];
+    if (az > 0.25) {
+      sp.c.save();
+      sp.c.globalAlpha = Math.min(1, (az - 0.25) * 3);
+      sp.c.fillStyle = '#111'; sp.c.font = `900 ${rp * (n > 9 ? 0.6 : 0.72) * (0.55 + 0.45 * az)}px system-ui, sans-serif`;
+      sp.c.textAlign = 'center'; sp.c.textBaseline = 'middle';
+      sp.c.fillText(String(n), c0 - m[5] * rp * 0.95, c0 - m[2] * rp * 0.95 + rp * 0.04);
+      sp.c.restore();
+    }
+  }
+  return sp;
+}
+
+function drawBall(b, scale = 1) {
+  const X = sx(b.x, b.y), Y = sy(b.x, b.y), rp = R * k.s;
+  ctx.save(); ctx.setTransform(k.dpr, 0, 0, k.dpr, 0, 0);
+  const sh = ctx.createRadialGradient(X + rp * 0.28, Y + rp * 0.38, 0, X + rp * 0.28, Y + rp * 0.38, rp * 1.25 * scale);
+  sh.addColorStop(0, 'rgba(0,0,0,.5)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sh; ctx.beginPath(); ctx.arc(X + rp * 0.28, Y + rp * 0.38, rp * 1.25 * scale, 0, Math.PI * 2); ctx.fill();
+  const sp = sprite(b.n), size = (sp.D / k.dpr) * scale;
+  ctx.drawImage(sp.cn, X - size / 2, Y - size / 2, size, size);
+  ctx.restore();
+}
+
+// ---------- aim guide and cue stick ----------
+function rayHit(from, d, list) {
+  let best = { t: Infinity, ball: null };
+  for (const b of list) {
+    if (b.n === 0) continue;
+    const fx = from.x - b.x, fy = from.y - b.y, bq = fx * d.dx + fy * d.dy, c = fx * fx + fy * fy - 4 * R * R, disc = bq * bq - c;
+    if (disc < 0) continue;
+    const t = -bq - Math.sqrt(disc);
+    if (t > 0 && t < best.t) best = { t, ball: b };
+  }
+  for (const [lim, v, p] of [[R, d.dx, from.x], [L - R, d.dx, from.x], [R, d.dy, from.y], [W - R, d.dy, from.y]]) {
+    if (v === 0) continue;
+    const t = (lim - p) / v;
+    if (t > 1e-6 && t < best.t) best = { t, ball: null };
+  }
+  return best;
+}
+const legalTarget = (n) => {
+  const p = state?.players[state.turn];
+  if (!p || state.breakShot) return true;
+  const left = balls.some((b) => b.n !== 0 && b.n !== 8 && groupOf(b.n) === p.group);
+  return p.group ? (left ? groupOf(n) === p.group : n === 8) : n !== 8;
+};
+
+function drawAim(cue, d, pull, guide) {
+  ctx.save(); ctx.setTransform(k.dpr, 0, 0, k.dpr, 0, 0);
+  const X = sx(cue.x, cue.y), Y = sy(cue.x, cue.y), D = { x: -d.dy, y: -d.dx }; // the shot direction on screen
+  if (guide) {
+    const hit = rayHit(cue, d, balls);
+    const gx = cue.x + d.dx * hit.t, gy = cue.y + d.dy * hit.t, GX = sx(gx, gy), GY = sy(gx, gy), rp = R * k.s;
+    ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(X + D.x * rp, Y + D.y * rp); ctx.lineTo(GX - D.x * rp, GY - D.y * rp); ctx.stroke();
+    const ok = !hit.ball || legalTarget(hit.ball.n);
+    ctx.beginPath(); ctx.arc(GX, GY, rp, 0, Math.PI * 2); ctx.strokeStyle = ok ? 'rgba(255,255,255,.85)' : '#ff5a4e'; ctx.stroke();
+    if (!ok) { ctx.beginPath(); ctx.moveTo(GX - rp * 0.6, GY - rp * 0.6); ctx.lineTo(GX + rp * 0.6, GY + rp * 0.6); ctx.moveTo(GX + rp * 0.6, GY - rp * 0.6); ctx.lineTo(GX - rp * 0.6, GY + rp * 0.6); ctx.stroke(); }
+    if (hit.ball && ok) { // where the object ball goes, and where the cue ball glances off
+      const nx = (hit.ball.x - gx) / (2 * R), ny = (hit.ball.y - gy) / (2 * R), cos = nx * d.dx + ny * d.dy;
+      const BX = sx(hit.ball.x, hit.ball.y), BY = sy(hit.ball.x, hit.ball.y), len = (0.08 + 0.3 * cos) * k.s;
+      ctx.beginPath(); ctx.moveTo(BX, BY); ctx.lineTo(BX - ny * len, BY - nx * len); ctx.stroke();
+      const tx = d.dx - cos * nx, ty = d.dy - cos * ny, tl = Math.sqrt(tx * tx + ty * ty) || 1, tlen = (0.06 + 0.12 * (1 - cos)) * k.s;
+      ctx.strokeStyle = 'rgba(255,255,255,.45)';
+      ctx.beginPath(); ctx.moveTo(GX, GY); ctx.lineTo(GX - (ty / tl) * tlen, GY - (tx / tl) * tlen); ctx.stroke();
+    }
+  }
+  // the cue: tip, ferrule, maple shaft, dark butt with a wrap
+  const rp = R * k.s, gap = rp + 3 + pull * 0.14 * k.s, len = 1.45 * k.s, w0 = 0.011 * k.s, w1 = 0.03 * k.s;
+  ctx.translate(X, Y); ctx.rotate(Math.atan2(D.y, D.x) + Math.PI);
+  ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 6; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 3;
+  const seg = (a, b, col) => {
+    const wa = w0 + ((w1 - w0) * a) / len, wb = w0 + ((w1 - w0) * b) / len;
+    const g = ctx.createLinearGradient(0, -wb / 2, 0, wb / 2);
+    g.addColorStop(0, col[0]); g.addColorStop(0.45, col[1]); g.addColorStop(1, col[2]);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(gap + a, -wa / 2); ctx.lineTo(gap + b, -wb / 2); ctx.lineTo(gap + b, wb / 2); ctx.lineTo(gap + a, wa / 2); ctx.closePath(); ctx.fill();
+  };
+  seg(0, 0.004 * k.s, ['#3a6ea5', '#6fa3dc', '#244a72']);
+  seg(0.004 * k.s, 0.03 * k.s, ['#e8e4da', '#ffffff', '#b8b2a4']);
+  ctx.shadowColor = 'transparent';
+  seg(0.03 * k.s, len * 0.62, ['#c9a46a', '#f1dcae', '#a07a43']);
+  seg(len * 0.62, len * 0.66, ['#1b1b1b', '#5a5a5a', '#111']);
+  seg(len * 0.66, len * 0.82, ['#151515', '#3b3b3b', '#0c0c0c']); // wrap
+  seg(len * 0.82, len, ['#3d1608', '#8a3a17', '#2a0e04']);
+  ctx.restore();
+}
+
+// ---------- the frame loop ----------
+let lastFrame = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - lastFrame) / 1000);
+  lastFrame = now;
+  if (anim) advance(now);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(bg, 0, 0);
+  const list = anim ? anim.sim.balls.filter((b) => b.on) : shownBalls();
+  if (anim) for (const b of anim.sim.balls) if (b.on && (b.wx || b.wy || b.wz)) orient.set(b.n, rotate(rotation(b.n), [b.wx, b.wy, b.wz], Math.sqrt(b.wx * b.wx + b.wy * b.wy + b.wz * b.wz) * dt));
+  for (let i = dropping.length - 1; i >= 0; i--) {
+    const f = (now - dropping[i].at) / 180;
+    if (f >= 1) dropping.splice(i, 1);
+    else drawBall(dropping[i], 1 - f * 0.55);
+  }
+  if (state?.inHand === 'kitchen' && myTurn() && !anim) {
+    ctx.save(); ctx.setTransform(k.dpr, 0, 0, k.dpr, 0, 0); ctx.fillStyle = 'rgba(255,255,255,.05)';
+    ctx.fillRect(k.ox, sy(P.HEAD_X, 0), W * k.s, P.HEAD_X * k.s); ctx.restore();
+  }
+  for (const b of list) drawBall(b);
+  if (!anim && state?.phase === 'playing') {
+    const cue = list.find((b) => b.n === 0);
+    if (myTurn() && cue) drawAim(cue, aim, power, true);
+    else if (remote && cue) drawAim(cue, remote, remote.power, true);
+  }
+  if (place && !place.ok && myTurn()) {
+    ctx.save(); ctx.setTransform(k.dpr, 0, 0, k.dpr, 0, 0);
+    ctx.beginPath(); ctx.arc(sx(place.x, place.y), sy(place.x, place.y), R * k.s + 2, 0, Math.PI * 2); ctx.strokeStyle = '#ff5a4e'; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
+  }
+  timers();
+  requestAnimationFrame(frame);
+}
+
+// Balls at rest: the state's, with my own cue ball placement while I have ball in hand, or the shooter's as relayed.
+function shownBalls() {
+  const cue = myTurn() && place ? place : !myTurn() && remote?.cue && state?.inHand ? remote.cue : null;
+  return cue ? balls.map((b) => (b.n === 0 ? { n: 0, x: cue.x, y: cue.y } : b)) : balls;
+}
+
+// Replays the shot in step with the server's clock, then shows the server's result.
+function advance(now) {
+  const due = Math.min(anim.last.ms, now - anim.start);
+  let n = 0;
+  while (anim.sim.t * 1000 < due && !anim.sim.done && n++ < 400) P.step(anim.sim, sound);
+  if (anim.sim.t * 1000 >= anim.last.ms - 1 || anim.sim.done) {
+    const done = anim.state;
+    anim = null;
+    settle(done);
+  }
+}
+
+function sound(kind, n, v) {
+  if (kind === 'pocket' && anim) { const b = anim.sim.balls.find((x) => x.n === n); dropping.push({ n, x: b.x, y: b.y, at: performance.now() }); }
+  click(kind, v);
+}
+
+// ---------- state ----------
+const myTurn = () => state?.phase === 'playing' && state.players[state.turn]?.userId === me?.userId;
+
+function receive(s) {
+  if (!s) { queue.length = 0; anim = null; state = null; balls = []; render(); return; }
+  if (state && s.v <= state.v && !anim) return;
+  queue.push(s);
+  pump();
+}
+function pump() {
+  while (!anim && queue.length) {
+    const s = queue.shift();
+    if (state && s.v <= state.v) continue;
+    const last = s.last;
+    // a new shot that's still rolling on everyone's phone: replay it from where it is now (the previous state stays
+    // on screen until the balls stop, so the HUD doesn't give the result away)
+    if (last?.kind === 'shot' && state && s.readyAt) {
+      const left = Date.parse(s.readyAt) - (Date.now() + offset);
+      if (left > 40) {
+        const sim = P.createSim(last.from);
+        P.strike(sim, last.shot);
+        click('cue', last.shot.power * 6);
+        anim = { sim, start: performance.now() - (last.ms - left), last, state: s };
+        remote = null; place = null;
+        render();
+        return;
+      }
+    }
+    settle(s);
+  }
+}
+function settle(s) {
+  const prev = state;
+  state = s;
+  balls = s.balls.length ? s.balls : P.rack(); // a racked table behind the lobby
+  remote = null;
+  if (!myTurn() || !s.inHand) place = null;
+  else if (!place) { const c = balls.find((b) => b.n === 0); place = c && { x: c.x, y: c.y, ok: true }; }
+  if (myTurn() && aimedFor !== s.v) { aimedFor = s.v; aim = defaultAim(); power = 0; spin = { x: 0, y: 0 }; showSpin(); }
+  const last = s.last;
+  if (prev && last && s.v > prev.v && s.readyAt) { // a shot or timeout just now, not a forfeit or a reconnect
+    if (last.kind === 'timeout') toast(`${nameOf(last.userId)} ran out of time · ball in hand`);
+    else if (last.foul) toast(`Foul: ${FOUL[last.foul]} · ball in hand`);
+    else if (s.players.some((p, i) => p.group && !prev.players[i]?.group)) toast(`${nameOf(s.players.find((p) => p.group === 'solid').userId)} takes solids`);
+  }
+  render();
+  pump();
+}
+const nameOf = (id) => (id === me?.userId ? 'You' : state?.players.find((p) => p.userId === id)?.displayName ?? 'Someone');
+
+function defaultAim() {
+  const cue = place ?? balls.find((b) => b.n === 0);
+  if (!cue) return { dx: 1, dy: 0 };
+  const targets = balls.filter((b) => b.n !== 0 && legalTarget(b.n));
+  const t = targets.sort((a, b) => (a.x - cue.x) ** 2 + (a.y - cue.y) ** 2 - ((b.x - cue.x) ** 2 + (b.y - cue.y) ** 2))[0] ?? P.FOOT;
+  const dx = t.x - cue.x, dy = t.y - cue.y, l = Math.sqrt(dx * dx + dy * dy) || 1;
+  return { dx: dx / l, dy: dy / l };
+}
+
+// ---------- HUD, panels ----------
+function avatar(p) {
+  const pic = p?.avatarUrl ? `style="background-image:url('${esc(p.avatarUrl)}')"` : '';
+  return `<div class="av"><i ${pic}>${p?.avatarUrl ? '' : esc((p?.displayName ?? '?').slice(0, 1).toUpperCase())}</i></div>`;
+}
+function render() {
+  const s = state;
+  const playing = s && s.phase !== 'lobby' && s.players.length;
+  [0, 1].forEach((i) => {
+    const p = playing ? s.players[i] : null, el = $(`p${i}`);
+    el.classList.toggle('turn', !!p && s.phase === 'playing' && s.turn === i);
+    if (!p) { el.innerHTML = ''; return; }
+    const group = p.group ? [1, 2, 3, 4, 5, 6, 7].map((n) => (p.group === 'stripe' ? n + 8 : n)) : null;
+    const on = new Set(balls.map((b) => b.n));
+    const dots = group ? group.map((n) => `<b class="${n > 8 ? 'st' : ''} ${on.has(n) ? '' : 'gone'}" style="--c:${colorOf(n)};background:${colorOf(n)}"></b>`).join('') : s.phase === 'playing' ? 'OPEN TABLE' : '';
+    el.innerHTML = `${avatar(p)}<div class="who"><div class="nm">${esc(p.userId === me?.userId ? 'You' : p.displayName)}</div><div class="grp">${dots}</div></div>`;
+  });
+  $('resign').hidden = !(s?.phase === 'playing' && s.players.some((p) => p.userId === me?.userId));
+  const live = myTurn() && !anim;
+  $('power').classList.toggle('live', live);
+  $('spin').classList.toggle('live', live);
+  $('hint').textContent = !s || s.phase !== 'playing' || anim ? '' : myTurn()
+    ? (s.inHand ? 'Ball in hand · drag the cue ball, aim, pull the cue' : s.breakShot ? 'Your break · aim, then pull the cue down' : 'Your shot · tap to aim, pull the cue down')
+    : `${s.players[s.turn]?.displayName ?? 'Someone'} is shooting`;
+  panel();
+}
+
+function panel() {
+  const s = state, card = $('card');
+  if (s?.phase === 'playing' || anim) { $('panel').hidden = true; return; }
+  $('panel').hidden = false;
+  if (!s) { card.innerHTML = '<h2>8 Ball Pool is off</h2><p>The owner or an admin can turn it on.</p>'; return; }
+  if (s.phase === 'finished') {
+    const w = s.players.find((p) => p.userId === s.winner), l = s.players.find((p) => p.userId !== s.winner);
+    const why = { EIGHT: 'Potted the 8 ball', EIGHT_EARLY: `${esc(l?.displayName)} potted the 8 too early`, EIGHT_FOUL: `${esc(l?.displayName)} fouled on the 8`, LEFT: `${esc(l?.displayName)} left the game` }[s.reason] ?? '';
+    card.innerHTML = `<h2>🏆 ${w?.userId === me?.userId ? 'You won!' : esc(w?.displayName ?? 'Someone') + ' won!'}</h2><p>${why}</p><div class="btns"><button class="btn" id="again">Play again</button></div>`;
+    $('again').onclick = () => act('pool:join');
+    return;
+  }
+  const joined = s.lobby.some((p) => p.userId === me?.userId);
+  const slots = [0, 1].map((i) => {
+    const p = s.lobby[i];
+    if (!p) return `<div class="slot free">${avatar({ displayName: '+' })}<div class="nm">${joined ? 'Waiting…' : 'Open'}</div>${joined ? '' : '<button class="btn small" data-act="join">Join</button>'}</div>`;
+    const kick = admin && p.userId !== me?.userId ? `<button class="kick" data-kick="${esc(p.userId)}" aria-label="Remove ${esc(p.displayName)}">✕</button>` : '';
+    return `<div class="slot">${kick}${avatar(p)}<div class="nm">${esc(p.userId === me?.userId ? 'You' : p.displayName)}</div></div>`;
+  }).join('');
+  card.innerHTML = `<h2>🎱 8 Ball Pool</h2><p>${s.lobby.length < 2 ? 'Two seated players · tap Join' : admin ? 'Ready when you are' : 'Waiting for the owner or an admin to start'}</p>
+    <div class="slots">${slots}</div>
+    <div class="btns">${joined ? '<button class="btn ghost" data-act="leave">Leave</button>' : ''}${admin ? `<button class="btn" data-act="start" ${s.lobby.length < 2 ? 'disabled' : ''}>Start</button>` : ''}</div>`;
+  card.querySelectorAll('[data-act]').forEach((b) => (b.onclick = () => act(`pool:${b.dataset.act}`)));
+  card.querySelectorAll('[data-kick]').forEach((b) => (b.onclick = () => confirm('Remove this player from the game?') && act('pool:remove', { userId: b.dataset.kick })));
+}
+
+function timers() {
+  const s = state;
+  [0, 1].forEach((i) => {
+    const el = document.querySelector(`#p${i} .av`);
+    if (!el) return;
+    const left = s?.phase === 'playing' && s.turn === i && s.deadline ? Math.max(0, Date.parse(s.deadline) - (Date.now() + offset)) : 0;
+    el.style.setProperty('--p', Math.min(1, left / turnMs).toFixed(3));
+  });
+}
+
+let toastTimer;
+function toast(t) {
+  const el = $('toast');
+  el.textContent = t; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+// ---------- input ----------
+let mode = null;
+const canPlace = (x, y) => state?.inHand && x >= R && x <= L - R && y >= R && y <= W - R && (state.inHand !== 'kitchen' || x <= P.HEAD_X)
+  && balls.every((b) => b.n === 0 || (b.x - x) ** 2 + (b.y - y) ** 2 >= 4 * R * R);
+function point(e) { const r = cv.getBoundingClientRect(); return toTable(e.clientX - r.left, e.clientY - r.top); }
+function aimAt(p) {
+  const cue = place ?? balls.find((b) => b.n === 0);
+  const dx = p.x - cue.x, dy = p.y - cue.y, l = Math.sqrt(dx * dx + dy * dy);
+  if (l > R * 0.5) aim = { dx: dx / l, dy: dy / l };
+}
+cv.addEventListener('pointerdown', (e) => {
+  unlockAudio();
+  if (!myTurn() || anim) return;
+  const p = point(e);
+  const grab = Math.max(R * 3, 24 / k.s);
+  mode = place && (p.x - place.x) ** 2 + (p.y - place.y) ** 2 < grab * grab ? 'place' : 'aim';
+  cv.setPointerCapture(e.pointerId);
+  move(p);
+});
+cv.addEventListener('pointermove', (e) => mode && move(point(e)));
+cv.addEventListener('pointerup', () => {
+  if (mode === 'place' && place && !place.ok) { const c = balls.find((b) => b.n === 0); place = { x: c.x, y: c.y, ok: true }; }
+  mode = null;
+  sendAim();
+});
+function move(p) {
+  if (mode === 'place') {
+    const x = Math.min(L - R, Math.max(R, p.x)), y = Math.min(W - R, Math.max(R, p.y));
+    place = { x, y, ok: canPlace(x, y) };
+  } else aimAt(p);
+  sendAim();
+}
+
+// power: pull the cue back by dragging down the bar, let go to shoot
+const track = document.querySelector('#power .track');
+function pull(e) {
+  const r = track.getBoundingClientRect();
+  power = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+  $('pfill').style.height = `${power * 100}%`;
+  $('pknob').style.top = `${power * 100}%`;
+  sendAim();
+}
+track.addEventListener('pointerdown', (e) => { unlockAudio(); if (!myTurn() || anim) return; pulling = true; track.setPointerCapture(e.pointerId); pull(e); });
+track.addEventListener('pointermove', (e) => pulling && pull(e));
+track.addEventListener('pointerup', () => {
+  if (!pulling) return;
+  pulling = false;
+  const p = power;
+  power = 0; $('pfill').style.height = '0'; $('pknob').style.top = '0';
+  if (p > 0.03) shoot(p);
+  else sendAim();
+});
+track.addEventListener('pointercancel', () => { pulling = false; power = 0; $('pfill').style.height = '0'; $('pknob').style.top = '0'; });
+
+// spin: where on the cue ball the tip hits (top = follow, bottom = draw, sides = english)
+const ballEl = $('spinball');
+function setSpin(e) {
+  const r = ballEl.getBoundingClientRect();
+  let x = ((e.clientX - r.left) / r.width) * 2 - 1, y = -(((e.clientY - r.top) / r.height) * 2 - 1);
+  const l = Math.sqrt(x * x + y * y);
+  if (l > 1) { x /= l; y /= l; }
+  spin = { x, y }; showSpin();
+}
+function showSpin() { $('spindot').style.left = `${50 + spin.x * 40}%`; $('spindot').style.top = `${50 - spin.y * 40}%`; }
+let spinning = false;
+ballEl.addEventListener('pointerdown', (e) => { spinning = true; ballEl.setPointerCapture(e.pointerId); setSpin(e); });
+ballEl.addEventListener('pointermove', (e) => spinning && setSpin(e));
+ballEl.addEventListener('pointerup', () => (spinning = false));
+
+let aimSent = 0, aimTimer = null;
+function sendAim() {
+  if (!myTurn() || anim) return;
+  const wait = 100 - (Date.now() - aimSent);
+  if (wait > 0) { clearTimeout(aimTimer); aimTimer = setTimeout(sendAim, wait); return; }
+  aimSent = Date.now();
+  socket.volatile.emit('pool:aim', { roomId: ROOM, dx: aim.dx, dy: aim.dy, power, ...(place?.ok ? { cue: { x: place.x, y: place.y } } : {}) });
+}
+
+async function shoot(p) {
+  if (state.inHand && !place?.ok) return toast('Put the cue ball somewhere free first');
+  if (state.inHand === 'kitchen' && place.x > P.HEAD_X) return toast('Break from behind the line');
+  const r = await act('pool:shoot', { dx: aim.dx, dy: aim.dy, power: p, sx: spin.x, sy: spin.y, ...(state.inHand ? { cue: { x: place.x, y: place.y } } : {}) });
+  if (r?.ok) render();
+}
+
+// ---------- sound: synthesized clicks, knocks and drops ----------
+let audio = null;
+function unlockAudio() { try { audio = audio ?? new AudioContext(); if (audio.state === 'suspended') audio.resume(); } catch {} }
+const lastSound = {};
+function click(kind, v) {
+  if (!audio || audio.state !== 'running') return;
+  const now = audio.currentTime;
+  if (now - (lastSound[kind] ?? 0) < 0.012) return;
+  lastSound[kind] = now;
+  const vol = Math.min(1, Math.pow(Math.max(0, v) / 4, 0.8)) * (kind === 'pocket' ? 0.8 : 0.55);
+  if (vol < 0.01) return;
+  const len = kind === 'pocket' ? 0.18 : kind === 'rail' ? 0.06 : 0.03;
+  const buf = audio.createBuffer(1, Math.ceil(audio.sampleRate * len), audio.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, kind === 'pocket' ? 2 : 6);
+  const src = audio.createBufferSource(); src.buffer = buf;
+  const f = audio.createBiquadFilter();
+  f.type = kind === 'ball' || kind === 'cue' ? 'bandpass' : 'lowpass';
+  f.frequency.value = kind === 'ball' ? 3200 : kind === 'cue' ? 1800 : kind === 'rail' ? 520 : 260;
+  f.Q.value = kind === 'ball' ? 1.4 : 0.8;
+  const g = audio.createGain(); g.gain.value = vol;
+  src.connect(f).connect(g).connect(audio.destination);
+  src.start(now);
+}
+
+// ---------- actions and connection (same token bridge as the other games) ----------
+async function act(event, extra = {}) {
+  const r = await socket.timeout(8000).emitWithAck(event, { roomId: ROOM, ...extra }).catch(() => null);
+  if (!r) return toast('No connection. Try again.');
+  const FRIENDLY = { CANNOT_TARGET_OWNER: "The room owner can't be removed", CANNOT_TARGET_ADMIN: "Admins can't remove other admins" };
+  if (!r.ok) toast(FRIENDLY[r.error?.code] || r.error?.message || 'That didn’t work');
+  return r;
+}
+$('resign').onclick = () => confirm('Resign this game? The other player wins.') && act('pool:leave');
+
+const pendingToken = [];
+window.voyaToken = (t) => pendingToken.splice(0).forEach((r) => r(t));
+function getToken() {
+  if (!window.ReactNativeWebView) return Promise.resolve(new URLSearchParams(location.hash.slice(1)).get('token') || '');
+  return new Promise((r) => { pendingToken.push(r); window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'token' })); });
+}
+
+layout();
+new ResizeObserver(() => layout()).observe($('stage'));
+requestAnimationFrame(frame);
+window.__pool = { get state() { return state; }, receive, P, setMe: (m) => { me = m; admin = m.admin; } }; // for local previews
+const socket = io({ path: '/socket.io/', transports: ['websocket'], auth: (cb) => getToken().then((token) => cb({ token })) });
+socket.on('connect', async () => {
+  const r = await socket.timeout(8000).emitWithAck('pool:watch', { roomId: ROOM }).catch(() => null);
+  if (!r?.ok) return toast('Could not open 8 Ball Pool');
+  me = r.data.me; admin = r.data.me.admin; turnMs = r.data.turnMs ?? turnMs; offset = new Date(r.data.serverNow) - Date.now();
+  state = null; queue.length = 0; anim = null;
+  receive(r.data.state); // a fresh start after every (re)connect
+  if (!r.data.state) render();
+});
+socket.on('connect_error', () => toast("Can't reach the game. Retrying…"));
+socket.on('pool:state', (e) => {
+  if (e.roomId !== ROOM) return;
+  offset = new Date(e.serverNow) - Date.now();
+  receive(e.state);
+});
+socket.on('pool:aim', (e) => {
+  if (e.roomId !== ROOM || e.userId === me?.userId || e.v !== state?.v || anim) return;
+  remote = { dx: e.dx, dy: e.dy, power: e.power, cue: e.cue };
+});
+</script>
+</body>
+</html>

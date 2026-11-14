@@ -12,6 +12,7 @@ import * as chat from "./services/chat";
 import * as gifts from "./services/gifts";
 import * as greedy from "./services/greedy";
 import * as ludo from "./services/ludo";
+import * as pool from "./services/pool";
 import * as rocket from "./services/rocket";
 import { assertGamesOn } from "./services/flags";
 import * as roulette from "./services/roulette";
@@ -134,6 +135,20 @@ io.on("connection", (socket: Socket) => {
   handle("ludo:discover", (user, p) => ludo.discover(user, id(p)));
   handle("ludo:roll", (user, p) => ludo.rollDice(user, id(p)));
   handle("ludo:move", (user, p) => ludo.moveToken(user, id(p), ludo.tokenSchema.parse(p.token)));
+
+  // 8 Ball Pool (rooms in Pool mode), same shape as Ludo. The server simulates every shot; aim is only relayed.
+  handle("pool:watch", async (user, p) => {
+    const roomId = id(p);
+    const state = await pool.watch(user, roomId);
+    socket.join(pool.channel(roomId));
+    return state;
+  });
+  handle("pool:join", (user, p) => pool.join(user, id(p)));
+  handle("pool:leave", (user, p) => pool.leave(user, id(p)));
+  handle("pool:remove", (user, p) => pool.removeFromLobby(user, id(p), schemas.uuid.parse(p.userId)));
+  handle("pool:start", (user, p) => pool.start(user, id(p)));
+  handle("pool:aim", (user, p) => pool.aim(user, id(p), pool.aimSchema.parse(p)));
+  handle("pool:shoot", (user, p) => pool.shoot(user, id(p), pool.shotSchema.parse(p)));
 
   // Rocket (crash) game: one global round at a time.
   handle("rocket:join", async (user) => {

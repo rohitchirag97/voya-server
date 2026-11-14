@@ -80,6 +80,7 @@ export async function setMode(actor: User, roomId: string, on: boolean) {
   const room = await getRoom(roomId);
   if (room.kind === "LIVE") throw new AppError("LUDO_NOT_IN_LIVE", 400, "Ludo is for audio rooms");
   if (on && room.video) throw new AppError("VIDEO_ON", 409, "Turn off Video mode first");
+  if (on && room.pool) throw new AppError("POOL_ON", 409, "Turn off 8 Ball Pool first");
   const changed = await serial(roomId, async () => {
     const cur = await load(roomId);
     if (!!cur === on) return false;
