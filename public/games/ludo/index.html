@@ -32,6 +32,7 @@
   .seat.free { pointer-events: auto; cursor: pointer; }
   .seat.free .join { width: 30%; aspect-ratio: 1; border-radius: 50%; border: .7vmin dashed var(--c); color: var(--c); background: #fff; display: flex; align-items: center; justify-content: center; font-size: 7vmin; font-weight: 900; line-height: 1; animation: breathe 1.6s ease-in-out infinite; }
   .seat.free:active .join { transform: scale(.94); }
+  .seat .kick { position: absolute; top: 2.5%; right: 2.5%; width: 6.4vmin; height: 6.4vmin; border-radius: 50%; border: .4vmin solid #fff; background: #1d1838; color: #fff; font-size: 3.4vmin; font-weight: 900; line-height: 1; display: flex; align-items: center; justify-content: center; pointer-events: auto; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,.35); padding: 0; }
   .seat.mine .av { box-shadow: 0 0 0 1vmin rgba(255,255,255,.75), 0 2px 6px rgba(0,0,0,.3); }
   @keyframes breathe { 50% { transform: scale(1.08); } }
   #lobby { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; width: 64%; max-height: 17%; padding: 1.4vmin 2vmin; border-radius: 2.6vmin; background: rgba(29,24,56,.9); color: #fff; text-align: center; box-shadow: 0 6px 16px rgba(0,0,0,.35); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2vmin; }
@@ -241,8 +242,12 @@ function seats() {
     el.className = 'seat' + (state.phase === 'playing' && state.players[state.turn] === p ? ' turn' : '') + (picking() && p.userId === me?.userId ? ' mine' : '');
     el.style.left = `${(c / 15) * 100}%`; el.style.top = `${(r / 15) * 100}%`;
     const initial = esc((p.displayName ?? '?').slice(0, 1).toUpperCase());
-    el.innerHTML = `${p.auto ? '<span class="tag">AUTO</span>' : ''}<div class="av" style="${p.avatarUrl ? `background-image:url('${esc(p.avatarUrl)}')` : ''}">${p.avatarUrl ? '' : initial}</div><div class="nm">${p.userId === me?.userId ? 'You' : esc(p.displayName ?? 'Player')}</div><div class="bar"><i></i></div>`;
+    // Owner/admins: a ✕ on everyone else's base in the lobby takes them out (the server applies the room's moderation rules).
+    const canRemove = picking() && admin && p.userId !== me?.userId;
+    el.innerHTML = `${canRemove ? `<button class="kick" aria-label="Remove ${esc(p.displayName ?? 'player')} from the game">✕</button>` : ''}${p.auto ? '<span class="tag">AUTO</span>' : ''}<div class="av" style="${p.avatarUrl ? `background-image:url('${esc(p.avatarUrl)}')` : ''}">${p.avatarUrl ? '' : initial}</div><div class="nm">${p.userId === me?.userId ? 'You' : esc(p.displayName ?? 'Player')}</div><div class="bar"><i></i></div>`;
     el.dataset.user = p.userId;
+    const kick = el.querySelector('.kick');
+    if (kick) kick.onclick = () => { if (confirm(`Remove ${p.displayName ?? 'this player'} from the game?`)) act('ludo:remove', { userId: p.userId }); };
     $('wrap').append(el);
   }
 }
@@ -334,7 +339,8 @@ function frame() {
 async function act(event, extra = {}) {
   const r = await socket.timeout(8000).emitWithAck(event, { roomId: ROOM, ...extra }).catch(() => null);
   if (!r) return toast('No connection. Try again.');
-  if (!r.ok) toast(r.error?.message || 'That didn’t work');
+  const FRIENDLY = { CANNOT_TARGET_OWNER: "The room owner can't be removed", CANNOT_TARGET_ADMIN: "Admins can't remove other admins" };
+  if (!r.ok) toast(FRIENDLY[r.error?.code] || r.error?.message || 'That didn’t work');
   return r;
 }
 function rollTap(color) {

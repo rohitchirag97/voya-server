@@ -552,6 +552,7 @@ async function assertAdmin(q: Tx | typeof db, room: Room, userId: string) {
 export const assertRoomAdmin = async (roomId: string, userId: string) => assertAdmin(db, await getRoom(roomId), userId);
 
 // The owner can act on anyone else; admins can't act on the owner or on other admins; nobody below an SVIP5+ member's tier can act on them.
+export const assertCanModerateIn = async (roomId: string, actorId: string, targetId: string) => assertCanModerate(db, await getRoom(roomId), actorId, targetId);
 async function assertCanModerate(q: Tx | typeof db, room: Room, actorId: string, targetId: string) {
   const power = await assertAdmin(q, room, actorId);
   if (targetId === room.hostUserId) throw new AppError("CANNOT_TARGET_OWNER", 403);

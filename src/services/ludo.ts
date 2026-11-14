@@ -6,7 +6,7 @@ import { rooms, users, type User } from "../db/schema";
 import { emitToRoom, io } from "../io";
 import { AppError, toSafeError } from "../lib/errors";
 import { autoToken, COLORS, freeColor, lobbyState, move, roll, startGame, TOKENS, type LudoState } from "../lib/ludo";
-import { assertMember, assertRoomAdmin, getRoom, getSeats, systemMessage, userSummary } from "./rooms";
+import { assertCanModerateIn, assertMember, assertRoomAdmin, getRoom, getSeats, systemMessage, userSummary } from "./rooms";
 import { announceToAllRooms } from "./svip";
 
 // Ludo mode for a room. The owner/admins switch it on; seated people join (2-4) and the owner/admins start the game.
@@ -118,6 +118,18 @@ export const join = (user: User, roomId: string, color?: number) =>
     const entry = { ...(me ?? (await person(user.id))), color: pick };
     return save(roomId, { ...s, v: s.v + 1, lobby: me ? s.lobby.map((p) => (p.userId === user.id ? entry : p)) : [...s.lobby, entry] });
   });
+
+// The owner/admins take someone out of the lobby (same rules as any room moderation: admins can't remove the owner or
+// other admins). They stay in the room and can pick a colour again.
+export async function removeFromLobby(actor: User, roomId: string, userId: string) {
+  await assertCanModerateIn(roomId, actor.id, userId);
+  return serial(roomId, async () => {
+    const s = await need(roomId);
+    if (s.phase !== "lobby") throw new AppError("LUDO_NOT_LOBBY", 409, "Players can only be removed before the game starts");
+    if (!s.lobby.some((p) => p.userId === userId)) return s;
+    return save(roomId, { ...s, v: s.v + 1, lobby: s.lobby.filter((p) => p.userId !== userId) });
+  });
+}
 
 export const leaveLobby = (user: User, roomId: string) =>
   serial(roomId, async () => {

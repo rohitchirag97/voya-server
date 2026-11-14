@@ -1694,6 +1694,10 @@ describe("ludo", () => {
     expect((await emit(sh, "ludo:join", { roomId, color: 1 })).error.code).toBe("LUDO_COLOR_TAKEN");
     expect((await emit(sb, "ludo:join", { roomId, color: 4 })).error.code).toBe("VALIDATION_ERROR");
     expect((await emit(sb, "ludo:join", { roomId, color: 2 })).data.lobby.map((p: any) => p.color)).toEqual([0, 2]);
+    // the owner can take a player out of the lobby; a player can't take out the owner
+    expect((await emit(sb, "ludo:remove", { roomId, userId: host.id })).error.code).toBe("NOT_ROOM_ADMIN");
+    expect((await emit(sh, "ludo:remove", { roomId, userId: b.id })).data.lobby.map((p: any) => p.userId)).toEqual([host.id]);
+    expect((await emit(sb, "ludo:join", { roomId, color: 2 })).data.lobby.map((p: any) => [p.userId, p.color])).toEqual([[host.id, 0], [b.id, 2]]);
     expect((await emit(sb, "ludo:start", { roomId })).error.code).toBe("NOT_ROOM_ADMIN");
     const started = (await emit(sh, "ludo:start", { roomId })).data;
     expect(started).toMatchObject({ phase: "playing", turn: 0, step: "roll" });

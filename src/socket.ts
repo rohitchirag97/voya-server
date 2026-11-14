@@ -129,6 +129,7 @@ io.on("connection", (socket: Socket) => {
   });
   handle("ludo:join", (user, p) => ludo.join(user, id(p), p.color === undefined ? undefined : ludo.colorSchema.parse(p.color)));
   handle("ludo:leave", (user, p) => ludo.leaveLobby(user, id(p)));
+  handle("ludo:remove", (user, p) => ludo.removeFromLobby(user, id(p), schemas.uuid.parse(p.userId)));
   handle("ludo:start", (user, p) => ludo.start(user, id(p)));
   handle("ludo:discover", (user, p) => ludo.discover(user, id(p)));
   handle("ludo:roll", (user, p) => ludo.rollDice(user, id(p)));
