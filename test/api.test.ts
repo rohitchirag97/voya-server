@@ -1689,6 +1689,11 @@ describe("ludo", () => {
     const watcherSaw = nextEvent(sc, "ludo:state");
     expect((await emit(sb, "ludo:join", { roomId })).data.lobby.map((p: any) => p.userId)).toEqual([host.id, b.id]);
     expect((await watcherSaw).state.lobby).toHaveLength(2); // watchers get every change
+    // colours: each player taps a base; a taken colour is refused; tapping another free one switches
+    expect((await emit(sb, "ludo:join", { roomId, color: 1 })).data.lobby.map((p: any) => [p.userId, p.color])).toEqual([[host.id, 0], [b.id, 1]]);
+    expect((await emit(sh, "ludo:join", { roomId, color: 1 })).error.code).toBe("LUDO_COLOR_TAKEN");
+    expect((await emit(sb, "ludo:join", { roomId, color: 4 })).error.code).toBe("VALIDATION_ERROR");
+    expect((await emit(sb, "ludo:join", { roomId, color: 2 })).data.lobby.map((p: any) => p.color)).toEqual([0, 2]);
     expect((await emit(sb, "ludo:start", { roomId })).error.code).toBe("NOT_ROOM_ADMIN");
     const started = (await emit(sh, "ludo:start", { roomId })).data;
     expect(started).toMatchObject({ phase: "playing", turn: 0, step: "roll" });

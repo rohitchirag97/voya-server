@@ -5,7 +5,7 @@ import { db } from "../db";
 import { rooms, users, type User } from "../db/schema";
 import { emitToRoom, io } from "../io";
 import { AppError, toSafeError } from "../lib/errors";
-import { autoToken, lobbyState, move, roll, startGame, TOKENS, type LudoState } from "../lib/ludo";
+import { autoToken, COLORS, freeColor, lobbyState, move, roll, startGame, TOKENS, type LudoState } from "../lib/ludo";
 import { assertMember, assertRoomAdmin, getRoom, getSeats, systemMessage, userSummary } from "./rooms";
 import { announceToAllRooms } from "./svip";
 
@@ -21,6 +21,7 @@ const AUTO_MS = Number(process.env.LUDO_AUTO_MS ?? 1_200); // pace of server-pla
 const MAX_PLAYERS = 4;
 export const channel = (roomId: string) => `ludo:${roomId}`;
 export const tokenSchema = z.number().int().min(0).max(TOKENS - 1);
+export const colorSchema = z.number().int().min(0).max(COLORS.length - 1);
 
 // Discovery: a joined lobby player can ask every open room for players, once a minute per room.
 export const DISCOVER_MS = Number(process.env.LUDO_DISCOVER_MS ?? 60_000);
@@ -100,15 +101,22 @@ export async function watch(user: User, roomId: string) {
   return { ...view(roomId, await load(roomId)), me: { userId: user.id, admin } };
 }
 
-export const join = (user: User, roomId: string) =>
+// Join on a colour (tapping its base on the board), or switch to another free one. No colour: any free one.
+export const join = (user: User, roomId: string, color?: number) =>
   serial(roomId, async () => {
     let s = await need(roomId);
     if (s.phase === "playing") throw new AppError("LUDO_IN_PROGRESS", 409, "A game is being played. Join the next one.");
     if (s.phase === "finished") s = { ...lobbyState(s.v) }; // the first join after a game opens the next lobby
     if (!(await seatedIds(roomId)).has(user.id)) throw new AppError("LUDO_SEAT_REQUIRED", 403, "Take a seat to play");
-    if (s.lobby.some((p) => p.userId === user.id)) return s;
-    if (s.lobby.length >= MAX_PLAYERS) throw new AppError("LUDO_FULL", 409, "This game already has 4 players");
-    return save(roomId, { ...s, v: s.v + 1, lobby: [...s.lobby, await person(user.id)] });
+    const me = s.lobby.find((p) => p.userId === user.id);
+    const others = s.lobby.filter((p) => p.userId !== user.id);
+    const taken = others.flatMap((p) => (p.color === undefined ? [] : [p.color]));
+    if (me && (color === undefined || color === me.color) && me.color !== undefined) return s; // already there
+    const pick = color ?? (me?.color !== undefined && !taken.includes(me.color) ? me.color : freeColor(taken));
+    if (pick === undefined) throw new AppError("LUDO_FULL", 409, "This game already has 4 players");
+    if (taken.includes(pick)) throw new AppError("LUDO_COLOR_TAKEN", 409, "Someone already picked that colour");
+    const entry = { ...(me ?? (await person(user.id))), color: pick };
+    return save(roomId, { ...s, v: s.v + 1, lobby: me ? s.lobby.map((p) => (p.userId === user.id ? entry : p)) : [...s.lobby, entry] });
   });
 
 export const leaveLobby = (user: User, roomId: string) =>
@@ -149,8 +157,13 @@ export async function start(actor: User, roomId: string) {
 
 // ---------- turns ----------
 
-// House rule: with every token still at base, a third of rolls are a forced 6 (~44% overall vs 17%) so games start faster.
-const dice = (s: LudoState) => (s.players[s.turn]!.tokens.every((t) => t === -1) && randomInt(3) === 0 ? 6 : randomInt(1, 7));
+// House rule, so pawns get out of the base: with every token still at base a third of rolls are a forced 6 (~44% a 6,
+// vs 17%); with some at base, a tenth are (~25%). Once all are out, fair dice.
+export const sixBoost = (tokens: number[]) => (tokens.every((t) => t === -1) ? 3 : tokens.some((t) => t === -1) ? 10 : 0);
+const dice = (s: LudoState) => {
+  const boost = sixBoost(s.players[s.turn]!.tokens);
+  return boost && randomInt(boost) === 0 ? 6 : randomInt(1, 7);
+};
 
 function current(s: LudoState, userId: string, step: "roll" | "move") {
   if (s.phase !== "playing") throw new AppError("LUDO_NOT_PLAYING", 409, "No game is running");

@@ -127,7 +127,7 @@ io.on("connection", (socket: Socket) => {
     socket.join(ludo.channel(roomId));
     return state;
   });
-  handle("ludo:join", (user, p) => ludo.join(user, id(p)));
+  handle("ludo:join", (user, p) => ludo.join(user, id(p), p.color === undefined ? undefined : ludo.colorSchema.parse(p.color)));
   handle("ludo:leave", (user, p) => ludo.leaveLobby(user, id(p)));
   handle("ludo:start", (user, p) => ludo.start(user, id(p)));
   handle("ludo:discover", (user, p) => ludo.discover(user, id(p)));

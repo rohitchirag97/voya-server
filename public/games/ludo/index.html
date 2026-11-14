@@ -28,6 +28,18 @@
   .seat .bar i { display: block; height: 100%; width: 100%; background: #fff; transform-origin: left; }
   .seat.turn .bar { visibility: visible; }
   .seat.turn .av { animation: pulse 1s ease-in-out infinite; }
+  /* Lobby: a free base is a big "tap to join" target in its colour; the bar in the middle holds Leave / Start. */
+  .seat.free { pointer-events: auto; cursor: pointer; }
+  .seat.free .join { width: 30%; aspect-ratio: 1; border-radius: 50%; border: .7vmin dashed var(--c); color: var(--c); background: #fff; display: flex; align-items: center; justify-content: center; font-size: 7vmin; font-weight: 900; line-height: 1; animation: breathe 1.6s ease-in-out infinite; }
+  .seat.free:active .join { transform: scale(.94); }
+  .seat.mine .av { box-shadow: 0 0 0 1vmin rgba(255,255,255,.75), 0 2px 6px rgba(0,0,0,.3); }
+  @keyframes breathe { 50% { transform: scale(1.08); } }
+  #lobby { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; width: 64%; max-height: 17%; padding: 1.4vmin 2vmin; border-radius: 2.6vmin; background: rgba(29,24,56,.9); color: #fff; text-align: center; box-shadow: 0 6px 16px rgba(0,0,0,.35); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2vmin; }
+  #lobby[hidden] { display: none; }
+  #lobby p { margin: 0; font-size: 2.7vmin; font-weight: 800; }
+  #lobby .btns { gap: 1.4vmin; flex-wrap: nowrap; }
+  #lobby .btns[hidden] { display: none; }
+  #lobby .btn { padding: 1.3vmin 2.8vmin; font-size: 2.7vmin; border-radius: 99px; white-space: nowrap; }
   .seat .tag { position: absolute; top: 17%; right: 17%; font-size: 2.3vmin; font-weight: 900; color: #fff; background: rgba(0,0,0,.5); padding: .2vmin 1.2vmin; border-radius: 99px; }
   @keyframes pulse { 50% { box-shadow: 0 0 0 1.4vmin rgba(255,255,255,.45); } }
   /* One dice per player, in the outer corner of their base: dimmed until it's their turn. */
@@ -45,17 +57,13 @@
   .card { width: 80%; background: #fff; border-radius: 20px; padding: 5vmin 4vmin; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
   .card h2 { margin: 0; font-size: 5.6vmin; letter-spacing: -.02em; }
   .card p { margin: 1.5vmin 0 0; font-size: 3.2vmin; color: #6d6788; }
-  .slots { display: flex; justify-content: center; gap: 2.4vmin; margin: 4vmin 0; }
-  .slot { width: 13vmin; display: flex; flex-direction: column; align-items: center; gap: 1vmin; font-size: 2.6vmin; font-weight: 700; }
-  .slot b { width: 11vmin; height: 11vmin; border-radius: 50%; background: #f0edfa center/cover no-repeat; border: 3px solid var(--c, #ddd); display: flex; align-items: center; justify-content: center; font-size: 4vmin; color: #b3acc9; }
-  .slot span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .btns { display: flex; gap: 2vmin; justify-content: center; flex-wrap: wrap; }
   .btn { border: 0; border-radius: 12px; padding: 2.4vmin 4.8vmin; font-size: 3.4vmin; font-weight: 800; cursor: pointer; background: #077f8c; color: #fff; }
   .btn.ghost { background: #f0edfa; color: var(--ink); }
   .btn[disabled] { opacity: .45; }
   #toast { position: absolute; left: 50%; bottom: 3vmin; transform: translateX(-50%) translateY(20%); opacity: 0; visibility: hidden; z-index: 20; background: rgba(29,24,56,.92); color: #fff; padding: 1.6vmin 3.2vmin; border-radius: 12px; font-size: 3vmin; font-weight: 700; transition: transform .25s, opacity .25s, visibility .25s; max-width: 90%; text-align: center; }
   #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; visibility: visible; }
-  @media (prefers-reduced-motion: reduce) { .token, .token.movable, .dice.live, .dice.rolling, .seat.turn .av { animation: none !important; transition: none !important; } }
+  @media (prefers-reduced-motion: reduce) { .token, .token.movable, .dice.live, .dice.rolling, .seat.turn .av, .seat.free .join { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
@@ -63,6 +71,7 @@
   <div id="board"><svg id="svg" viewBox="0 0 15 15" aria-hidden="true"></svg></div>
   <div id="layer"></div>
   <div id="hint" aria-live="polite"></div>
+  <div id="lobby" hidden aria-live="polite"><p id="lobbyText"></p><div class="btns" id="lobbyBtns"></div></div>
   <div id="panel"><div class="card" id="card"><h2>🎲 Ludo</h2><p>Connecting…</p></div></div>
   <div id="toast" role="status"></div>
 </div>
@@ -168,10 +177,21 @@ function syncShown() {
 }
 
 // ---------- drawing tokens, seats, dice, panel ----------
+// Picking colours: the lobby, or right after a game once the winner card is put away ("Play again").
+let winnerSeen = null; // the finished state's v whose winner card was dismissed
+const picking = () => state?.phase === 'lobby' || (state?.phase === 'finished' && winnerSeen === state.v);
+// Who sits on the board: the game's players, or in the lobby everyone on the colour they picked (pawns at home).
+function boardPlayers() {
+  if (!state) return [];
+  if (!picking()) return state.players;
+  const lobby = state.phase === 'lobby' ? state.lobby : [];
+  return lobby.filter((p) => p.color != null).map((p) => ({ ...p, tokens: [-1, -1, -1, -1], auto: false }));
+}
+
 const tokenEls = new Map();
 function place() {
   const layer = $('layer');
-  const players = state?.players ?? [];
+  const players = boardPlayers();
   const keys = new Set();
   const stacks = new Map(); // cell -> tokens there, to fan them out
   for (const p of players) p.tokens.forEach((_, i) => {
@@ -185,9 +205,10 @@ function place() {
     const key = `${p.userId}:${i}`; keys.add(key);
     let el = tokenEls.get(key);
     if (!el) {
-      el = document.createElement('div'); el.className = 'token'; el.style.background = COLORS[p.color];
+      el = document.createElement('div'); el.className = 'token';
       el.onclick = () => tap(p.userId, i); layer.append(el); tokenEls.set(key, el);
     }
+    el.style.background = COLORS[p.color]; // can change in the lobby, when someone switches colour
     const spread = list.length > 1 ? (k - (list.length - 1) / 2) * .26 : 0;
     el.style.left = `${((x + spread) / 15) * 100}%`; el.style.top = `${((y + (list.length > 1 ? spread * .3 : 0)) / 15) * 100}%`;
     el.style.setProperty('--s', list.length > 1 ? .78 : 1); el.style.transform = `scale(${list.length > 1 ? .78 : 1})`;
@@ -200,10 +221,24 @@ function place() {
 
 function seats() {
   document.querySelectorAll('.seat').forEach((e) => e.remove());
-  for (const p of state?.players ?? []) {
+  const people = boardPlayers();
+  // Lobby: every free base is a "tap to join" spot (or "move here" for someone already in).
+  if (picking()) {
+    const joined = people.some((p) => p.userId === me?.userId);
+    [0, 1, 2, 3].filter((c) => !people.some((p) => p.color === c)).forEach((c) => {
+      const [r, col] = BASE[c];
+      const el = document.createElement('div');
+      el.className = 'seat free'; el.style.left = `${(col / 15) * 100}%`; el.style.top = `${(r / 15) * 100}%`; el.style.setProperty('--c', HEX[c]);
+      el.setAttribute('role', 'button'); el.setAttribute('aria-label', joined ? 'Move to this colour' : 'Join on this colour');
+      el.innerHTML = `<div class="join">+</div><div class="nm">${joined ? 'Move here' : 'Tap to join'}</div>`;
+      el.onclick = () => act('ludo:join', { color: c });
+      $('wrap').append(el);
+    });
+  }
+  for (const p of people) {
     const [r, c] = BASE[p.color];
     const el = document.createElement('div');
-    el.className = 'seat' + (state.phase === 'playing' && state.players[state.turn] === p ? ' turn' : '');
+    el.className = 'seat' + (state.phase === 'playing' && state.players[state.turn] === p ? ' turn' : '') + (picking() && p.userId === me?.userId ? ' mine' : '');
     el.style.left = `${(c / 15) * 100}%`; el.style.top = `${(r / 15) * 100}%`;
     const initial = esc((p.displayName ?? '?').slice(0, 1).toUpperCase());
     el.innerHTML = `${p.auto ? '<span class="tag">AUTO</span>' : ''}<div class="av" style="${p.avatarUrl ? `background-image:url('${esc(p.avatarUrl)}')` : ''}">${p.avatarUrl ? '' : initial}</div><div class="nm">${p.userId === me?.userId ? 'You' : esc(p.displayName ?? 'Player')}</div><div class="bar"><i></i></div>`;
@@ -248,27 +283,37 @@ function render() {
   panel();
 }
 
+// The card covers the board only when Ludo is off, or to show who won; picking colours happens on the board itself.
 function panel() {
   const s = state;
   const card = $('card');
-  if (s && s.phase === 'playing') { $('panel').hidden = true; return; }
+  lobbyBar();
+  if (s && (s.phase === 'playing' || picking())) { $('panel').hidden = true; return; }
   $('panel').hidden = false;
   if (!s) { card.innerHTML = '<h2>Ludo is off</h2><p>The owner or an admin can turn it on.</p>'; return; }
-  const winner = s.phase === 'finished' ? s.players.find((p) => p.userId === s.winner) : null;
+  const winner = s.players.find((p) => p.userId === s.winner);
+  card.innerHTML = `<h2>🏆 ${winner?.userId === me?.userId ? 'You won!' : esc(winner?.displayName ?? 'Someone') + ' won!'}</h2><p>Pick your colour for the next game.</p><div style="height:4vmin"></div><div class="btns"><button class="btn" id="again">Play again</button></div>`;
+  $('again').onclick = () => { winnerSeen = s.v; render(); };
+}
+
+// The bar in the middle of the board while picking colours: what's happening, and Leave / Start / Find players.
+function lobbyBar() {
+  const s = state;
+  if (!s || !picking()) { $('lobby').hidden = true; return; }
+  $('lobby').hidden = false;
   const lobby = s.phase === 'lobby' ? s.lobby : [];
   const joined = lobby.some((p) => p.userId === me?.userId);
-  const colorsFor = (n) => (n === 2 ? [0, 2] : [0, 1, 2, 3].slice(0, n)); // same seating as the server
-  const slot = (p, i) => `<div class="slot" style="--c:${p ? HEX[colorsFor(Math.max(2, lobby.length))[i]] : '#ddd'}"><b style="${p?.avatarUrl ? `background-image:url('${esc(p.avatarUrl)}')` : ''}">${p ? (p.avatarUrl ? '' : esc((p.displayName ?? '?').slice(0, 1).toUpperCase())) : '+'}</b><span>${p ? (p.userId === me?.userId ? 'You' : esc(p.displayName ?? 'Player')) : 'Open'}</span></div>`;
-  const head = winner
-    ? `<h2>🏆 ${winner.userId === me?.userId ? 'You won!' : esc(winner.displayName ?? 'Someone') + ' won!'}</h2><p>Join to play the next game.</p>`
-    : `<h2>🎲 Ludo</h2><p>${lobby.length < 2 ? (joined ? 'Waiting for players. Tap Find players to ask other rooms.' : 'Seated players: join the game (2 to 4).') : admin ? 'Ready when you are.' : 'Waiting for the owner or an admin to start.'}</p>`;
+  $('lobbyText').textContent = !joined
+    ? lobby.length >= 4 ? 'This game is full' : 'Tap a colour to join · 2 to 4 seated players'
+    : lobby.length < 2 ? 'Waiting for players · tap another colour to switch' : admin ? 'Ready when you are' : 'Waiting for the owner or an admin to start';
   const btns = [
-    !joined ? `<button class="btn" data-act="join">${winner ? 'Join next game' : 'Join game'}</button>` : `<button class="btn ghost" data-act="leave">Leave</button>`,
-    admin && s.phase === 'lobby' ? `<button class="btn" data-act="start" ${lobby.length < 2 ? 'disabled' : ''}>Start</button>` : '',
-    joined && s.phase === 'lobby' && lobby.length < 4 ? `<button class="btn ghost" data-act="discover">🔍 Find players</button>` : '',
+    joined ? `<button class="btn ghost" data-act="leave">Leave</button>` : '',
+    admin ? `<button class="btn" data-act="start" ${lobby.length < 2 ? 'disabled' : ''}>Start</button>` : '',
+    joined && lobby.length < 4 ? `<button class="btn ghost" data-act="discover">🔍 Find players</button>` : '',
   ].join('');
-  card.innerHTML = `${head}${s.phase === 'lobby' ? `<div class="slots">${[0, 1, 2, 3].map((i) => slot(lobby[i], i)).join('')}</div>` : '<div style="height:4vmin"></div>'}<div class="btns">${btns}</div>`;
-  card.querySelectorAll('[data-act]').forEach((b) => (b.onclick = async () => {
+  $('lobbyBtns').innerHTML = btns;
+  $('lobbyBtns').hidden = !btns;
+  $('lobbyBtns').querySelectorAll('[data-act]').forEach((b) => (b.onclick = async () => {
     const r = await act(`ludo:${b.dataset.act}`);
     if (r?.ok && b.dataset.act === 'discover') toast('Asked every room for players');
   }));

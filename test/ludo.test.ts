@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { autoToken, colorsFor, globalSquare, HOME, legalTokens, lobbyState, move, roll, startGame, type LudoState } from "../src/lib/ludo";
+import { autoToken, freeColor, globalSquare, HOME, legalTokens, lobbyState, move, roll, startGame, type LudoState } from "../src/lib/ludo";
 
 // Pure rules: no server, no database.
 const people = (n: number) => Array.from({ length: n }, (_, i) => ({ userId: `u${i}`, displayName: `P${i}`, avatarUrl: null }));
@@ -7,10 +7,12 @@ const game = (n = 2) => startGame(lobbyState(), people(n));
 const withTokens = (s: LudoState, tokens: number[][]) => ({ ...s, players: s.players.map((p, i) => ({ ...p, tokens: tokens[i] ?? p.tokens })) });
 
 describe("ludo rules", () => {
-  test("seating: 2 players face each other, 3-4 fill in order", () => {
-    expect(colorsFor(2)).toEqual([0, 2]);
-    expect(colorsFor(3)).toEqual([0, 1, 2]);
+  test("seating: picked colours are kept, turns go clockwise; no pick = free seat, opposite first", () => {
+    expect([freeColor([]), freeColor([0]), freeColor([0, 2]), freeColor([0, 1, 2]), freeColor([0, 1, 2, 3])]).toEqual([0, 2, 1, 3, undefined]);
+    expect(game(2).players.map((p) => p.color)).toEqual([0, 2]); // two players face each other
     expect(game(4).players.map((p) => p.color)).toEqual([0, 1, 2, 3]);
+    const picked = startGame(lobbyState(), [{ userId: "a", displayName: "A", avatarUrl: null, color: 3 }, { userId: "b", displayName: "B", avatarUrl: null, color: 1 }, { userId: "c", displayName: "C", avatarUrl: null }]);
+    expect(picked.players.map((p) => [p.userId, p.color])).toEqual([["c", 0], ["b", 1], ["a", 3]]); // red first, then clockwise
     expect(game().players.every((p) => p.tokens.every((t) => t === -1))).toBe(true);
   });
 

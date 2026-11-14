@@ -36,7 +36,9 @@ export type LastAction =
 export type LudoState = {
   v: number; // bumps on every change, so clients drop stale updates
   phase: "lobby" | "playing" | "finished";
-  lobby: { userId: string; displayName: string | null; avatarUrl: string | null }[]; // joined, waiting for the start
+  // Joined, waiting for the start, each on the colour they picked by tapping a base (color: index into COLORS; missing
+  // only in lobbies saved before colours could be picked).
+  lobby: { userId: string; displayName: string | null; avatarUrl: string | null; color?: number }[];
   players: Player[]; // in turn order; empty in the lobby
   turn: number; // index into players
   step: "roll" | "move";
@@ -50,16 +52,25 @@ export type LudoState = {
 
 export const lobbyState = (v = 0): LudoState => ({ v, phase: "lobby", lobby: [], players: [], turn: 0, step: "roll", dice: null, sixes: 0, legal: [], deadline: null, last: null, winner: null });
 
-// 2 players sit opposite each other; 3 and 4 fill the board in order.
-export const colorsFor = (n: number) => (n === 2 ? [0, 2] : [0, 1, 2, 3].slice(0, n));
+// A free colour for someone who didn't pick one: opposite seats first, so two players face each other.
+export const freeColor = (taken: Iterable<number>) => {
+  const t = new Set(taken);
+  return [0, 2, 1, 3].find((c) => !t.has(c));
+};
 
+// Everyone plays the colour they picked (anyone without one gets a free colour); turns go clockwise from red.
 export function startGame(state: LudoState, people: LudoState["lobby"]): LudoState {
-  const colors = colorsFor(people.length);
+  const taken = people.flatMap((p) => (p.color === undefined ? [] : [p.color]));
+  const seated = people.map((p) => {
+    const color = p.color ?? freeColor(taken)!;
+    taken.push(color);
+    return { userId: p.userId, displayName: p.displayName, avatarUrl: p.avatarUrl, color };
+  });
   return {
     ...state,
     v: state.v + 1,
     phase: "playing",
-    players: people.map((p, i) => ({ ...p, color: colors[i]!, tokens: Array(TOKENS).fill(-1), auto: false })),
+    players: seated.sort((a, b) => a.color - b.color).map((p) => ({ ...p, tokens: Array(TOKENS).fill(-1), auto: false })),
     turn: 0,
     step: "roll",
     dice: null,
