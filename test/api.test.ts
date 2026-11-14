@@ -1571,6 +1571,12 @@ describe("staff console and seller wallets", () => {
     expect((await api("POST", "/coin-sellers/wallet/sell", sub.token, { to: buyer.handle, amount: 1, idempotencyKey: key() })).body.error.code).toBe("NOT_A_SELLER");
     expect(await badgeIds(sub.id, buyer.token)).not.toContain("sub_seller");
 
+    // No cap per move: a seller can mint and sell well past 1 crore; only a wallet's own limit (32-bit) stops a move.
+    expect((await api("POST", `/admin/coin-sellers/${seller.id}/mint`, adm.token, { amount: 50_000_000, idempotencyKey: key() })).body.balance).toBe(50_000_550);
+    expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: buyer.handle, amount: 50_000_000, idempotencyKey: key() })).body.balance).toBe(550);
+    expect((await api("POST", `/admin/coin-sellers/${seller.id}/mint`, adm.token, { amount: 2_147_483_647, idempotencyKey: key() })).body.error.code).toBe("AMOUNT_TOO_LARGE"); // 550 + max overflows
+    expect((await api("POST", `/admin/coin-sellers/${seller.id}/mint`, adm.token, { amount: 2_147_483_648, idempotencyKey: key() })).body.error.code).toBe("VALIDATION_ERROR");
+
     // staff revoke freezes the wallet
     await api("POST", `/admin/coin-sellers/${seller.id}/decision`, adm.token, { approve: false });
     expect((await api("POST", "/coin-sellers/wallet/sell", seller.token, { to: buyer.handle, amount: 1, idempotencyKey: key() })).body.error.code).toBe("NOT_A_SELLER");
@@ -2101,7 +2107,7 @@ describe("rocket 50x cap", () => {
 });
 
 describe("game win announcements", () => {
-  test("300+ posts a chat notice in the winner's room; 10,000+ also shows a banner to everyone; small wins stay quiet", async () => {
+  test("30,000+ posts a chat notice in the winner's room; 5,00,000+ also shows a banner to everyone; small wins stay quiet", async () => {
     const greedy = await import("../src/services/greedy");
     const rocket = await import("../src/services/rocket");
     const { roomId } = await liveRoom();
@@ -2118,44 +2124,45 @@ describe("game win announcements", () => {
     sl.on("room:system", (m: any) => m.payload?.kind === "GAME_WIN" && notices.push(m));
     so.on("game:bigwin", (b: any) => banners.push(b));
 
-    // Galaxy: 100 on Saturn ×45 = 4,500 → room notice only.
+    // Galaxy: 10,000 on Saturn ×45 = 4,50,000 → room notice only.
+    await addCoins(winner.id, 100_000);
     const g = await greedy.openRound("galaxy");
-    await emit(sw, "greedy:bet", { roundId: g.id, item: 7, amount: 100 });
+    await emit(sw, "greedy:bet", { roundId: g.id, item: 7, amount: 10_000 });
     await greedy.settleAndAnnounce(g.id, 7);
-    // Jungle: 45 on Rabbit ×5 = 225 → below 300, nothing.
+    // Jungle: 4,500 on Rabbit ×5 = 22,500 → below 30,000, nothing.
     const j = await greedy.openRound("jungle");
-    await emit(sw, "greedy:bet", { roundId: j.id, item: 0, amount: 45 });
+    await emit(sw, "greedy:bet", { roundId: j.id, item: 0, amount: 4500 });
     await greedy.settleAndAnnounce(j.id, 0);
     await Bun.sleep(300);
-    expect(notices.map((n) => [n.body, n.payload.game, n.payload.amount])).toEqual([[`${winner.handle} won 4,500 coins in Greedy Galaxy`, "galaxy", 4500]]);
+    expect(notices.map((n) => [n.body, n.payload.game, n.payload.amount])).toEqual([[`${winner.handle} won 4,50,000 coins in Greedy Galaxy`, "galaxy", 450000]]);
     expect(banners).toEqual([]);
 
-    // Rocket: an auto cash-out of 10,000+ → notice in the room and a banner for everyone, including people in no room.
-    await addCoins(winner.id, 10000);
+    // Rocket: an auto cash-out of 5,00,000+ → notice in the room and a banner for everyone, including people in no room.
+    await addCoins(winner.id, 1_000_000);
     const realNow = rocket.clock.now;
     let t = Date.now();
     rocket.clock.now = () => t;
     try {
       const r = await rocket.openRound(500);
-      await emit(sw, "rocket:bet", { roundId: r.id, amount: 5000, auto100: 300 }); // 15,000 at 3.00x
+      await emit(sw, "rocket:bet", { roundId: r.id, amount: 500_000, auto100: 300 }); // 15,00,000 at 3.00x
       t = r.launchAt.getTime() + rocket.crashMs(500) + 1;
       await rocket.crashAndAnnounce(r.id);
     } finally {
       rocket.clock.now = realNow;
     }
     await Bun.sleep(300);
-    expect(notices.at(-1)).toMatchObject({ body: `${winner.handle} won 15,000 coins in Rocket`, payload: { kind: "GAME_WIN", game: "rocket", amount: 15000, userId: winner.id } });
-    expect(banners).toEqual([expect.objectContaining({ userId: winner.id, displayName: winner.handle, game: "rocket", amount: 15000 })]);
+    expect(notices.at(-1)).toMatchObject({ body: `${winner.handle} won 15,00,000 coins in Rocket`, payload: { kind: "GAME_WIN", game: "rocket", amount: 1500000, userId: winner.id } });
+    expect(banners).toEqual([expect.objectContaining({ userId: winner.id, displayName: winner.handle, game: "rocket", amount: 1500000 })]);
 
     // A big win by someone in no room: no chat notice anywhere, but still the banner.
-    await addCoins(outsider.id, 1000);
+    await addCoins(outsider.id, 100_000);
     const before = notices.length;
     const g2 = await greedy.openRound("jungle");
-    await emit(so, "greedy:bet", { roundId: g2.id, item: 7, amount: 1000 }); // Lion ×45 = 45,000
+    await emit(so, "greedy:bet", { roundId: g2.id, item: 7, amount: 100_000 }); // Lion ×45 = 45,00,000
     await greedy.settleAndAnnounce(g2.id, 7);
     await Bun.sleep(300);
     expect(notices.length).toBe(before);
-    expect(banners.at(-1)).toMatchObject({ userId: outsider.id, game: "jungle", amount: 45000 });
+    expect(banners.at(-1)).toMatchObject({ userId: outsider.id, game: "jungle", amount: 4500000 });
   });
 });
 

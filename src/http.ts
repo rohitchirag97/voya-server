@@ -38,7 +38,8 @@ export const schemas = {
   giftAll: z.object({ giftId: z.string().min(1).max(64), quantity: z.number().int().min(1).max(9999) }),
   seatIndex: z.coerce.number().int().min(0).max(19),
   uuid: z.uuid(),
-  coins: z.number().int().min(1).max(10_000_000),
+  // No business cap on coins moved (seller sales and top-ups, minting): only what a wallet column can hold (32-bit int).
+  coins: z.number().int().min(1).max(2_147_483_647),
   // Sent by the client once per intended transfer, so a retried or double-submitted request moves coins once.
   idempotencyKey: z.string().min(8).max(64),
 };
