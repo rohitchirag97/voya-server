@@ -11,6 +11,7 @@ import { store } from "../routes/posts";
 import { assertCanParticipate } from "./auth";
 import { activeBadgeIds } from "./badges";
 import { assertMember, assertRoomAdmin, getActiveParticipant, systemMessage } from "./rooms";
+import { guess } from "./draw";
 import { cosmeticMinSvip, svipOf, svipSql, visibleAvatar, wearable } from "./svip";
 
 export type ChatInput = { body: string; mentions: { userId: string }[]; clientMessageId: string };
@@ -62,6 +63,8 @@ export async function sendChat(user: User, roomId: string, input: ChatInput) {
   const ids = [...new Set(input.mentions.map((m) => m.userId))].slice(0, 10);
   const targets = ids.length ? await db.select({ id: users.id, displayName: users.displayName }).from(users).where(inArray(users.id, ids)) : [];
   const mentions = targets.filter((t) => body.includes(`@${t.displayName}`)).map((t) => t.id);
+  // Draw & Guess: a right guess shows as "guessed the word", never the word itself (a spoiler throws).
+  if ((await guess(user, roomId, body)) === "hit") return post(user, roomId, sender, { body: "🎯 guessed the word!", mentions: [], clientMessageId: input.clientMessageId, payload: { kind: "DRAW_GUESS" } });
   return post(user, roomId, sender, { body, mentions, clientMessageId: input.clientMessageId });
 }
 

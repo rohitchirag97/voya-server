@@ -9,6 +9,7 @@ import * as recharge from "../services/recharge";
 import * as live from "../services/live";
 import * as ludo from "../services/ludo";
 import * as pool from "../services/pool";
+import * as draw from "../services/draw";
 import * as video from "../services/video";
 import * as rooms from "../services/rooms";
 import { AppError } from "../lib/errors";
@@ -104,6 +105,12 @@ roomRoutes.post("/rooms/:roomId/ludo", async (c) => {
 roomRoutes.post("/rooms/:roomId/pool", async (c) => {
   const { on } = await json(c, z.object({ on: z.boolean() }));
   return c.json(await pool.setMode(c.get("user"), roomId(c), on));
+});
+
+// Draw & Guess mode on (opens a lobby) / off (ends any game). Owner and admins only.
+roomRoutes.post("/rooms/:roomId/draw", async (c) => {
+  const { on } = await json(c, z.object({ on: z.boolean() }));
+  return c.json(await draw.setMode(c.get("user"), roomId(c), on));
 });
 
 // A photo in room chat (multipart: "file" JPEG/PNG, "clientMessageId"). Above Lv 10 only.

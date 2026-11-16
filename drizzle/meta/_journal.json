@@ -624,6 +624,13 @@
       "when": 1794722714577,
       "tag": "0088_pool_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1794809810542,
+      "tag": "0089_draw_mode",
+      "breakpoints": true
     }
   ]
 }

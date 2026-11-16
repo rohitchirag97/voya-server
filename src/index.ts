@@ -7,6 +7,7 @@ import { purgeUndelivered } from "./services/dmPush";
 import { runGreedyLoop } from "./services/greedy";
 import { runLudoLoop } from "./services/ludo";
 import { runPoolLoop } from "./services/pool";
+import { runDrawLoop } from "./services/draw";
 import { runRocketLoop } from "./services/rocket";
 import { runEventLoop } from "./services/events";
 import { runTaskAnnouncer } from "./services/tasks";
@@ -21,6 +22,7 @@ void runGreedyLoop();
 void runRocketLoop();
 void runLudoLoop();
 void runPoolLoop();
+void runDrawLoop();
 runCpLoop();
 runMicLoop();
 runItemSweep(); // prize items and Special IDs that ran out

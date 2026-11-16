@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { LudoState } from "../lib/ludo";
 import type { PoolState } from "../lib/pool";
+import type { DrawState } from "../lib/draw";
 import {
   bigint,
   bigserial,
@@ -164,6 +165,8 @@ export const rooms = pgTable(
     ludo: jsonb("ludo").$type<LudoState>(),
     // 8 Ball Pool mode (null = off): the lobby or running game, see lib/pool.ts. Seats in one row, the table below.
     pool: jsonb("pool").$type<PoolState>(),
+    // Draw & Guess mode (null = off): the lobby or running game, see lib/draw.ts. Seats in one row, the canvas below.
+    draw: jsonb("draw").$type<DrawState>(),
     // Video mode (null = off): the shared YouTube player under the seat row, see services/video.ts.
     video: jsonb("video").$type<VideoState>(),
     // PUBLIC: listed, anyone joins. LOCKED: listed with a lock; joining needs the 4-digit password (hashed here).

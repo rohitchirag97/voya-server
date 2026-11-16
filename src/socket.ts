@@ -13,6 +13,7 @@ import * as gifts from "./services/gifts";
 import * as greedy from "./services/greedy";
 import * as ludo from "./services/ludo";
 import * as pool from "./services/pool";
+import * as draw from "./services/draw";
 import * as rocket from "./services/rocket";
 import { assertGamesOn } from "./services/flags";
 import * as roulette from "./services/roulette";
@@ -149,6 +150,22 @@ io.on("connection", (socket: Socket) => {
   handle("pool:start", (user, p) => pool.start(user, id(p)));
   handle("pool:aim", (user, p) => pool.aim(user, id(p), pool.aimSchema.parse(p)));
   handle("pool:shoot", (user, p) => pool.shoot(user, id(p), pool.shotSchema.parse(p)));
+
+  // Draw & Guess (rooms in Draw mode), same shape again. Guesses are room chat; only the drawer sends strokes.
+  handle("draw:watch", async (user, p) => {
+    const roomId = id(p);
+    const state = await draw.watch(user, roomId);
+    socket.join(draw.channel(roomId));
+    return state;
+  });
+  handle("draw:join", (user, p) => draw.join(user, id(p)));
+  handle("draw:leave", (user, p) => draw.leave(user, id(p)));
+  handle("draw:remove", (user, p) => draw.removeFromLobby(user, id(p), schemas.uuid.parse(p.userId)));
+  handle("draw:start", (user, p) => draw.start(user, id(p)));
+  handle("draw:word", (user, p) => draw.myWord(user, id(p)));
+  handle("draw:stroke", (user, p) => draw.stroke(user, id(p), draw.strokeSchema.parse(p)));
+  handle("draw:clear", (user, p) => draw.edit(user, id(p), "clear"));
+  handle("draw:undo", (user, p) => draw.edit(user, id(p), "undo"));
 
   // Rocket (crash) game: one global round at a time.
   handle("rocket:join", async (user) => {
