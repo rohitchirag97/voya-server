@@ -22,8 +22,9 @@ postRoutes.use("/users/:userId/posts", requireAuth);
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 60 * 1024 * 1024; // ~60s of phone video after on-device compression
 const MAX_GIF_BYTES = 2 * 1024 * 1024; // animated profile pictures stay light: they play everywhere a face shows
-const FILE_NAME = /^[0-9a-f-]{36}\.(jpg|png|gif|mp4|mov)$/;
-const CONTENT_TYPES: Record<string, string> = { jpg: "image/jpeg", png: "image/png", gif: "image/gif", mp4: "video/mp4", mov: "video/quicktime" };
+const MAX_AUDIO_BYTES = 30 * 1024 * 1024; // a karaoke track: ~15 min of 256 kbps MP3
+const FILE_NAME = /^[0-9a-f-]{36}\.(jpg|png|gif|mp4|mov|mp3|m4a)$/;
+const CONTENT_TYPES: Record<string, string> = { jpg: "image/jpeg", png: "image/png", gif: "image/gif", mp4: "video/mp4", mov: "video/quicktime", mp3: "audio/mpeg", m4a: "audio/mp4" };
 
 // Only real JPEG/PNG/MP4/MOV bytes are stored, whatever the client claims.
 export function mediaExt(head: Uint8Array) {
@@ -47,6 +48,22 @@ export async function store(file: File, allowed: ("image" | "video" | "gif")[]) 
   await mkdir(config.uploadsDir, { recursive: true });
   await Bun.write(join(config.uploadsDir, name), file);
   return { name, isVideo };
+}
+
+// Karaoke songs (admin upload): MP3 (an ID3 tag or a bare MPEG frame) or M4A/AAC.
+export function audioExt(head: Uint8Array) {
+  if (String.fromCharCode(...head.slice(0, 3)) === "ID3" || (head[0] === 0xff && (head[1]! & 0xe0) === 0xe0)) return "mp3";
+  if (String.fromCharCode(...head.slice(4, 8)) === "ftyp" && /^(M4A |M4B |mp42|isom|dash)$/.test(String.fromCharCode(...head.slice(8, 12)))) return "m4a";
+  return null;
+}
+export async function storeAudio(file: File) {
+  const ext = audioExt(new Uint8Array(await file.slice(0, 16).arrayBuffer()));
+  if (!ext) throw new AppError("BAD_MEDIA", 400, "Only MP3 or M4A audio");
+  if (file.size > MAX_AUDIO_BYTES) throw new AppError("MEDIA_TOO_LARGE", 413, "Audio is too large (max 30 MB)");
+  const name = `${randomUUID()}.${ext}`;
+  await mkdir(config.uploadsDir, { recursive: true });
+  await Bun.write(join(config.uploadsDir, name), file);
+  return name;
 }
 
 const likes = sql<number>`(select count(*) from ${postLikes} where ${postLikes.postId} = ${posts.id})`.mapWith(Number);

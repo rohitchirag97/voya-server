@@ -638,6 +638,13 @@
       "when": 1794810529005,
       "tag": "0090_mafia_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1794812865604,
+      "tag": "0091_karaoke",
+      "breakpoints": true
     }
   ]
 }

@@ -15,6 +15,7 @@ import * as ludo from "./services/ludo";
 import * as pool from "./services/pool";
 import * as draw from "./services/draw";
 import * as mafia from "./services/mafia";
+import * as karaoke from "./services/karaoke";
 import * as rocket from "./services/rocket";
 import { assertGamesOn } from "./services/flags";
 import * as roulette from "./services/roulette";
@@ -182,6 +183,13 @@ io.on("connection", (socket: Socket) => {
   handle("mafia:start", (user, p) => mafia.start(user, id(p)));
   handle("mafia:act", (user, p) => mafia.act(user, id(p), mafia.targetSchema.parse(p).target));
   handle("mafia:vote", (user, p) => mafia.vote(user, id(p), mafia.targetSchema.parse(p).target));
+
+  // Karaoke (rooms in Karaoke mode): the state goes to the whole room channel, so there's nothing to watch.
+  handle("karaoke:queue", (user, p) => karaoke.queueSong(user, id(p), schemas.uuid.parse(p.songId)));
+  handle("karaoke:started", (user, p) => karaoke.started(user, id(p), karaoke.entrySchema.parse(p).entryId));
+  handle("karaoke:finish", (user, p) => karaoke.finish(user, id(p), karaoke.entrySchema.parse(p).entryId));
+  handle("karaoke:remove", (user, p) => karaoke.remove(user, id(p), karaoke.entrySchema.parse(p).entryId));
+  handle("karaoke:progress", (user, p) => karaoke.progress(user, id(p), karaoke.progressSchema.parse(p)));
 
   // Rocket (crash) game: one global round at a time.
   handle("rocket:join", async (user) => {

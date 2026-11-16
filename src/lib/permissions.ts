@@ -14,6 +14,7 @@ export const PERMISSIONS = [
   { key: "games.profit", group: "Money", label: "Game profit" },
   { key: "coins.audit", group: "Money", label: "Coin audit (every coin movement)" },
   { key: "gifts.manage", group: "Content", label: "Gifts" },
+  { key: "songs.manage", group: "Content", label: "Karaoke songs" },
   { key: "events.manage", group: "Content", label: "Events" },
   { key: "events.payout", group: "Content", label: "Approve event rewards" },
   { key: "notices.manage", group: "Content", label: "Notices" },

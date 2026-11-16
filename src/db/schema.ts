@@ -3,6 +3,7 @@ import type { LudoState } from "../lib/ludo";
 import type { PoolState } from "../lib/pool";
 import type { DrawState } from "../lib/draw";
 import type { MafiaState } from "../lib/mafia";
+import type { KaraokeState } from "../lib/karaoke";
 import {
   bigint,
   bigserial,
@@ -170,6 +171,8 @@ export const rooms = pgTable(
     draw: jsonb("draw").$type<DrawState>(),
     // Mafia mode (null = off): the lobby or running game, see lib/mafia.ts. Seats in one row, the board below.
     mafia: jsonb("mafia").$type<MafiaState>(),
+    // Karaoke mode (null = off): the song queue and who is singing, see lib/karaoke.ts. Seats in one row, lyrics below.
+    karaoke: jsonb("karaoke").$type<KaraokeState>(),
     // Video mode (null = off): the shared YouTube player under the seat row, see services/video.ts.
     video: jsonb("video").$type<VideoState>(),
     // PUBLIC: listed, anyone joins. LOCKED: listed with a lock; joining needs the 4-digit password (hashed here).
@@ -1241,4 +1244,20 @@ export const featureFlags = pgTable("feature_flags", {
   enabled: boolean("enabled").notNull().default(false),
   updatedBy: uuid("updated_by").references(() => users.id),
   updatedAt: ts("updated_at").notNull().defaultNow(),
+});
+
+// Karaoke songs, uploaded in the admin panel (licensing is the operator's). Files live in uploadsDir and are served at
+// /v1/uploads/<name>. lyrics: LRC text, line times "[mm:ss.xx]" and optional word times "<mm:ss.xx>".
+export const songs = pgTable("songs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  artist: text("artist").notNull().default(""),
+  cover: text("cover"), // image file name
+  track: text("track").notNull(), // the backing track (no vocals): what the singer sings over
+  original: text("original"), // the song with vocals, for learning it; null = none
+  lyrics: text("lyrics").notNull(),
+  durationMs: integer("duration_ms"), // from the last lyric line when not given
+  enabled: boolean("enabled").notNull().default(true),
+  plays: integer("plays").notNull().default(0),
+  createdAt: createdAt(),
 });

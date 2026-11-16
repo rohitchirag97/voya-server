@@ -9,6 +9,7 @@ import { runLudoLoop } from "./services/ludo";
 import { runPoolLoop } from "./services/pool";
 import { runDrawLoop } from "./services/draw";
 import { runMafiaLoop } from "./services/mafia";
+import { runKaraokeLoop } from "./services/karaoke";
 import { runRocketLoop } from "./services/rocket";
 import { runEventLoop } from "./services/events";
 import { runTaskAnnouncer } from "./services/tasks";
@@ -25,6 +26,7 @@ void runLudoLoop();
 void runPoolLoop();
 void runDrawLoop();
 void runMafiaLoop();
+void runKaraokeLoop();
 runCpLoop();
 runMicLoop();
 runItemSweep(); // prize items and Special IDs that ran out

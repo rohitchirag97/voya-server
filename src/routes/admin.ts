@@ -16,6 +16,7 @@ import { gameProfit, profitQuery } from "../services/gameProfit";
 import { gamesOn, setGamesOn } from "../services/flags";
 import { coinLedger, coinLedgerCsv, ledgerQuery } from "../services/coinAudit";
 import * as giftAdmin from "../services/giftAdmin";
+import * as songAdmin from "../services/songs";
 import * as salaries from "../services/salaries";
 import { findUserByRef } from "../services/auth";
 import { userSummary } from "../services/rooms";
@@ -245,4 +246,45 @@ admin.post("/admin/gift-categories", requirePerm("gifts.manage"), async (c) => {
 admin.patch("/admin/gift-categories/:id", requirePerm("gifts.manage"), async (c) => {
   const b = await json(c, categoryFields);
   return c.json(await giftAdmin.updateCategory(z.coerce.number().int().positive().parse(c.req.param("id")), b));
+});
+
+// Karaoke songs (multipart): title, artist, durationMs (optional), enabled, lyrics (LRC text) or lyricsFile; files
+// track (backing track, needed to create), original (with vocals, optional), cover (image, optional).
+const songFields = z.object({
+  title: z.string().trim().min(1).max(80).optional(),
+  artist: z.string().trim().max(80).optional(),
+  durationMs: z.coerce.number().int().min(10_000).max(1_800_000).optional(),
+  enabled: z.enum(["true", "false"]).transform((v) => v === "true").optional(),
+  lyrics: z.string().max(200_000).optional(),
+});
+async function songForm(c: Context<Env>) {
+  const form = await c.req.formData().catch(() => null);
+  if (!form) throw new AppError("VALIDATION_ERROR", 400, "Send the song as a form");
+  const file = (k: string) => {
+    const v = form.get(k);
+    return v instanceof File && v.size ? v : undefined;
+  };
+  const text = Object.fromEntries(["title", "artist", "durationMs", "enabled", "lyrics"].flatMap((k) => {
+    const v = form.get(k);
+    return typeof v === "string" && v.trim() !== "" ? [[k, v]] : [];
+  }));
+  const lyricsFile = file("lyricsFile");
+  if (lyricsFile) {
+    if (lyricsFile.size > 200_000) throw new AppError("VALIDATION_ERROR", 400, "The lyrics file is too large");
+    text.lyrics = await lyricsFile.text();
+  }
+  return { fields: songFields.parse(text), files: { track: file("track"), original: file("original"), cover: file("cover") } };
+}
+
+admin.get("/admin/songs", requirePerm("songs.manage"), async (c) => c.json(await songAdmin.listAll()));
+
+admin.post("/admin/songs", requirePerm("songs.manage"), async (c) => {
+  const { fields, files } = await songForm(c);
+  if (!fields.title || !fields.lyrics) throw new AppError("VALIDATION_ERROR", 400, "A song needs a title and lyrics");
+  return c.json(await songAdmin.createSong(c.get("user"), { ...fields, title: fields.title, lyrics: fields.lyrics }, files), 201);
+});
+
+admin.patch("/admin/songs/:songId", requirePerm("songs.manage"), async (c) => {
+  const { fields, files } = await songForm(c);
+  return c.json(await songAdmin.updateSong(c.get("user"), schemas.uuid.parse(c.req.param("songId")), fields, files));
 });
