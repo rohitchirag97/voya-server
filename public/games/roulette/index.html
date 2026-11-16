@@ -144,7 +144,7 @@
       <li><span>Odd / Even</span><b>1 to 1 · ×2</b></li>
       <li><span>1–18 / 19–36</span><b>1 to 1 · ×2</b></li>
     </ul>
-    <p class="note">European wheel with one zero. Zero loses every bet except a chip on 0. Tap a spot to place the selected chip; your chips stay on the table for the next spin until you clear them. Every bet pays back 97.30% on average.</p>
+    <p class="note">European wheel with one zero. Zero loses every bet except a chip on 0. Tap a spot to place the selected chip; the table clears after every spin, win or lose. Every bet pays back 97.30% on average.</p>
   </div>
   <div class="toast" id="toast" role="status"></div>
 
@@ -292,6 +292,7 @@ async function spin() {
   $('balance').textContent = num(d.balance - d.payout); // the stake leaves now; the win lands when the ball settles
   await spinWheel(d.number);
   showResult(d);
+  bets.clear(); placed.length = 0; // every round starts from an empty table; the winning spots stay lit until the next chip
   spinning = false; drawBets();
 }
 function showResult(d) {
