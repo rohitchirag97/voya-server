@@ -4,6 +4,7 @@ import type { PoolState } from "../lib/pool";
 import type { DrawState } from "../lib/draw";
 import type { MafiaState } from "../lib/mafia";
 import type { KaraokeState } from "../lib/karaoke";
+import type { ChessState } from "../lib/chess";
 import {
   bigint,
   bigserial,
@@ -173,6 +174,8 @@ export const rooms = pgTable(
     mafia: jsonb("mafia").$type<MafiaState>(),
     // Karaoke mode (null = off): the song queue and who is singing, see lib/karaoke.ts. Seats in one row, lyrics below.
     karaoke: jsonb("karaoke").$type<KaraokeState>(),
+    // Chess mode (null = off): the lobby or running game, see lib/chess.ts. Seats in one row, the board below.
+    chess: jsonb("chess").$type<ChessState>(),
     // Video mode (null = off): the shared YouTube player under the seat row, see services/video.ts.
     video: jsonb("video").$type<VideoState>(),
     // PUBLIC: listed, anyone joins. LOCKED: listed with a lock; joining needs the 4-digit password (hashed here).

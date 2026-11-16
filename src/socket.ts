@@ -16,6 +16,7 @@ import * as pool from "./services/pool";
 import * as draw from "./services/draw";
 import * as mafia from "./services/mafia";
 import * as karaoke from "./services/karaoke";
+import * as chess from "./services/chess";
 import * as rocket from "./services/rocket";
 import { assertGamesOn } from "./services/flags";
 import * as roulette from "./services/roulette";
@@ -192,6 +193,19 @@ io.on("connection", (socket: Socket) => {
   handle("karaoke:finish", (user, p) => karaoke.finish(user, id(p), karaoke.entrySchema.parse(p).entryId));
   handle("karaoke:play-next", (user, p) => karaoke.playNext(user, id(p), karaoke.entrySchema.parse(p).entryId));
   handle("karaoke:remove", (user, p) => karaoke.remove(user, id(p), karaoke.entrySchema.parse(p).entryId));
+  // Chess (rooms in Chess mode), shaped like Pool: watch the channel, join, start, move.
+  handle("chess:watch", async (user, p) => {
+    const roomId = id(p);
+    const state = await chess.watch(user, roomId);
+    socket.join(chess.channel(roomId));
+    return state;
+  });
+  handle("chess:join", (user, p) => chess.join(user, id(p)));
+  handle("chess:leave", (user, p) => chess.leave(user, id(p)));
+  handle("chess:remove", (user, p) => chess.removeFromLobby(user, id(p), schemas.uuid.parse(p.userId)));
+  handle("chess:start", (user, p) => chess.start(user, id(p)));
+  handle("chess:move", (user, p) => chess.move(user, id(p), chess.moveSchema.parse(p)));
+  handle("chess:draw", (user, p) => chess.draw(user, id(p)));
   handle("karaoke:progress", (user, p) => karaoke.progress(user, id(p), karaoke.progressSchema.parse(p)));
 
   // Rocket (crash) game: one global round at a time.

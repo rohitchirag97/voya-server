@@ -57,6 +57,8 @@ app.get("/v1/salary-policy", (c) =>
 );
 app.route("/", links); // shareable room links (/r/:roomId) and the install page (/download)
 // HTML5 mini-games, opened in a WebView over the room. The socket client comes from the installed socket.io, so versions always match.
+// chess.js for the chess board page (the same rules the server checks moves with).
+app.get("/games/chess/chess.js", () => new Response(Bun.file(`${import.meta.dir}/../node_modules/chess.js/dist/esm/chess.js`), { headers: { "content-type": "text/javascript; charset=utf-8" } }));
 app.get("/games/socket.io.min.js", () => new Response(Bun.file(`${import.meta.dir}/../node_modules/socket.io/client-dist/socket.io.min.js`)));
 // Files added in the admin panel: gift icons and animations (services/giftAdmin.ts), event banners and headers
 // (services/events.ts), prize items (services/items.ts). Each upload has a fresh name: cached forever.

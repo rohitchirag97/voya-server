@@ -44,6 +44,7 @@ export async function setMode(actor: User, roomId: string, on: boolean) {
   if (room.kind === "LIVE") throw new AppError("VIDEO_NOT_IN_LIVE", 400, "Video mode is for audio rooms");
   if (!!room.video === on) return { video: room.video };
   if (on && room.ludo) throw new AppError("LUDO_ON", 409, "Turn off Ludo first");
+  if (on && room.chess) throw new AppError("CHESS_ON", 409, "Turn off Chess first");
   if (on && room.karaoke) throw new AppError("KARAOKE_ON", 409, "Turn off Karaoke first");
   if (on && room.mafia) throw new AppError("MAFIA_ON", 409, "Turn off Mafia first");
   if (on && room.draw) throw new AppError("DRAW_ON", 409, "Turn off Draw & Guess first");

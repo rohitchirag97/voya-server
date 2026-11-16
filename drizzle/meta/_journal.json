@@ -652,6 +652,13 @@
       "when": 1794814167751,
       "tag": "0092_covers",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1794827175398,
+      "tag": "0093_chess_mode",
+      "breakpoints": true
     }
   ]
 }

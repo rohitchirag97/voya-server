@@ -12,6 +12,7 @@ import * as pool from "../services/pool";
 import * as draw from "../services/draw";
 import * as mafia from "../services/mafia";
 import * as karaoke from "../services/karaoke";
+import * as chess from "../services/chess";
 import * as songs from "../services/songs";
 import * as covers from "../services/covers";
 import * as video from "../services/video";
@@ -121,6 +122,12 @@ roomRoutes.post("/rooms/:roomId/draw", async (c) => {
 roomRoutes.post("/rooms/:roomId/mafia", async (c) => {
   const { on } = await json(c, z.object({ on: z.boolean() }));
   return c.json(await mafia.setMode(c.get("user"), roomId(c), on));
+});
+
+// Chess mode on (opens a lobby) / off (ends any game). Owner and admins only.
+roomRoutes.post("/rooms/:roomId/chess", async (c) => {
+  const { on } = await json(c, z.object({ on: z.boolean() }));
+  return c.json(await chess.setMode(c.get("user"), roomId(c), on));
 });
 
 // Karaoke mode on (empty queue) / off (ends any song). Owner and admins only.
