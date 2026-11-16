@@ -17,6 +17,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from '/games/vendor/three/RoundedBoxGeometry.js';
 import { RoomEnvironment } from '/games/vendor/three/RoomEnvironment.js';
+import { createDuo, DUO } from './duo.js';
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m));
 let renderer;
@@ -31,6 +32,11 @@ renderer.setClearColor(0x000000, 0);
 renderer.toneMapping = THREE.NeutralToneMapping; // keeps emoji colours saturated
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
+// Mochi & Tofu (duo.js): 2D sticker emotes on their own canvas over the 3D one.
+const duoCanvas = document.createElement('canvas');
+duoCanvas.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none';
+document.body.appendChild(duoCanvas);
+const duo = createDuo(duoCanvas, { clean: new URLSearchParams(location.search).has('clean') });
 
 const scene = new THREE.Scene();
 const pmrem = new THREE.PMREMGenerator(renderer);
@@ -48,6 +54,7 @@ let W = 1, H = 1;
 function resize() {
   W = window.innerWidth; H = window.innerHeight;
   renderer.setSize(W, H);
+  duo?.resize(W, H, Math.min(window.devicePixelRatio || 1, 2.5));
   camera.aspect = W / H;
   camera.position.set(0, 0, H / 2 / Math.tan(THREE.MathUtils.degToRad(15)));
   camera.updateProjectionMatrix();
@@ -447,6 +454,7 @@ const GLOW = { smile: 0xffd23f, laugh: 0xffd23f, cry: 0x58c4f5, kiss: 0xff5f9e, 
 const DUR = { smile: 3000, laugh: 3000, cry: 3200, kiss: 3200, angry: 3000, heart: 3200, hand: 2800, dice: 3800, coin: 3800, roller: 3800, dance: 3600, sad: 3300, naughty: 3000, sick: 3300, help: 3400, giftme: 3400 };
 
 function play({ emote: k, result, x, y, size }) {
+  if (DUO.has(k)) { duo.play({ emote: k, x, y, size }); if (!running) { running = true; lastNow = performance.now(); requestAnimationFrame(frame); } return; }
   const group = new THREE.Group(), body = new THREE.Group();
   group.add(body);
   const fxg = new THREE.Group(); fxg.scale.setScalar(FXS); group.add(fxg);
@@ -742,6 +750,7 @@ function frame(now) {
   lastNow = now;
   if (FREEZE) {
     for (const e of fx) for (e.t = 0; e.t <= FREEZE; e.t += 16) update(e, 0.016);
+    for (let t = 0; t <= FREEZE; t += 16) { duo.step(16); duo.render(); }
     renderer.render(scene, camera);
     return;
   }
@@ -752,7 +761,9 @@ function frame(now) {
     update(e, dt);
   }
   renderer.render(scene, camera);
-  if (fx.length) requestAnimationFrame(frame);
+  const duoOn = duo.step(dt * 1000);
+  duo.render(); // draws nothing (clears) once the last one ends
+  if (fx.length || duoOn) requestAnimationFrame(frame);
   else running = false; // idle: nothing renders until the next emote
 }
 
@@ -768,12 +779,13 @@ post({ type: 'ready', ok: true });
 if (q.has('demo')) {
   if (q.has('dark')) document.body.style.background = 'radial-gradient(#3a2a6a, #120c26)';
   const only = q.get('only');
-  const all = only ? [[only]] : [['hand'], ['smile'], ['laugh'], ['cry'], ['kiss'], ['angry'], ['heart'], ['dice', 5], ['coin', 'Heads'], ['roller', '777'], ['dance'], ['sad'], ['naughty'], ['sick'], ['help'], ['giftme']];
+  const all = only ? [[only]] : [['hand'], ['smile'], ['laugh'], ['cry'], ['kiss'], ['angry'], ['heart'], ['dice', 5], ['coin', 'Heads'], ['roller', '777'], ['dance'], ['sad'], ['naughty'], ['sick'], ['help'], ['giftme'], ['hug'], ['smooch'], ['love'], ['party'], ['comfort'], ['sulk'], ['gift']];
   const sz = Number(q.get('size')) || 56;
   const at = (i) => ({ x: sz * 1.2 + (i % 4) * sz * 2.2, y: sz * 1.8 + Math.floor(i / 4) * sz * 2.6, size: sz });
   window.demo = () => all.forEach(([emote, result], i) => play({ emote, result, ...at(i) }));
   window.demo();
   // picker artwork: the model alone (no glow, shadow or particles) as a transparent PNG
+  window.snapDuo = () => duoCanvas.toDataURL('image/png');
   window.snap = () => { for (const e of fx) { e.glow.visible = false; e.shadow.visible = false; e.parts.forEach((p) => (p.obj.visible = false)); e.beams?.forEach((b) => (b.visible = false)); [e.disco, ...(e.halves ?? []), ...(e.germs ?? [])].forEach((o) => o && (o.visible = false)); } renderer.render(scene, camera); return renderer.domElement.toDataURL('image/png'); };
 }
 </script>

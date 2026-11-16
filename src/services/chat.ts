@@ -85,9 +85,9 @@ export async function sendChatImage(user: User, roomId: string, clientMessageId:
 // (if seated) and keep the line in chat. Dice, roller and coin results are drawn here so nobody can fake them.
 // New keys go at the end. shortcut: apps older than the build that added an emote crash on it; that is fine only
 // while everyone installs fresh builds, so check the oldest app in use before adding more.
-export const EMOTES = ["hand", "smile", "kiss", "angry", "heart", "laugh", "cry", "dice", "roller", "coin", "dance", "sad", "naughty", "sick", "help", "giftme"] as const;
+export const EMOTES = ["hand", "smile", "kiss", "angry", "heart", "laugh", "cry", "dice", "roller", "coin", "dance", "sad", "naughty", "sick", "help", "giftme", "hug", "smooch", "love", "party", "comfort", "sulk", "gift"] as const;
 export const emoteSchema = z.object({ emote: z.enum(EMOTES), clientMessageId: z.string().min(1).max(64) });
-const FACES: Record<string, string> = { hand: "✋", smile: "😊", kiss: "😘", angry: "😠", heart: "❤️", laugh: "😂", cry: "😭", dance: "💃", sad: "😔", naughty: "😜", sick: "🤒", help: "🆘 Help me!", giftme: "🎁 Gift me!" };
+const FACES: Record<string, string> = { hand: "✋", smile: "😊", kiss: "😘", angry: "😠", heart: "❤️", laugh: "😂", cry: "😭", dance: "💃", sad: "😔", naughty: "😜", sick: "🤒", help: "🆘 Help me!", giftme: "🎁 Gift me!", hug: "🤗 Hug", smooch: "💋 Smooch", love: "💖 Love you", party: "🎉 Party", comfort: "🫂 Comfort", sulk: "😤 Sulk", gift: "🎁 Surprise gift" };
 
 export function drawEmote(emote: (typeof EMOTES)[number]): { body: string; result?: string } {
   if (emote === "dice") {
