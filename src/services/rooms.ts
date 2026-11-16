@@ -114,6 +114,7 @@ export async function getSnapshot(roomId: string) {
     ludo: room.ludo !== null, // Ludo mode: seats in one row, board below (the board page follows the game itself)
     pool: room.pool !== null, // 8 Ball Pool mode: same layout, the table below
     draw: room.draw !== null, // Draw & Guess mode: same layout, the canvas below
+    mafia: room.mafia !== null, // Mafia mode: same layout, the game board below
     video: room.video, // Video mode (null = off): what's playing and where, for the shared player
   };
 }

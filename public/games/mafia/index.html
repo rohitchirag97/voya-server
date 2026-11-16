@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Mafia</title>
+<style>
+  /* Mafia board for a room in Mafia mode, shown inline under the seat row. Everyone sees the town; each player sees
+     only their own role. Night picks and day votes are taps on a player; talking happens on the room's voice. */
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: transparent; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; user-select: none; -webkit-user-select: none; }
+  #app { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; border-radius: 18px; overflow: hidden; color: #fff; box-shadow: 0 6px 24px rgba(0,0,0,.35);
+    background: linear-gradient(#1a2440, #0b1020); transition: background .6s; }
+  #app.day { background: linear-gradient(#f3b866, #c2603a); }
+  #hud { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px 4px; }
+  #phase { flex: 1; font-size: 15px; font-weight: 900; }
+  #phase small { display: block; font-size: 10px; font-weight: 700; opacity: .8; }
+  #timer { flex: none; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 12px;
+    background: conic-gradient(#ffd25e calc(var(--p, 0) * 1turn), rgba(255,255,255,.18) 0); }
+  #timer span { width: 28px; height: 28px; border-radius: 50%; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; }
+  #timer[hidden], #leave[hidden], #skip[hidden] { display: none; }
+  #leave { border: 0; background: none; color: inherit; opacity: .8; font-size: 10px; font-weight: 800; text-decoration: underline; padding: 0; }
+  #me { flex: none; margin: 4px 10px; padding: 7px 10px; border-radius: 12px; background: rgba(0,0,0,.35); font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  #me b { font-size: 13px; }
+  #me:empty { display: none; }
+  #news { flex: none; margin: 0 10px 4px; font-size: 11px; font-weight: 700; opacity: .9; min-height: 14px; }
+  #grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 4px 10px; align-content: start; }
+  .pc { position: relative; border: 0; border-radius: 12px; padding: 6px 2px 5px; background: rgba(255,255,255,.1); color: inherit; font: inherit; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+  .pc.pick { box-shadow: inset 0 0 0 2px #ffd25e; background: rgba(255,210,94,.22); }
+  .pc.dead { opacity: .45; }
+  .pc[disabled] { cursor: default; }
+  .pc .nm { max-width: 100%; font-size: 11px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 2px; }
+  .pc .tag { font-size: 9px; font-weight: 900; letter-spacing: .03em; padding: 1px 6px; border-radius: 99px; background: rgba(0,0,0,.4); }
+  .tag.MAFIA { background: #c62828; } .tag.DOCTOR { background: #2e8b57; } .tag.DETECTIVE { background: #1b6fd1; } .tag.VILLAGER { background: #6d6a7c; }
+  .tag.ok { background: #2e8b57; } .tag.bad { background: #c62828; }
+  .votes { position: absolute; top: 2px; right: 4px; min-width: 18px; height: 18px; border-radius: 9px; background: #e0362b; font-size: 10px; font-weight: 900; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+  .av { flex: none; width: 36px; height: 36px; border-radius: 50%; background: #3b4670 center/cover no-repeat; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; font-style: normal; }
+  .dead .av { filter: grayscale(1); }
+  #foot { flex: none; display: flex; justify-content: center; padding: 6px 10px 8px; }
+  .btn { border: 0; border-radius: 99px; padding: 9px 18px; font-size: 13px; font-weight: 800; background: linear-gradient(#e85d5d, #b52a2a); color: #fff; }
+  .btn.ghost { background: rgba(255,255,255,.14); }
+  .btn.on { box-shadow: 0 0 0 2px #ffd25e; }
+  .btn[disabled] { opacity: .4; }
+  #panel { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(6,8,18,.55); backdrop-filter: blur(1.5px); }
+  #panel[hidden] { display: none; }
+  .card { width: min(90%, 340px); max-height: 94%; overflow: auto; background: rgba(16,20,38,.95); border: 1px solid rgba(255,255,255,.08); border-radius: 18px; padding: 16px 14px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .card h2 { margin: 0; font-size: 18px; }
+  .card p { margin: 6px 0 0; font-size: 12px; color: #b8bfdc; }
+  .slots { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 12px 0 4px; }
+  .slot { position: relative; width: 58px; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; font-weight: 800; }
+  .slot span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kick { position: absolute; top: -4px; right: 2px; width: 18px; height: 18px; border-radius: 50%; border: 0; background: #e0362b; color: #fff; font-size: 10px; font-weight: 900; padding: 0; }
+  .rank { margin: 10px 0 0; padding: 0; list-style: none; text-align: left; font-size: 12px; font-weight: 800; }
+  .rank li { display: flex; justify-content: space-between; align-items: center; padding: 5px 4px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+  #toast { position: absolute; left: 50%; top: 50px; transform: translateX(-50%) translateY(-8px); opacity: 0; visibility: hidden; z-index: 20; background: rgba(0,0,0,.85); color: #fff; padding: 8px 14px; border-radius: 12px; font-size: 12px; font-weight: 800; transition: transform .25s, opacity .25s, visibility .25s; max-width: 90%; text-align: center; }
+  #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; visibility: visible; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hud"><div id="phase"></div><button id="leave" hidden>Leave</button><div id="timer" hidden><span id="secs"></span></div></div>
+  <div id="me"></div>
+  <div id="news" aria-live="polite"></div>
+  <div id="grid"></div>
+  <div id="foot"><button class="btn ghost" id="skip" hidden>Skip vote</button></div>
+  <div id="panel"><div class="card" id="card"><h2>🕵️ Mafia</h2><p>Connecting…</p></div></div>
+  <div id="toast" role="status"></div>
+</div>
+<script src="/games/socket.io.min.js"></script>
+<script>
+const ROOM = new URLSearchParams(location.search).get('room');
+const $ = (id) => document.getElementById(id);
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const ROLE = { MAFIA: '🔪 Mafia', DOCTOR: '💉 Doctor', DETECTIVE: '🔎 Detective', VILLAGER: '🧑‍🌾 Villager' };
+const ROLE_A = { MAFIA: 'Mafia', DOCTOR: 'the Doctor', DETECTIVE: 'the Detective', VILLAGER: 'a Villager' };
+const NIGHT_TODO = { MAFIA: 'Tap someone to kill tonight', DOCTOR: 'Tap someone to save tonight', DETECTIVE: 'Tap someone to check tonight', VILLAGER: 'You sleep through the night' };
+
+let state = null, me = null, admin = false, offset = 0, ms = { night: 30000, day: 120000 }, secret = null;
+const now = () => Date.now() + offset;
+const playing = () => state?.phase === 'night' || state?.phase === 'day';
+const mine = () => state?.players.find((p) => p.userId === me?.userId);
+const nameOf = (p) => (p ? (p.userId === me?.userId ? 'You' : esc(p.displayName || 'Someone')) : 'Someone');
+const byId = (id) => state?.players.find((p) => p.userId === id);
+const avatar = (p) => `<i class="av" style="${p.avatarUrl ? `background-image:url('${esc(p.avatarUrl)}')` : ''}">${p.avatarUrl ? '' : esc((p.displayName || '?').slice(0, 1).toUpperCase())}</i>`;
+
+function myPick() {
+  if (!secret || state?.phase !== 'night') return null;
+  return secret.role === 'MAFIA' ? secret.picks?.[me.userId] ?? null : secret.pick ?? null;
+}
+
+function render() {
+  const s = state;
+  $('app').classList.toggle('day', s?.phase === 'day');
+  const live = playing(), self = mine();
+  $('phase').innerHTML = live ? `${s.phase === 'night' ? '🌙 Night' : '☀️ Day'} ${s.day}<small>${s.phase === 'night' ? 'Special roles act in secret' : 'Talk it out, then vote someone out'}</small>` : '';
+  $('timer').hidden = !live;
+  $('leave').hidden = !(live && self?.alive);
+  $('me').innerHTML = live && secret
+    ? `<b>${ROLE[secret.role]}</b><span>${!self?.alive ? 'You are out. Watch quietly!' : s.phase === 'night' ? NIGHT_TODO[secret.role] : 'Tap someone to vote them out'}</span>`
+    : live ? '<span>You are watching this game</span>' : '';
+  $('news').textContent = live ? newsText(s.last) : '';
+
+  const votes = {};
+  if (s?.phase === 'day') for (const t of Object.values(s.votes)) votes[t] = (votes[t] || 0) + 1;
+  const myVote = s?.phase === 'day' ? s.votes[me?.userId] : null;
+  const pick = s?.phase === 'day' ? myVote : myPick();
+  const teamPicks = secret?.role === 'MAFIA' && s?.phase === 'night' ? secret.picks || {} : {};
+  $('grid').innerHTML = live ? s.players.map((p) => {
+    const role = s.roles[p.userId];
+    const team = secret?.role === 'MAFIA' && secret.team.includes(p.userId) && p.userId !== me.userId;
+    const check = secret?.role === 'DETECTIVE' && secret.checks?.slice().reverse().find((c) => c.target === p.userId);
+    const mafiaOn = Object.entries(teamPicks).filter(([, t]) => t === p.userId).length;
+    const tag = role ? `<span class="tag ${role}">${ROLE[role]}</span>` : team ? '<span class="tag MAFIA">Teammate</span>' : check ? `<span class="tag ${check.mafia ? 'bad' : 'ok'}">${check.mafia ? 'Mafia!' : 'Innocent'}</span>` : '';
+    const count = votes[p.userId] || mafiaOn;
+    return `<button class="pc ${p.alive ? '' : 'dead'} ${pick === p.userId ? 'pick' : ''}" data-id="${esc(p.userId)}" ${canTap(p) ? '' : 'disabled'} aria-label="${nameOf(p)}">
+      ${count ? `<span class="votes">${count}</span>` : ''}${avatar(p)}<span class="nm">${nameOf(p)}</span>${tag}</button>`;
+  }).join('') : '';
+  $('grid').querySelectorAll('.pc:not([disabled])').forEach((b) => (b.onclick = () => tap(b.dataset.id)));
+  const skip = $('skip');
+  skip.hidden = !(s?.phase === 'day' && self?.alive);
+  skip.classList.toggle('on', myVote === 'skip');
+  skip.textContent = `Skip vote${votes.skip ? ` · ${votes.skip}` : ''}`;
+  panel();
+}
+
+function canTap(p) {
+  const self = mine();
+  if (!self?.alive || !p.alive || !secret) return false;
+  if (state.phase === 'day') return p.userId !== me.userId;
+  if (secret.role === 'MAFIA') return !secret.team.includes(p.userId);
+  if (secret.role === 'DETECTIVE') return p.userId !== me.userId;
+  return secret.role === 'DOCTOR';
+}
+const tap = (id) => act(state.phase === 'day' ? 'mafia:vote' : 'mafia:act', { target: id });
+$('skip').onclick = () => act('mafia:vote', { target: 'skip' });
+
+function newsText(o) {
+  if (!o) return state?.phase === 'night' && state.day === 1 ? 'The first night. Nobody knows who to trust…' : '';
+  const p = byId(o.killed ?? o.out), role = p && state.roles[p.userId] ? ` They were ${ROLE_A[state.roles[p.userId]]}.` : '';
+  if (o.kind === 'night') return o.killed ? `🌅 ${nameOf(p)} was killed in the night.${role}` : o.saved ? '🌅 The Doctor saved someone. Nobody died.' : '🌅 A quiet night. Nobody died.';
+  if (o.kind === 'vote') return o.out ? `⚖️ The town voted out ${nameOf(p)}.${role}` : '⚖️ No agreement. Nobody was voted out.';
+  return `🚪 ${nameOf(p)} left the game.${role}`;
+}
+
+function panel() {
+  const s = state, card = $('card');
+  if (playing()) { $('panel').hidden = true; return; }
+  $('panel').hidden = false;
+  if (!s) { card.innerHTML = '<h2>Mafia is off</h2><p>The owner or an admin can turn it on.</p>'; return; }
+  if (s.phase === 'finished') {
+    const won = secret && (secret.role === 'MAFIA') === (s.winner === 'MAFIA');
+    card.innerHTML = `<h2>${s.winner === 'MAFIA' ? '🔪 The Mafia win!' : '🕵️ The town wins!'}</h2><p>${secret ? (won ? 'Your side won 🎉' : 'Your side lost') : newsText(s.last)}</p>
+      <ol class="rank">${s.players.map((p) => `<li><span>${nameOf(p)}${p.alive ? '' : ' 💀'}</span><span class="tag ${s.roles[p.userId]}">${ROLE[s.roles[p.userId]]}</span></li>`).join('')}</ol>
+      <div class="btns"><button class="btn" id="again">Play again</button></div>`;
+    $('again').onclick = () => act('mafia:join');
+    return;
+  }
+  const joined = s.lobby.some((p) => p.userId === me?.userId);
+  const slots = s.lobby.map((p) => {
+    const kick = admin && p.userId !== me?.userId ? `<button class="kick" data-kick="${esc(p.userId)}" aria-label="Remove ${esc(p.displayName)}">✕</button>` : '';
+    return `<div class="slot">${kick}${avatar(p)}<span>${nameOf(p)}</span></div>`;
+  }).join('');
+  card.innerHTML = `<h2>🕵️ Mafia</h2><p>${s.lobby.length < 5 ? `Seated players join · 5 to 12 play (${s.lobby.length} joined)` : admin ? 'Ready when you are' : 'Waiting for the owner or an admin to start'}</p>
+    <div class="slots">${slots}</div>
+    <div class="btns">${joined ? '<button class="btn ghost" data-act="leave">Leave</button>' : s.lobby.length < 12 ? '<button class="btn" data-act="join">Join</button>' : ''}${admin ? `<button class="btn" data-act="start" ${s.lobby.length < 5 ? 'disabled' : ''}>Start</button>` : ''}</div>`;
+  card.querySelectorAll('[data-act]').forEach((b) => (b.onclick = () => act(`mafia:${b.dataset.act}`)));
+  card.querySelectorAll('[data-kick]').forEach((b) => (b.onclick = () => confirm('Remove this player from the game?') && act('mafia:remove', { userId: b.dataset.kick })));
+}
+
+setInterval(() => {
+  if (!playing()) return;
+  const total = state.phase === 'night' ? ms.night : ms.day;
+  const left = Math.max(0, Date.parse(state.deadline) - now());
+  $('timer').style.setProperty('--p', Math.min(1, left / total).toFixed(3));
+  $('secs').textContent = Math.ceil(left / 1000);
+}, 250);
+
+let toastTimer;
+function toast(t) {
+  const el = $('toast');
+  el.textContent = t; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+// Every change: the public state from the channel, then my own secrets (role, team picks, checks) from mafia:me.
+async function receive(s) {
+  if (state && s && s.v < state.v) return;
+  state = s;
+  render();
+  const r = await act('mafia:me', {}, true);
+  if (r?.ok && state === s) { secret = r.data.secret; render(); }
+}
+
+async function act(event, extra = {}, quiet = false) {
+  const r = await socket.timeout(8000).emitWithAck(event, { roomId: ROOM, ...extra }).catch(() => null);
+  if (!r) return quiet ? null : toast('No connection. Try again.');
+  const FRIENDLY = { CANNOT_TARGET_OWNER: "The room owner can't be removed", CANNOT_TARGET_ADMIN: "Admins can't remove other admins" };
+  if (!r.ok && !quiet) toast(FRIENDLY[r.error?.code] || r.error?.message || 'That didn’t work');
+  return r;
+}
+$('leave').onclick = () => confirm('Leave this game? You will be out.') && act('mafia:leave');
+
+const pendingToken = [];
+window.voyaToken = (t) => pendingToken.splice(0).forEach((r) => r(t));
+function getToken() {
+  if (!window.ReactNativeWebView) return Promise.resolve(new URLSearchParams(location.hash.slice(1)).get('token') || '');
+  return new Promise((r) => { pendingToken.push(r); window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'token' })); });
+}
+
+const socket = io({ path: '/socket.io/', transports: ['websocket'], auth: (cb) => getToken().then((token) => cb({ token })) });
+socket.on('connect', async () => {
+  const r = await socket.timeout(8000).emitWithAck('mafia:watch', { roomId: ROOM }).catch(() => null);
+  if (!r?.ok) return toast('Could not open Mafia');
+  me = r.data.me; admin = r.data.me.admin; ms = { night: r.data.nightMs, day: r.data.dayMs }; offset = new Date(r.data.serverNow) - Date.now();
+  state = r.data.state; secret = r.data.secret; // a fresh start after every (re)connect
+  render();
+});
+socket.on('connect_error', () => toast("Can't reach the game. Retrying…"));
+socket.on('mafia:state', (e) => {
+  if (e.roomId !== ROOM) return;
+  offset = new Date(e.serverNow) - Date.now();
+  receive(e.state);
+});
+</script>
+</body>
+</html>

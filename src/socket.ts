@@ -14,6 +14,7 @@ import * as greedy from "./services/greedy";
 import * as ludo from "./services/ludo";
 import * as pool from "./services/pool";
 import * as draw from "./services/draw";
+import * as mafia from "./services/mafia";
 import * as rocket from "./services/rocket";
 import { assertGamesOn } from "./services/flags";
 import * as roulette from "./services/roulette";
@@ -166,6 +167,21 @@ io.on("connection", (socket: Socket) => {
   handle("draw:stroke", (user, p) => draw.stroke(user, id(p), draw.strokeSchema.parse(p)));
   handle("draw:clear", (user, p) => draw.edit(user, id(p), "clear"));
   handle("draw:undo", (user, p) => draw.edit(user, id(p), "undo"));
+
+  // Mafia (rooms in Mafia mode), same shape again. The channel is public; each page asks for its own secrets.
+  handle("mafia:watch", async (user, p) => {
+    const roomId = id(p);
+    const state = await mafia.watch(user, roomId);
+    socket.join(mafia.channel(roomId));
+    return state;
+  });
+  handle("mafia:me", (user, p) => mafia.me(user, id(p)));
+  handle("mafia:join", (user, p) => mafia.join(user, id(p)));
+  handle("mafia:leave", (user, p) => mafia.leave(user, id(p)));
+  handle("mafia:remove", (user, p) => mafia.removeFromLobby(user, id(p), schemas.uuid.parse(p.userId)));
+  handle("mafia:start", (user, p) => mafia.start(user, id(p)));
+  handle("mafia:act", (user, p) => mafia.act(user, id(p), mafia.targetSchema.parse(p).target));
+  handle("mafia:vote", (user, p) => mafia.vote(user, id(p), mafia.targetSchema.parse(p).target));
 
   // Rocket (crash) game: one global round at a time.
   handle("rocket:join", async (user) => {
