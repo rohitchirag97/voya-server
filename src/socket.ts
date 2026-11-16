@@ -185,9 +185,12 @@ io.on("connection", (socket: Socket) => {
   handle("mafia:vote", (user, p) => mafia.vote(user, id(p), mafia.targetSchema.parse(p).target));
 
   // Karaoke (rooms in Karaoke mode): the state goes to the whole room channel, so there's nothing to watch.
-  handle("karaoke:queue", (user, p) => karaoke.queueSong(user, id(p), schemas.uuid.parse(p.songId)));
+  handle("karaoke:queue", (user, p) => karaoke.queueSong(user, id(p), schemas.uuid.parse(p.songId), p.duet === true));
+  handle("karaoke:join-duet", (user, p) => karaoke.joinDuet(user, id(p), karaoke.entrySchema.parse(p).entryId));
+  handle("karaoke:leave-duet", (user, p) => karaoke.leaveDuet(user, id(p), karaoke.entrySchema.parse(p).entryId));
   handle("karaoke:started", (user, p) => karaoke.started(user, id(p), karaoke.entrySchema.parse(p).entryId));
   handle("karaoke:finish", (user, p) => karaoke.finish(user, id(p), karaoke.entrySchema.parse(p).entryId));
+  handle("karaoke:play-next", (user, p) => karaoke.playNext(user, id(p), karaoke.entrySchema.parse(p).entryId));
   handle("karaoke:remove", (user, p) => karaoke.remove(user, id(p), karaoke.entrySchema.parse(p).entryId));
   handle("karaoke:progress", (user, p) => karaoke.progress(user, id(p), karaoke.progressSchema.parse(p)));
 

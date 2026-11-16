@@ -13,6 +13,7 @@ import * as draw from "../services/draw";
 import * as mafia from "../services/mafia";
 import * as karaoke from "../services/karaoke";
 import * as songs from "../services/songs";
+import * as covers from "../services/covers";
 import * as video from "../services/video";
 import * as rooms from "../services/rooms";
 import { AppError } from "../lib/errors";
@@ -131,6 +132,10 @@ roomRoutes.post("/rooms/:roomId/karaoke", async (c) => {
 // The karaoke song library: search (title or artist), and one song's files and lyrics.
 roomRoutes.get("/songs", async (c) => c.json(await songs.search(z.string().trim().max(60).catch("").parse(c.req.query("q") ?? ""))));
 roomRoutes.get("/songs/:songId", async (c) => c.json(await songs.songDetail(schemas.uuid.parse(c.req.param("songId")))));
+// The cover studio's private audio session (recording goes through ZEGO, like a room only you are in).
+roomRoutes.get("/studio", async (c) => c.json(covers.studioCredentials(c.get("user").id)));
+// Open duets to join: ?songId= for one song's.
+roomRoutes.get("/duets", async (c) => c.json(await covers.openDuets(z.string().uuid().optional().parse(c.req.query("songId") || undefined), c.get("user").id)));
 
 // A photo in room chat (multipart: "file" JPEG/PNG, "clientMessageId"). Above Lv 10 only.
 roomRoutes.post("/rooms/:roomId/chat/image", async (c) => {

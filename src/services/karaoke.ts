@@ -5,7 +5,7 @@ import { db } from "../db";
 import { rooms, songs, users, type User } from "../db/schema";
 import { emitToRoom, io, roomChannel } from "../io";
 import { AppError, toSafeError } from "../lib/errors";
-import { add as addEntry, dropUnseated, emptyState, finish as finishTurn, remove as removeEntry, RuleError, started as startTurn, timeout, type KaraokeState } from "../lib/karaoke";
+import { add as addEntry, dropUnseated, emptyState, finish as finishTurn, hasParts, joinDuet as joinEntry, playNext as playNextEntry, leaveDuet as leaveEntry, remove as removeEntry, RuleError, started as startTurn, timeout, type KaraokeState } from "../lib/karaoke";
 import { assertMember, assertRoomAdmin, getRoom, getSeats, systemMessage, userSummary } from "./rooms";
 import { getSong, songLength } from "./songs";
 
@@ -42,7 +42,7 @@ async function save(roomId: string, s: KaraokeState | null) {
   else games.delete(roomId);
   emitToRoom(roomId, "karaoke:state", { roomId, state: s });
   const c = s?.current;
-  if (c && c.id !== before) await systemMessage(roomId, `🎤 Now singing: ${c.displayName ?? "Someone"} · ${c.title}${c.artist ? ` (${c.artist})` : ""}`, { kind: "KARAOKE", userId: c.userId });
+  if (c && c.id !== before) await systemMessage(roomId, `🎤 Now singing: ${c.displayName ?? "Someone"}${c.partner ? ` & ${c.partner.displayName ?? "someone"}` : ""} · ${c.title}${c.artist ? ` (${c.artist})` : ""}`, { kind: "KARAOKE", userId: c.userId });
   return s;
 }
 
@@ -83,15 +83,21 @@ export async function setMode(actor: User, roomId: string, on: boolean) {
   return { on };
 }
 
-// Queue a song from the library (seated people only).
-export async function queueSong(user: User, roomId: string, songId: string) {
+const person = async (userId: string) => {
+  const [p] = await db.select({ userId: userSummary.userId, displayName: userSummary.displayName, avatarUrl: userSummary.avatarUrl }).from(users).where(eq(users.id, userId));
+  return p!;
+};
+
+// Queue a song from the library: anyone in the room (a seat is needed only when the turn comes). `duet`: leave a spot
+// open for a partner to sing part B (duet songs only).
+export async function queueSong(user: User, roomId: string, songId: string, duet = false) {
   await assertMember(roomId, user.id);
   const song = await getSong(songId);
-  const [me] = await db.select({ displayName: userSummary.displayName, avatarUrl: userSummary.avatarUrl }).from(users).where(eq(users.id, user.id));
+  if (duet && !hasParts(song.lyrics)) throw new AppError("NOT_A_DUET", 400, "This song has no duet parts");
+  const me = await person(user.id);
   return serial(roomId, async () => {
     const s = await need(roomId);
-    if (!(await seatedIds(roomId)).has(user.id)) throw new AppError("KARAOKE_SEAT_REQUIRED", 403, "Take a seat to sing");
-    const entry = { id: randomUUID(), userId: user.id, displayName: me!.displayName, avatarUrl: me!.avatarUrl, songId: song.id, title: song.title, artist: song.artist, cover: song.cover ? `/v1/uploads/${song.cover}` : null, durationMs: songLength(song) };
+    const entry = { ...me, id: randomUUID(), songId: song.id, title: song.title, artist: song.artist, cover: song.cover ? `/v1/uploads/${song.cover}` : null, durationMs: songLength(song), duet, partner: null };
     return save(roomId, rule(() => addEntry(s, entry, Date.now())));
   });
 }
@@ -125,6 +131,35 @@ export async function remove(user: User, roomId: string, entryId: string) {
   });
 }
 
+// Owner/admins: move someone's waiting song to the front of the queue.
+export async function playNext(user: User, roomId: string, entryId: string) {
+  await assertRoomAdmin(roomId, user.id);
+  return serial(roomId, async () => {
+    const s = await need(roomId);
+    const n = rule(() => playNextEntry(s, entryId));
+    return n === s ? s : save(roomId, n);
+  });
+}
+
+// Room duets: take the open partner spot, or give it up (the partner, the singer, or a room admin).
+export async function joinDuet(user: User, roomId: string, entryId: string) {
+  await assertMember(roomId, user.id);
+  const me = await person(user.id);
+  return serial(roomId, async () => {
+    const s = await need(roomId);
+    return save(roomId, rule(() => joinEntry(s, entryId, me)));
+  });
+}
+
+export async function leaveDuet(user: User, roomId: string, entryId: string) {
+  const force = await isAdmin(roomId, user.id);
+  return serial(roomId, async () => {
+    const s = await need(roomId);
+    const n = rule(() => leaveEntry(s, entryId, user.id, force));
+    return n === s ? s : save(roomId, n);
+  });
+}
+
 // The singer's song position, passed straight on (never stored): the lyrics' fallback clock for phones that don't get
 // the in-stream position.
 export async function progress(user: User, roomId: string, p: z.infer<typeof progressSchema>) {
@@ -141,7 +176,7 @@ const check = (roomId: string, now: number, seats: boolean) =>
     const s = games.get(roomId);
     if (!s) return;
     let n = timeout(s, now);
-    if (seats && (n.current || n.queue.length)) n = dropUnseated(n, await seatedIds(roomId), now);
+    if (seats && n.current?.startedAt) n = dropUnseated(n, await seatedIds(roomId), now);
     if (n !== s) await save(roomId, n);
   });
 
@@ -149,7 +184,7 @@ let ticks = 0;
 export async function tick(now = Date.now()) {
   const seats = ++ticks % 6 === 0; // seats every 3 s: a database read, the deadline is free
   for (const [roomId, s] of games) {
-    if (s.current && (seats || Date.parse(s.current.deadline) <= now)) await check(roomId, now, seats).catch(toSafeError);
+    if (s.current && ((seats && s.current.startedAt) || Date.parse(s.current.deadline) <= now)) await check(roomId, now, seats).catch(toSafeError);
   }
 }
 

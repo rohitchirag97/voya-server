@@ -6,12 +6,13 @@ import { join } from "node:path";
 import { z } from "zod";
 import { config } from "../config";
 import { db } from "../db";
-import { postComments, postLikes, posts, users } from "../db/schema";
+import { postComments, postLikes, posts, songs, users } from "../db/schema";
 import { json, requireAuth, schemas, type Env } from "../http";
 import { AppError } from "../lib/errors";
 import { rateLimit } from "../lib/rateLimit";
 import { assertCanParticipate } from "../services/auth";
 import { userSummary } from "../services/rooms";
+import { createCover } from "../services/covers";
 
 export const postRoutes = new Hono<Env>();
 postRoutes.use("/posts", requireAuth);
@@ -70,6 +71,8 @@ const likes = sql<number>`(select count(*) from ${postLikes} where ${postLikes.p
 const comments = sql<number>`(select count(*) from ${postComments} where ${postComments.postId} = ${posts.id})`.mapWith(Number);
 const likedBy = (me: string) => sql<boolean>`exists(select 1 from ${postLikes} where ${postLikes.postId} = ${posts.id} and ${postLikes.userId} = ${me})`;
 const url = (name: string | null) => (name ? `/v1/uploads/${name}` : null);
+// The display name of whoever posted the open duet this one joined.
+const duetWith = sql<string | null>`(select u.display_name from posts d join users u on u.id = d.user_id where d.id = ${posts.duetOf})`;
 
 // Newest first; cursor is the last post's createdAt (ISO).
 async function listPosts(me: string, authorId: string | undefined, cursor: string | undefined, limit: number) {
@@ -84,6 +87,15 @@ async function listPosts(me: string, authorId: string | undefined, cursor: strin
       width: posts.width,
       height: posts.height,
       caption: posts.caption,
+      audio: posts.audio,
+      songId: posts.songId,
+      songTitle: songs.title,
+      songArtist: songs.artist,
+      songCover: songs.cover,
+      part: posts.part,
+      duetOpen: posts.duetOpen,
+      duetOf: posts.duetOf,
+      duetWith: duetWith,
       createdAt: posts.createdAt,
       author: userSummary,
       likes,
@@ -92,11 +104,18 @@ async function listPosts(me: string, authorId: string | undefined, cursor: strin
     })
     .from(posts)
     .innerJoin(users, eq(users.id, posts.userId))
+    .leftJoin(songs, eq(songs.id, posts.songId))
     .where(and(authorId ? eq(posts.userId, authorId) : undefined, before ? lt(posts.createdAt, before) : undefined))
     .orderBy(desc(posts.createdAt))
     .limit(limit + 1);
   // imageUrl = the photo, or a video's poster frame.
-  const page = rows.slice(0, limit).map(({ image, video, ...p }) => ({ ...p, imageUrl: url(image), videoUrl: url(video) }));
+  // A cover: its recording, the song, and for duets the part sung and who sang the other one.
+  const page = rows.slice(0, limit).map(({ image, video, audio, songId, songTitle, songArtist, songCover, part, duetOpen, duetOf, duetWith, ...p }) => ({
+    ...p,
+    imageUrl: url(image),
+    videoUrl: url(video),
+    cover: songId ? { audioUrl: url(audio)!, song: { songId, title: songTitle!, artist: songArtist ?? "", cover: url(songCover) }, part, duetOpen, duetOf, duetWith } : null,
+  }));
   return { posts: page, nextCursor: rows.length > limit ? page.at(-1)!.createdAt.toISOString() : null };
 }
 
@@ -121,6 +140,15 @@ postRoutes.post("/posts", async (c) => {
   if (!form) throw new AppError("BAD_UPLOAD", 400, "Send the post as multipart form data");
   const caption = z.string().trim().max(2000).parse(form.get("caption") ?? "");
   const file = form.get("file");
+
+  // A karaoke cover from the studio: kind=COVER, songId, file (the recording), and for duets part / duetOpen / duetOf.
+  if (form.get("kind") === "COVER") {
+    if (!(file instanceof File)) throw new AppError("BAD_UPLOAD", 400, "Attach the recording");
+    const cover = z
+      .object({ songId: z.string().uuid(), part: z.enum(["A", "B"]).optional(), duetOpen: z.enum(["true", "false"]).default("false"), duetOf: z.string().uuid().optional() })
+      .parse(Object.fromEntries(["songId", "part", "duetOpen", "duetOf"].flatMap((k) => (typeof form.get(k) === "string" && form.get(k) ? [[k, form.get(k)]] : []))));
+    return c.json(await createCover(user, { ...cover, duetOpen: cover.duetOpen === "true", caption, file }), 201);
+  }
 
   if (!(file instanceof File)) {
     if (!caption) throw new AppError("EMPTY_POST", 400, "Write something or add a photo or video");
@@ -155,7 +183,7 @@ postRoutes.delete("/posts/:postId", async (c) => {
   const id = schemas.uuid.parse(c.req.param("postId"));
   const [p] = await db.delete(posts).where(and(eq(posts.id, id), eq(posts.userId, c.get("user").id))).returning();
   if (!p) throw new AppError("POST_NOT_FOUND", 404);
-  for (const name of [p.image, p.video]) if (name) await unlink(join(config.uploadsDir, name)).catch(() => {});
+  for (const name of [p.image, p.video, p.audio]) if (name) await unlink(join(config.uploadsDir, name)).catch(() => {});
   return c.json({ ok: true });
 });
 

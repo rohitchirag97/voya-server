@@ -2,13 +2,13 @@ import { and, asc, desc, eq, ilike, or } from "drizzle-orm";
 import { db } from "../db";
 import { songs, type User } from "../db/schema";
 import { AppError } from "../lib/errors";
-import { lrcTimes } from "../lib/karaoke";
+import { hasParts, lrcTimes } from "../lib/karaoke";
 import { store, storeAudio } from "../routes/posts";
 
 // The karaoke song library: staff upload songs in the admin panel, everyone in a Karaoke room searches and queues them.
 const file = (name: string | null) => (name ? `/v1/uploads/${name}` : null);
 export const songLength = (s: { durationMs: number | null; lyrics: string }) => s.durationMs ?? (lrcTimes(s.lyrics).at(-1) ?? 0) + 15_000;
-const card = (s: typeof songs.$inferSelect) => ({ songId: s.id, title: s.title, artist: s.artist, cover: file(s.cover), durationMs: songLength(s), hasOriginal: !!s.original });
+const card = (s: typeof songs.$inferSelect) => ({ songId: s.id, title: s.title, artist: s.artist, cover: file(s.cover), durationMs: songLength(s), hasOriginal: !!s.original, duet: hasParts(s.lyrics) });
 
 // Search by title or artist; no query = the most sung.
 export async function search(q: string) {

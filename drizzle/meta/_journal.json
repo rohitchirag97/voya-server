@@ -645,6 +645,13 @@
       "when": 1794812865604,
       "tag": "0091_karaoke",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1794814167751,
+      "tag": "0092_covers",
+      "breakpoints": true
     }
   ]
 }

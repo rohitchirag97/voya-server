@@ -529,6 +529,7 @@ export const posts = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id").notNull().references(() => users.id),
     // IMAGE: image = the photo. VIDEO: video = the clip, image = its poster frame. TEXT: caption only.
+    // COVER: a karaoke recording (voice + backing track) of song_id, in `audio`.
     kind: text("kind").notNull().default("IMAGE"),
     image: text("image"),
     video: text("video"),
@@ -536,13 +537,22 @@ export const posts = pgTable(
     width: integer("width"),
     height: integer("height"),
     caption: text("caption").notNull().default(""),
+    audio: text("audio"),
+    songId: uuid("song_id").references(() => songs.id),
+    // Recorded duets: a cover sings one part (A or B) of a song whose lyrics mark parts. duetOpen = waiting for someone
+    // to sing the other part; a finished duet points at the open one it joined (duetOf) and holds both voices.
+    part: text("part"),
+    duetOpen: boolean("duet_open").notNull().default(false),
+    duetOf: uuid("duet_of").references((): AnyPgColumn => posts.id, { onDelete: "set null" }),
     createdAt: createdAt(),
   },
   (t) => [
     index("posts_created").on(t.createdAt),
+    index("posts_open_duets").on(t.songId, t.createdAt).where(sql`${t.duetOpen}`),
     index("posts_user").on(t.userId, t.createdAt),
-    check("posts_kind", sql`${t.kind} in ('IMAGE', 'VIDEO', 'TEXT')`),
-    check("posts_has_content", sql`(${t.kind} = 'TEXT' and ${t.caption} <> '') or (${t.kind} = 'IMAGE' and ${t.image} is not null) or (${t.kind} = 'VIDEO' and ${t.video} is not null and ${t.image} is not null)`),
+    check("posts_kind", sql`${t.kind} in ('IMAGE', 'VIDEO', 'TEXT', 'COVER')`),
+    check("posts_has_content", sql`(${t.kind} = 'TEXT' and ${t.caption} <> '') or (${t.kind} = 'IMAGE' and ${t.image} is not null) or (${t.kind} = 'VIDEO' and ${t.video} is not null and ${t.image} is not null) or (${t.kind} = 'COVER' and ${t.audio} is not null and ${t.songId} is not null)`),
+    check("posts_part", sql`${t.part} is null or ${t.part} in ('A', 'B')`),
   ],
 );
 
