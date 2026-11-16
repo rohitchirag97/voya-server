@@ -749,6 +749,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - lastNow) / 1000);
   lastNow = now;
   if (FREEZE) {
+    if (!duo.ready()) { requestAnimationFrame(frame); return; } // preview: wait for the duo art
     for (const e of fx) for (e.t = 0; e.t <= FREEZE; e.t += 16) update(e, 0.016);
     for (let t = 0; t <= FREEZE; t += 16) { duo.step(16); duo.render(); }
     renderer.render(scene, camera);
