@@ -20,7 +20,7 @@ import * as chess from "./services/chess";
 import * as wheel from "./services/wheel";
 import * as carrom from "./services/carrom";
 import * as rocket from "./services/rocket";
-import { assertGamesOn } from "./services/flags";
+import { assertCanPlay } from "./services/flags";
 import * as roulette from "./services/roulette";
 import * as slots from "./services/slots";
 import * as rooms from "./services/rooms";
@@ -114,13 +114,13 @@ io.on("connection", (socket: Socket) => {
   // The coin games sit behind one admin-panel switch (Feature switches > Games): while it's off nobody can open them or bet. Cash-outs of bets already
   // placed still go through, so turning a game off mid-round never costs anyone their coins.
   handle("greedy:join", async (user, p) => {
-    await assertGamesOn();
+    await assertCanPlay(user);
     const game = greedy.gameSchema.parse(p.game);
     for (const g of Object.keys(greedy.GAMES) as greedy.Game[]) socket.leave(greedy.channel(g));
     socket.join(greedy.channel(game));
     return greedy.getState(user.id, game);
   });
-  handle("greedy:bet", async (user, p) => (await assertGamesOn(), greedy.placeBet(user, greedy.betSchema.parse(p))));
+  handle("greedy:bet", async (user, p) => (await assertCanPlay(user), greedy.placeBet(user, greedy.betSchema.parse(p))));
   handle("greedy:today", (user, p) => greedy.todayLeaderboard(user.id, greedy.gameSchema.parse(p.game)));
   handle("greedy:history", async (_user, p) => {
     const q = greedy.historySchema.parse(p);
@@ -237,20 +237,20 @@ io.on("connection", (socket: Socket) => {
 
   // Rocket (crash) game: one global round at a time.
   handle("rocket:join", async (user) => {
-    await assertGamesOn();
+    await assertCanPlay(user);
     socket.join(rocket.CHANNEL);
     return rocket.getState(user.id);
   });
-  handle("rocket:bet", async (user, p) => (await assertGamesOn(), rocket.placeBet(user, rocket.betSchema.parse(p))));
+  handle("rocket:bet", async (user, p) => (await assertCanPlay(user), rocket.placeBet(user, rocket.betSchema.parse(p))));
   handle("rocket:cashout", (user, p) => rocket.cashOut(user, rocket.cashOutSchema.parse(p)));
   handle("rocket:today", (user) => rocket.todayLeaderboard(user.id));
   handle("rocket:history", async (_user, p) => rocket.history(rocket.historySchema.parse(p).before));
   // Slots: every spin is played alone and settled at once.
-  handle("slot:join", async (user) => (await assertGamesOn(), slots.getState(user.id)));
-  handle("slot:spin", async (user, p) => (await assertGamesOn(), slots.spin(user, slots.spinSchema.parse(p))));
+  handle("slot:join", async (user) => (await assertCanPlay(user), slots.getState(user.id)));
+  handle("slot:spin", async (user, p) => (await assertCanPlay(user), slots.spin(user, slots.spinSchema.parse(p))));
   // Roulette: same, one spin at a time.
-  handle("roulette:join", async (user) => (await assertGamesOn(), roulette.getState(user.id)));
-  handle("roulette:spin", async (user, p) => (await assertGamesOn(), roulette.spin(user, roulette.spinSchema.parse(p))));
+  handle("roulette:join", async (user) => (await assertCanPlay(user), roulette.getState(user.id)));
+  handle("roulette:spin", async (user, p) => (await assertCanPlay(user), roulette.spin(user, roulette.spinSchema.parse(p))));
 
   socket.on("room:typing", (p) => {
     const roomId = typeof p?.roomId === "string" ? p.roomId : "";

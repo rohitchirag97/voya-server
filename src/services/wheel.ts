@@ -6,7 +6,7 @@ import { rooms, users, walletAccounts, walletLedger, type User } from "../db/sch
 import { emitToRoom, io } from "../io";
 import { AppError, toSafeError } from "../lib/errors";
 import { cancel as cancelRound, endsAt, FEES, finish, GAP_MS, idleState, join as joinRound, leave as leaveRound, LOBBY_MS, MAX_PLAYERS, MIN_PLAYERS, open, RuleError, SPIN_MS, start as startRound, winnerOf, type WheelState } from "../lib/wheel";
-import { assertGamesOn } from "./flags";
+import { assertCanPlay, assertGamesOn } from "./flags";
 import { assertMember, assertRoomAdmin, getRoom, systemMessage, userSummary } from "./rooms";
 
 // Wheel mode for a room: an elimination wheel people pay into (see lib/wheel.ts). The coins move only here, and every
@@ -115,7 +115,7 @@ export async function watch(user: User, roomId: string) {
 
 export async function openRound(actor: User, roomId: string, fee: number) {
   await assertRoomAdmin(roomId, actor.id);
-  await assertGamesOn();
+  await assertCanPlay(actor);
   const s = await serial(roomId, async () => {
     const cur = await need(roomId);
     return (await commit(roomId, rule(() => open(cur, randomUUID(), fee, Date.now())))).state;
@@ -126,7 +126,7 @@ export async function openRound(actor: User, roomId: string, fee: number) {
 
 export async function join(user: User, roomId: string) {
   await assertMember(roomId, user.id);
-  await assertGamesOn();
+  await assertCanPlay(user);
   const [me] = await db.select({ userId: userSummary.userId, displayName: userSummary.displayName, avatarUrl: userSummary.avatarUrl }).from(users).where(eq(users.id, user.id));
   return serial(roomId, async () => {
     const s = await need(roomId);
