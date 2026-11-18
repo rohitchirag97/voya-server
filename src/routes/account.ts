@@ -24,7 +24,11 @@ import { claimSpecialId, openVouchers, ownedCosmetics, ownsCosmetic } from "../s
 import { permissionsOf, publicRoles } from "../services/roles";
 import { nameError, normalizeName } from "../lib/displayName";
 
-const phone = z.string().regex(/^\+[1-9]\d{7,14}$/, "E.164 phone number, e.g. +919876543210");
+// India (+91): exactly a 10-digit mobile number, so "+91" typed into the number can't make "+9191..." accounts.
+const phone = z
+  .string()
+  .regex(/^\+[1-9]\d{7,14}$/, "E.164 phone number, e.g. +919876543210")
+  .refine((p) => !p.startsWith("+91") || /^\+91[6-9]\d{9}$/.test(p), "Enter your 10-digit mobile number without +91");
 const publicUser = (u: typeof users.$inferSelect) => ({
   userId: u.id,
   publicId: u.publicId,
