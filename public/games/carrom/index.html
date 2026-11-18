@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Carrom</title>
+<style>
+  /* Carrom board for a room in Carrom mode, shown inline under the seat row. Everyone watches; the player on turn
+     slides the striker along their baseline, then pulls back from it like a slingshot to shoot. The board turns so
+     your own side is at the bottom. The server simulates every shot with the same physics and this page replays it. */
+  :root { --gold:#ffc94d; --panel:rgba(30,18,8,.94); --muted:#e2cfae; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: transparent; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #fff; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; }
+  #app { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; border-radius: 18px; overflow: hidden; background: linear-gradient(#3b2614, #1c1108); box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+  #hud { flex: none; display: flex; gap: 6px; padding: 6px 8px; overflow-x: auto; scrollbar-width: none; }
+  .pl { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 3px; border-radius: 99px; background: rgba(255,255,255,.08); opacity: .6; }
+  .pl.turn { opacity: 1; background: rgba(255,201,77,.18); box-shadow: inset 0 0 0 1.5px var(--gold); }
+  .av { position: relative; flex: none; width: 28px; height: 28px; border-radius: 50%; padding: 2px; background: conic-gradient(var(--gold) calc(var(--p, 0) * 1turn), rgba(255,255,255,.14) 0); }
+  .pl:not(.turn) .av { background: rgba(255,255,255,.14); }
+  .av i { display: flex; width: 100%; height: 100%; border-radius: 50%; background: #5a3a1c center/cover no-repeat; align-items: center; justify-content: center; font-weight: 900; font-size: 11px; font-style: normal; }
+  .who { min-width: 0; line-height: 1.15; }
+  .nm { font-size: 11px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sc { font-size: 12px; font-weight: 900; color: var(--gold); }
+  #stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  canvas { display: block; touch-action: none; }
+  #controls { flex: none; display: flex; align-items: center; gap: 8px; padding: 4px 12px 8px; visibility: hidden; }
+  #controls.live { visibility: visible; }
+  #controls span { font-size: 10px; font-weight: 900; letter-spacing: .08em; color: var(--muted); }
+  #place { flex: 1; accent-color: var(--gold); height: 28px; }
+  #hint { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); font-size: 11px; font-weight: 800; background: rgba(0,0,0,.6); padding: 4px 11px; border-radius: 99px; white-space: nowrap; pointer-events: none; }
+  #hint:empty { display: none; }
+  #leaveBtn { position: absolute; right: 8px; top: 6px; z-index: 5; border: 0; background: none; color: var(--muted); font-size: 10px; font-weight: 800; text-decoration: underline; }
+  #leaveBtn[hidden] { display: none; }
+  #panel { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(10,6,2,.5); backdrop-filter: blur(1.5px); }
+  #panel[hidden] { display: none; }
+  .card { width: min(88%, 330px); max-height: 94%; overflow: auto; background: var(--panel); border: 1px solid rgba(255,255,255,.08); border-radius: 18px; padding: 16px 14px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .card h2 { margin: 0; font-size: 18px; }
+  .card p { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+  .slots { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 12px 0 4px; }
+  .slot { position: relative; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; font-weight: 800; }
+  .slot .av { width: 42px; height: 42px; }
+  .slot span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kick { position: absolute; top: -4px; right: 6px; width: 18px; height: 18px; border-radius: 50%; border: 0; background: #e0362b; color: #fff; font-size: 10px; font-weight: 900; padding: 0; }
+  .rank { margin: 10px 0 0; padding: 0; list-style: none; text-align: left; font-size: 13px; font-weight: 800; }
+  .rank li { display: flex; justify-content: space-between; padding: 5px 4px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+  .btn { border: 0; border-radius: 99px; padding: 9px 18px; font-size: 13px; font-weight: 800; background: linear-gradient(#e0a24a, #a8641c); color: #fff; }
+  .btn.ghost { background: rgba(255,255,255,.12); }
+  .btn[disabled] { opacity: .4; }
+  #toast { position: absolute; left: 50%; top: 46px; transform: translateX(-50%) translateY(-8px); opacity: 0; visibility: hidden; z-index: 20; background: rgba(0,0,0,.85); padding: 8px 14px; border-radius: 12px; font-size: 12px; font-weight: 800; transition: transform .25s, opacity .25s, visibility .25s; max-width: 90%; text-align: center; }
+  #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; visibility: visible; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hud"></div>
+  <button id="leaveBtn" hidden>Leave</button>
+  <div id="stage"><canvas id="c" aria-label="Carrom board"></canvas><div id="hint" aria-live="polite"></div></div>
+  <div id="controls"><span>STRIKER</span><input id="place" type="range" min="0" max="1000" value="500" aria-label="Striker position on your baseline" /></div>
+  <div id="panel"><div class="card" id="card"><h2>🎯 Carrom</h2><p>Connecting…</p></div></div>
+  <div id="toast" role="status"></div>
+</div>
+<script src="/games/socket.io.min.js"></script>
+<script type="module">
+import * as P from './physics.js';
+const { S, R, RS, POCKET_R, POCKETS, BASE_IN, BASE_LEN } = P;
+
+const ROOM = new URLSearchParams(location.search).get('room');
+const $ = (id) => document.getElementById(id);
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const avatar = (p) => `<i style="${p.avatarUrl ? `background-image:url('${esc(p.avatarUrl)}')` : ''}">${p.avatarUrl ? '' : esc((p.displayName || '?').slice(0, 1).toUpperCase())}</i>`;
+
+let state = null, me = null, admin = false, offset = 0, turnMs = 30000;
+let coins = []; // what's drawn when nothing moves
+let anim = null; // a shot being replayed: { sim, start, done }
+let queue = []; // states waiting for the replay to finish
+let place = 0.5, aim = null; // my striker spot and my pull: { dx, dy, power }
+let remote = null; // the shooter's aim as relayed: { t, dx, dy, power }
+
+const mine = () => state?.players.find((p) => p.userId === me?.userId);
+const onTurn = () => (state?.phase === 'playing' ? state.players[state.turn] : null);
+const myTurn = () => !!onTurn() && onTurn().userId === me?.userId && !anim;
+const viewSide = () => mine()?.side ?? 0;
+
+// ---------- the view: physics metres -> screen, turned so viewSide() is at the bottom ----------
+const cv = $('c'), ctx = cv.getContext('2d');
+const FRAME = 0.06; // wooden frame around the playing surface
+let k = { s: 1, ox: 0, oy: 0, dpr: 1 };
+const quarter = (x, y, n) => { for (let i = 0; i < n; i++) [x, y] = [y, S - x]; return [x, y]; };
+const unquarter = (x, y, n) => { for (let i = 0; i < n; i++) [x, y] = [S - y, x]; return [x, y]; };
+const toScreen = (x, y) => { const [a, b] = quarter(x, y, viewSide()); return [k.ox + a * k.s, k.oy + b * k.s]; };
+const toBoard = (X, Y) => unquarter((X - k.ox) / k.s, (Y - k.oy) / k.s, viewSide());
+
+function layout() {
+  const r = $('stage').getBoundingClientRect();
+  if (r.width < 20 || r.height < 20) return;
+  k.dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const size = Math.min(r.width - 8, r.height - 4);
+  k.s = size / (S + 2 * FRAME);
+  cv.width = cv.height = Math.round(size * k.dpr);
+  cv.style.width = cv.style.height = `${size}px`;
+  k.ox = k.oy = FRAME * k.s;
+}
+
+// ---------- drawing ----------
+function circle(x, y, r, fill, stroke, lw = 1) {
+  const [X, Y] = toScreen(x, y);
+  ctx.beginPath(); ctx.arc(X, Y, r * k.s, 0, Math.PI * 2);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
+}
+function line(x1, y1, x2, y2, color, lw) {
+  const [a, b] = toScreen(x1, y1), [c, d] = toScreen(x2, y2);
+  ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.stroke();
+}
+
+function drawBoard() {
+  const size = (S + 2 * FRAME) * k.s;
+  ctx.setTransform(k.dpr, 0, 0, k.dpr, 0, 0);
+  ctx.clearRect(0, 0, size, size);
+  // frame and surface
+  const g = ctx.createLinearGradient(0, 0, size, size);
+  g.addColorStop(0, '#6b3f1d'); g.addColorStop(1, '#3d220e');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(0, 0, size, size, 10); ctx.fill();
+  const sg = ctx.createRadialGradient(size / 2, size / 2, size * 0.1, size / 2, size / 2, size * 0.7);
+  sg.addColorStop(0, '#f6dfb2'); sg.addColorStop(1, '#e2bf85');
+  ctx.fillStyle = sg; ctx.fillRect(k.ox, k.oy, S * k.s, S * k.s);
+  const ink = 'rgba(70,35,10,.75)';
+  // baselines: two lines with a circle at each end, all four sides (side 0's coordinates turned round the board)
+  for (let side = 0; side < 4; side++) {
+    const a = (S - BASE_LEN) / 2, b = (S + BASE_LEN) / 2, y = S - BASE_IN;
+    const pts = [[a, y - RS], [b, y - RS], [a, y + RS], [b, y + RS], [a, y], [b, y]].map(([x, yy]) => quarter(x, yy, (4 - side) % 4));
+    line(...pts[0], ...pts[1], ink, 1.2); line(...pts[2], ...pts[3], ink, 1.2);
+    circle(...pts[4], RS, 'rgba(200,40,30,.35)', ink, 1.2); circle(...pts[5], RS, 'rgba(200,40,30,.35)', ink, 1.2);
+  }
+  // centre design
+  circle(S / 2, S / 2, 0.085, null, ink, 1.4); circle(S / 2, S / 2, 0.02, 'rgba(200,40,30,.35)', ink, 1.2);
+  // pockets
+  for (const p of POCKETS) circle(p.x, p.y, POCKET_R, '#1a0e05', 'rgba(255,255,255,.12)', 1);
+}
+
+function drawCoin(c) {
+  const col = c.n === P.QUEEN ? ['#e2333a', '#9a1218'] : P.WHITE(c.n) ? ['#fff8ea', '#c9b48e'] : ['#3b3b3b', '#0d0d0d'];
+  const [X, Y] = toScreen(c.x, c.y), r = R * k.s;
+  const g = ctx.createRadialGradient(X - r * 0.35, Y - r * 0.35, r * 0.1, X, Y, r);
+  g.addColorStop(0, col[0]); g.addColorStop(1, col[1]);
+  ctx.beginPath(); ctx.arc(X + 1, Y + 1.5, r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(X, Y, r, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+  ctx.beginPath(); ctx.arc(X, Y, r * 0.55, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 1; ctx.stroke();
+}
+function drawStriker(x, y, bad) {
+  const [X, Y] = toScreen(x, y), r = RS * k.s;
+  const g = ctx.createRadialGradient(X - r * 0.35, Y - r * 0.35, r * 0.1, X, Y, r);
+  g.addColorStop(0, bad ? '#ff9a9a' : '#bfe6ff'); g.addColorStop(1, bad ? '#b02020' : '#2c7fc0');
+  ctx.beginPath(); ctx.arc(X + 1, Y + 2, r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(X, Y, r, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+  ctx.beginPath(); ctx.arc(X, Y, r * 0.6, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 1.5; ctx.stroke();
+}
+function drawAim(st, a) {
+  if (!a || a.power <= 0) return;
+  const len = 0.12 + a.power * 0.4;
+  const [X, Y] = toScreen(st.x, st.y), [X2, Y2] = toScreen(st.x + a.dx * len, st.y + a.dy * len);
+  ctx.save(); ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(X, Y); ctx.lineTo(X2, Y2);
+  ctx.strokeStyle = `rgba(255,255,255,${0.5 + a.power * 0.5})`; ctx.lineWidth = 2.5; ctx.stroke(); ctx.restore();
+  ctx.beginPath(); ctx.arc(X, Y, (RS + 0.01 + a.power * 0.03) * k.s, 0, Math.PI * 2);
+  ctx.strokeStyle = a.power > 0.8 ? '#ff6b4a' : '#ffc94d'; ctx.lineWidth = 3; ctx.stroke();
+}
+
+const free = (x, y) => coins.every((c) => (c.x - x) ** 2 + (c.y - y) ** 2 >= (R + RS) ** 2);
+function frame(t) {
+  requestAnimationFrame(frame);
+  if (!k.s) return;
+  drawBoard();
+  if (anim) {
+    const target = Math.min(anim.sim.t + 0.05, (t - anim.start) / 1000); // catch up, at most 50 ms of physics a frame
+    while (!anim.sim.done && anim.sim.t < target) P.step(anim.sim, sound);
+    for (const d of anim.sim.discs) if (d.on) (d.n < 0 ? drawStriker(d.x, d.y) : drawCoin(d));
+    if (anim.sim.done) { anim = null; const next = queue.shift(); if (next) show(next); }
+    return;
+  }
+  for (const c of coins) drawCoin(c);
+  const who = onTurn();
+  if (!who) return;
+  if (myTurn()) {
+    const st = P.baseline(who.side, place), ok = free(st.x, st.y);
+    drawStriker(st.x, st.y, !ok); drawAim(st, aim);
+  } else if (remote) {
+    const st = P.baseline(who.side, remote.t);
+    drawStriker(st.x, st.y); drawAim(st, remote);
+  } else { const st = P.baseline(who.side, 0.5); drawStriker(st.x, st.y); }
+}
+
+// ---------- sound: short synthesized clicks ----------
+let audio = null, lastSound = 0;
+function sound(kind, _n, strength) {
+  const now = performance.now();
+  if (now - lastSound < 25) return;
+  lastSound = now;
+  try {
+    audio ??= new (window.AudioContext || window.webkitAudioContext)();
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.type = 'triangle'; o.frequency.value = kind === 'pocket' ? 160 : kind === 'rail' ? 240 : 900;
+    g.gain.value = Math.min(0.25, 0.03 + (strength || 0) * 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.08);
+    o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime + 0.09);
+  } catch {}
+}
+
+// ---------- my shot: slider places the striker, pull back from it to aim ----------
+$('place').oninput = (e) => { place = e.target.value / 1000; aim = null; sendAim(); };
+let pulling = false;
+cv.addEventListener('pointerdown', (e) => {
+  if (!myTurn()) return;
+  const st = P.baseline(onTurn().side, place);
+  const [bx, by] = boardPoint(e);
+  if ((bx - st.x) ** 2 + (by - st.y) ** 2 > (RS * 4) ** 2) return; // start the pull on (or next to) the striker
+  pulling = true; cv.setPointerCapture(e.pointerId); pull(e);
+});
+cv.addEventListener('pointermove', (e) => pulling && pull(e));
+cv.addEventListener('pointerup', () => {
+  if (!pulling) return;
+  pulling = false;
+  const st = P.baseline(onTurn().side, place), a = aim;
+  if (!a || a.power < 0.04) { aim = null; sendAim(); return; }
+  if (a.dx * st.inX + a.dy * st.inY < 0.05) { toast('Shoot forwards, into the board'); aim = null; sendAim(); return; }
+  if (!free(st.x, st.y)) { toast("The striker can't sit on a coin: slide it along"); aim = null; return; }
+  shoot(a);
+});
+cv.addEventListener('pointercancel', () => { pulling = false; aim = null; });
+function boardPoint(e) { const r = cv.getBoundingClientRect(); return toBoard(e.clientX - r.left, e.clientY - r.top); }
+function pull(e) {
+  const st = P.baseline(onTurn().side, place), [bx, by] = boardPoint(e);
+  const dx = st.x - bx, dy = st.y - by, d = Math.sqrt(dx * dx + dy * dy);
+  aim = d < 1e-4 ? null : { dx: dx / d, dy: dy / d, power: Math.min(1, d / (S * 0.3)) };
+  sendAim();
+}
+let aimTimer = 0;
+function sendAim() {
+  if (Date.now() - aimTimer < 70) return;
+  aimTimer = Date.now();
+  socket.volatile.emit('carrom:aim', { roomId: ROOM, t: place, dx: aim?.dx ?? 0, dy: aim?.dy ?? -1, power: aim?.power ?? 0 });
+}
+async function shoot(a) {
+  aim = null;
+  const r = await act('carrom:shoot', { t: place, dx: a.dx, dy: a.dy, power: a.power });
+  if (r?.ok) $('place').value = 500, place = 0.5;
+}
+
+// ---------- state from the server ----------
+function receive(s) {
+  if (state && s && s.v < state.v) return;
+  if (anim) { queue.push(s); return; }
+  show(s);
+}
+function show(s) {
+  const prev = state;
+  state = s; remote = null;
+  const last = s?.last;
+  if (last?.kind === 'shot' && prev && prev.v < s.v && prev.phase === 'playing') {
+    // replay the shot from where it started, then settle on the server's board
+    const st = P.baseline(last.side, last.shot.t);
+    const sim = P.createSim(last.from, { x: st.x, y: st.y });
+    P.strike(sim, last.shot);
+    anim = { sim, start: performance.now() };
+    coins = s.coins;
+    announce(last, s);
+  } else coins = s?.coins ?? [];
+  render();
+}
+function announce(last, s) {
+  const p = s.players.find((x) => x.userId === last.userId) ?? prevPlayer(last.userId);
+  const who = last.userId === me?.userId ? 'You' : p?.displayName ?? 'Someone';
+  const parts = [];
+  if (last.strikerPotted) parts.push(`Foul! Striker pocketed${last.points ? ` (${last.points})` : ''}`);
+  else if (last.points) parts.push(`+${last.points}`);
+  if (last.queen === 'pending') parts.push('Queen in: cover her next!');
+  if (last.queen === 'covered') parts.push('Queen covered +50 👑');
+  if (last.queen === 'returned') parts.push('Queen back to the centre');
+  if (parts.length) setTimeout(() => toast(`${who}: ${parts.join(' · ')}`), Math.min(last.ms, 2500));
+}
+const prevPlayer = (id) => state?.players.find((x) => x.userId === id);
+
+function render() {
+  const s = state;
+  $('hud').innerHTML = s && s.phase !== 'lobby' ? s.players.map((p, i) => `<div class="pl ${s.phase === 'playing' && i === s.turn ? 'turn' : ''}" data-i="${i}"><div class="av">${avatar(p)}</div><div class="who"><div class="nm">${p.userId === me?.userId ? 'You' : esc(p.displayName || 'Someone')}${s.queenPending === p.userId ? ' 👑' : ''}</div><div class="sc">${p.score}</div></div></div>`).join('') : '';
+  $('leaveBtn').hidden = !(s?.phase === 'playing' && mine());
+  $('controls').classList.toggle('live', myTurn());
+  const who = onTurn();
+  $('hint').textContent = !who || anim ? '' : myTurn() ? (s.queenPending === me.userId ? 'Cover the queen: pocket any coin!' : 'Slide the striker, then pull back from it and let go') : `${esc(who.displayName || 'Someone')} is shooting`;
+  panel();
+}
+
+function panel() {
+  const s = state, card = $('card');
+  if (s?.phase === 'playing' || anim) { $('panel').hidden = true; return; }
+  $('panel').hidden = false;
+  if (!s) { card.innerHTML = '<h2>Carrom is off</h2><p>The owner or an admin can turn it on.</p>'; return; }
+  if (s.phase === 'finished') {
+    const ranked = [...s.players].sort((a, b) => b.score - a.score);
+    const w = s.players.find((p) => p.userId === s.winner);
+    card.innerHTML = `<h2>${w ? `🏆 ${w.userId === me?.userId ? 'You won!' : esc(w.displayName ?? 'Someone') + ' won!'}` : '🤝 A tie at the top'}</h2>${s.reason === 'LEFT' ? '<p>Everyone else left the game</p>' : ''}
+      <ol class="rank">${ranked.map((p, i) => `<li><span>${i + 1}. ${p.userId === me?.userId ? 'You' : esc(p.displayName || 'Someone')}</span><span>${p.score}</span></li>`).join('')}</ol>
+      <div class="btns"><button class="btn ghost" id="look">See the board</button><button class="btn" id="again">Play again</button></div>`;
+    $('again').onclick = () => act('carrom:join');
+    $('look').onclick = () => { $('panel').hidden = true; };
+    return;
+  }
+  const joined = s.lobby.some((p) => p.userId === me?.userId);
+  const slots = s.lobby.map((p) => {
+    const kick = admin && p.userId !== me?.userId ? `<button class="kick" data-kick="${esc(p.userId)}" aria-label="Remove ${esc(p.displayName)}">✕</button>` : '';
+    return `<div class="slot">${kick}<div class="av">${avatar(p)}</div><span>${p.userId === me?.userId ? 'You' : esc(p.displayName || 'Someone')}</span></div>`;
+  }).join('');
+  card.innerHTML = `<h2>🎯 Carrom</h2><p>${s.lobby.length < 2 ? 'Seated players join · 2 to 4 play' : admin ? 'Ready when you are' : 'Waiting for the owner or an admin to start'}</p><p>White 20 · black 10 · queen 50 (cover her) · striker in: −10</p>
+    <div class="slots">${slots}</div>
+    <div class="btns">${joined ? '<button class="btn ghost" data-act="leave">Leave</button>' : s.lobby.length < 4 ? '<button class="btn" data-act="join">Join</button>' : ''}${admin ? `<button class="btn" data-act="start" ${s.lobby.length < 2 ? 'disabled' : ''}>Start</button>` : ''}</div>`;
+  card.querySelectorAll('[data-act]').forEach((b) => (b.onclick = () => act(`carrom:${b.dataset.act}`)));
+  card.querySelectorAll('[data-kick]').forEach((b) => (b.onclick = () => confirm('Remove this player from the game?') && act('carrom:remove', { userId: b.dataset.kick })));
+}
+
+// turn timer rings
+setInterval(() => {
+  const s = state;
+  if (s?.phase !== 'playing') return;
+  const el = document.querySelector(`.pl[data-i="${s.turn}"] .av`);
+  const now = Date.now() + offset;
+  const left = s.deadline ? Math.max(0, Date.parse(s.deadline) - now) : 0;
+  el?.style.setProperty('--p', Math.min(1, left / turnMs).toFixed(3));
+  if (!anim) $('controls').classList.toggle('live', myTurn());
+}, 200);
+
+let toastTimer;
+function toast(t) {
+  const el = $('toast');
+  el.textContent = t; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+async function act(event, extra = {}) {
+  const r = await socket.timeout(8000).emitWithAck(event, { roomId: ROOM, ...extra }).catch(() => null);
+  if (!r) return toast('No connection. Try again.');
+  const FRIENDLY = { CANNOT_TARGET_OWNER: "The room owner can't be removed", CANNOT_TARGET_ADMIN: "Admins can't remove other admins" };
+  if (!r.ok) toast(FRIENDLY[r.error?.code] || r.error?.message || 'That didn’t work');
+  return r;
+}
+$('leaveBtn').onclick = () => confirm('Leave this game? You will be out.') && act('carrom:leave');
+
+const pendingToken = [];
+window.voyaToken = (t) => pendingToken.splice(0).forEach((r) => r(t));
+function getToken() {
+  if (!window.ReactNativeWebView) return Promise.resolve(new URLSearchParams(location.hash.slice(1)).get('token') || '');
+  return new Promise((r) => { pendingToken.push(r); window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'token' })); });
+}
+
+layout();
+new ResizeObserver(() => layout()).observe($('stage'));
+requestAnimationFrame(frame);
+const socket = io({ path: '/socket.io/', transports: ['websocket'], auth: (cb) => getToken().then((token) => cb({ token })) });
+socket.on('connect', async () => {
+  const r = await socket.timeout(8000).emitWithAck('carrom:watch', { roomId: ROOM }).catch(() => null);
+  if (!r?.ok) return toast('Could not open Carrom');
+  me = r.data.me; admin = r.data.me.admin; turnMs = r.data.turnMs ?? turnMs; offset = new Date(r.data.serverNow) - Date.now();
+  state = null; queue = []; anim = null;
+  show(r.data.state); // a fresh start after every (re)connect
+});
+socket.on('connect_error', () => toast("Can't reach the game. Retrying…"));
+socket.on('carrom:state', (e) => {
+  if (e.roomId !== ROOM) return;
+  offset = new Date(e.serverNow) - Date.now();
+  receive(e.state);
+});
+socket.on('carrom:aim', (e) => {
+  if (e.roomId !== ROOM || e.userId === me?.userId || e.v !== state?.v || anim) return;
+  remote = { t: e.t, dx: e.dx, dy: e.dy, power: e.power };
+});
+</script>
+</body>
+</html>

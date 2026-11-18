@@ -88,6 +88,7 @@ export async function setMode(actor: User, roomId: string, on: boolean) {
   const room = await getRoom(roomId);
   if (room.kind === "LIVE") throw new AppError("MAFIA_NOT_IN_LIVE", 400, "Mafia is for audio rooms");
   if (on && room.ludo) throw new AppError("LUDO_ON", 409, "Turn off Ludo first");
+  if (on && room.carrom) throw new AppError("CARROM_ON", 409, "Turn off Carrom first");
   if (on && room.wheel) throw new AppError("WHEEL_ON", 409, "Turn off the Wheel first");
   if (on && room.chess) throw new AppError("CHESS_ON", 409, "Turn off Chess first");
   if (on && room.karaoke) throw new AppError("KARAOKE_ON", 409, "Turn off Karaoke first");

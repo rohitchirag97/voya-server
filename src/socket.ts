@@ -18,6 +18,7 @@ import * as mafia from "./services/mafia";
 import * as karaoke from "./services/karaoke";
 import * as chess from "./services/chess";
 import * as wheel from "./services/wheel";
+import * as carrom from "./services/carrom";
 import * as rocket from "./services/rocket";
 import { assertGamesOn } from "./services/flags";
 import * as roulette from "./services/roulette";
@@ -219,6 +220,19 @@ io.on("connection", (socket: Socket) => {
   handle("wheel:leave", (user, p) => wheel.leave(user, id(p)));
   handle("wheel:spin", (user, p) => wheel.spin(user, id(p)));
   handle("wheel:cancel", (user, p) => wheel.cancel(user, id(p)));
+  // Carrom (rooms in Carrom mode), shaped like Pool: the server simulates every shot; aim is only relayed.
+  handle("carrom:watch", async (user, p) => {
+    const roomId = id(p);
+    const state = await carrom.watch(user, roomId);
+    socket.join(carrom.channel(roomId));
+    return state;
+  });
+  handle("carrom:join", (user, p) => carrom.join(user, id(p)));
+  handle("carrom:leave", (user, p) => carrom.leave(user, id(p)));
+  handle("carrom:remove", (user, p) => carrom.removeFromLobby(user, id(p), schemas.uuid.parse(p.userId)));
+  handle("carrom:start", (user, p) => carrom.start(user, id(p)));
+  handle("carrom:aim", (user, p) => carrom.aim(user, id(p), carrom.aimSchema.parse(p)));
+  handle("carrom:shoot", (user, p) => carrom.shoot(user, id(p), carrom.shotSchema.parse(p)));
   handle("karaoke:progress", (user, p) => karaoke.progress(user, id(p), karaoke.progressSchema.parse(p)));
 
   // Rocket (crash) game: one global round at a time.

@@ -87,7 +87,7 @@ export async function setMode(actor: User, roomId: string, on: boolean) {
   if (on) await assertGamesOn();
   const room = await getRoom(roomId);
   if (room.kind === "LIVE") throw new AppError("WHEEL_NOT_IN_LIVE", 400, "The wheel is for audio rooms");
-  for (const [k, label] of [["ludo", "Ludo"], ["pool", "8 Ball Pool"], ["draw", "Draw & Guess"], ["mafia", "Mafia"], ["chess", "Chess"], ["karaoke", "Karaoke"], ["video", "Video mode"]] as const) {
+  for (const [k, label] of [["ludo", "Ludo"], ["pool", "8 Ball Pool"], ["draw", "Draw & Guess"], ["mafia", "Mafia"], ["chess", "Chess"], ["carrom", "Carrom"], ["karaoke", "Karaoke"], ["video", "Video mode"]] as const) {
     if (on && room[k]) throw new AppError(`${k.toUpperCase()}_ON`, 409, `Turn off ${label} first`);
   }
   const changed = await serial(roomId, async () => {

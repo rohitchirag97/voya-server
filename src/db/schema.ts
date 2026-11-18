@@ -6,6 +6,7 @@ import type { MafiaState } from "../lib/mafia";
 import type { KaraokeState } from "../lib/karaoke";
 import type { ChessState } from "../lib/chess";
 import type { WheelState } from "../lib/wheel";
+import type { CarromState } from "../lib/carrom";
 import {
   bigint,
   bigserial,
@@ -179,6 +180,8 @@ export const rooms = pgTable(
     chess: jsonb("chess").$type<ChessState>(),
     // Wheel mode (null = off): the elimination wheel round people pay into, see lib/wheel.ts and services/wheel.ts.
     wheel: jsonb("wheel").$type<WheelState>(),
+    // Carrom mode (null = off): the lobby or running game, see lib/carrom.ts. Seats in one row, the board below.
+    carrom: jsonb("carrom").$type<CarromState>(),
     // Video mode (null = off): the shared YouTube player under the seat row, see services/video.ts.
     video: jsonb("video").$type<VideoState>(),
     // PUBLIC: listed, anyone joins. LOCKED: listed with a lock; joining needs the 4-digit password (hashed here).

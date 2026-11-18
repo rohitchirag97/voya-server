@@ -14,6 +14,7 @@ import * as mafia from "../services/mafia";
 import * as karaoke from "../services/karaoke";
 import * as chess from "../services/chess";
 import * as wheel from "../services/wheel";
+import * as carrom from "../services/carrom";
 import * as songs from "../services/songs";
 import * as covers from "../services/covers";
 import * as video from "../services/video";
@@ -135,6 +136,12 @@ roomRoutes.post("/rooms/:roomId/chess", async (c) => {
 roomRoutes.post("/rooms/:roomId/wheel", async (c) => {
   const { on } = await json(c, z.object({ on: z.boolean() }));
   return c.json(await wheel.setMode(c.get("user"), roomId(c), on));
+});
+
+// Carrom mode on (opens a lobby) / off (ends any game). Owner and admins only.
+roomRoutes.post("/rooms/:roomId/carrom", async (c) => {
+  const { on } = await json(c, z.object({ on: z.boolean() }));
+  return c.json(await carrom.setMode(c.get("user"), roomId(c), on));
 });
 
 // Karaoke mode on (empty queue) / off (ends any song). Owner and admins only.
