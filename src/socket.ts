@@ -17,6 +17,7 @@ import * as draw from "./services/draw";
 import * as mafia from "./services/mafia";
 import * as karaoke from "./services/karaoke";
 import * as chess from "./services/chess";
+import * as wheel from "./services/wheel";
 import * as rocket from "./services/rocket";
 import { assertGamesOn } from "./services/flags";
 import * as roulette from "./services/roulette";
@@ -206,6 +207,18 @@ io.on("connection", (socket: Socket) => {
   handle("chess:start", (user, p) => chess.start(user, id(p)));
   handle("chess:move", (user, p) => chess.move(user, id(p), chess.moveSchema.parse(p)));
   handle("chess:draw", (user, p) => chess.draw(user, id(p)));
+  // Wheel (rooms in Wheel mode): an elimination round people pay into. Joining needs the Games switch on.
+  handle("wheel:watch", async (user, p) => {
+    const roomId = id(p);
+    const state = await wheel.watch(user, roomId);
+    socket.join(wheel.channel(roomId));
+    return state;
+  });
+  handle("wheel:open", (user, p) => wheel.openRound(user, id(p), wheel.feeSchema.parse(p).fee));
+  handle("wheel:join", (user, p) => wheel.join(user, id(p)));
+  handle("wheel:leave", (user, p) => wheel.leave(user, id(p)));
+  handle("wheel:spin", (user, p) => wheel.spin(user, id(p)));
+  handle("wheel:cancel", (user, p) => wheel.cancel(user, id(p)));
   handle("karaoke:progress", (user, p) => karaoke.progress(user, id(p), karaoke.progressSchema.parse(p)));
 
   // Rocket (crash) game: one global round at a time.

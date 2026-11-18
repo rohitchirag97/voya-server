@@ -115,6 +115,7 @@ export async function getSnapshot(roomId: string) {
     pool: room.pool !== null, // 8 Ball Pool mode: same layout, the table below
     draw: room.draw !== null, // Draw & Guess mode: same layout, the canvas below
     mafia: room.mafia !== null, // Mafia mode: same layout, the game board below
+    wheel: room.wheel !== null, // Wheel mode: seats in one row, the wheel below
     chess: room.chess !== null, // Chess mode: seats in one row, the board below
     karaoke: room.karaoke, // Karaoke mode (null = off): the queue and who is singing, for the lyrics under the seats
     video: room.video, // Video mode (null = off): what's playing and where, for the shared player

@@ -13,6 +13,7 @@ import * as draw from "../services/draw";
 import * as mafia from "../services/mafia";
 import * as karaoke from "../services/karaoke";
 import * as chess from "../services/chess";
+import * as wheel from "../services/wheel";
 import * as songs from "../services/songs";
 import * as covers from "../services/covers";
 import * as video from "../services/video";
@@ -128,6 +129,12 @@ roomRoutes.post("/rooms/:roomId/mafia", async (c) => {
 roomRoutes.post("/rooms/:roomId/chess", async (c) => {
   const { on } = await json(c, z.object({ on: z.boolean() }));
   return c.json(await chess.setMode(c.get("user"), roomId(c), on));
+});
+
+// Wheel mode on / off (an open round is refunded; a spinning one must finish first). Owner and admins only.
+roomRoutes.post("/rooms/:roomId/wheel", async (c) => {
+  const { on } = await json(c, z.object({ on: z.boolean() }));
+  return c.json(await wheel.setMode(c.get("user"), roomId(c), on));
 });
 
 // Karaoke mode on (empty queue) / off (ends any song). Owner and admins only.

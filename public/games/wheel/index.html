@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Wheel</title>
+<style>
+  /* Elimination wheel for a room in Wheel mode, shown inline under the seat row. People pay the entry fee to join;
+     each spin knocks one player out until one is left, who takes the pot minus the 10% charge. The server draws the
+     whole order at the spin and every phone plays it back on the same clock. */
+  :root { --gold:#ffc94d; --panel:rgba(26,12,40,.94); --muted:#c9b8e8; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: transparent; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #fff; overflow: hidden; user-select: none; -webkit-user-select: none; }
+  #app { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; border-radius: 18px; overflow: hidden; background: radial-gradient(120% 90% at 50% 30%, #4a1f7a 0%, #1a0b2e 70%); box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+  #hud { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px 0; }
+  .stat { font-size: 11px; font-weight: 700; color: var(--muted); }
+  .stat b { display: block; font-size: 16px; font-weight: 900; color: var(--gold); }
+  .stat.r { text-align: right; }
+  #stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  canvas { display: block; }
+  #pointer { position: absolute; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 13px solid transparent; border-right: 13px solid transparent; border-top: 24px solid var(--gold); filter: drop-shadow(0 2px 3px rgba(0,0,0,.6)); }
+  #status { flex: none; min-height: 22px; text-align: center; font-size: 14px; font-weight: 900; padding: 0 10px; }
+  #status.out { color: #ff6b7a; } #status.win { color: var(--gold); }
+  #acts { flex: none; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 6px 10px 10px; }
+  .btn { border: 0; border-radius: 99px; padding: 9px 18px; font-size: 13px; font-weight: 800; background: linear-gradient(#ffb547, #e07a10); color: #2a1200; }
+  .btn.ghost { background: rgba(255,255,255,.12); color: #fff; }
+  .btn.fee { background: rgba(255,201,77,.16); color: var(--gold); border: 1px solid rgba(255,201,77,.5); }
+  .btn[disabled] { opacity: .4; }
+  .note { font-size: 11px; color: var(--muted); text-align: center; padding: 0 12px 4px; }
+  #toast { position: absolute; left: 50%; top: 52px; transform: translateX(-50%) translateY(-8px); opacity: 0; visibility: hidden; z-index: 20; background: rgba(0,0,0,.85); padding: 8px 14px; border-radius: 12px; font-size: 12px; font-weight: 800; transition: transform .25s, opacity .25s, visibility .25s; max-width: 90%; text-align: center; }
+  #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; visibility: visible; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hud"><div class="stat" id="potBox"></div><div class="stat r" id="coinsBox"></div></div>
+  <div id="stage"><canvas id="c"></canvas><div id="pointer"></div></div>
+  <div id="status" aria-live="polite"></div>
+  <div class="note" id="note"></div>
+  <div id="acts"></div>
+  <div id="toast" role="status"></div>
+</div>
+<script src="/games/socket.io.min.js"></script>
+<script>
+const ROOM = new URLSearchParams(location.search).get('room');
+const $ = (id) => document.getElementById(id);
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const num = (n) => Number(n).toLocaleString('en-IN');
+const COLORS = ['#ff5d8f', '#ffb547', '#4ecdc4', '#7b6cff', '#5ec26a', '#ff7a45', '#3fa9f5', '#c56cf0', '#f7d038', '#ef476f'];
+
+let state = null, me = null, admin = false, offset = 0, balance = null;
+let cfg = { fees: [100, 1000, 10000, 100000], minPlayers: 2, maxPlayers: 10, spinMs: 4500, gapMs: 1800 };
+const now = () => Date.now() + offset;
+const nameOf = (p) => (p.userId === me?.userId ? 'You' : p.displayName || 'Someone');
+
+// ---------- the playback clock: which spin is on, who is still in ----------
+const spinEnd = (r, k) => Date.parse(r.startedAt) + (k + 1) * cfg.spinMs + k * cfg.gapMs;
+function playback(r, t) {
+  // spins done so far, and whether spin k is turning now
+  let done = 0;
+  while (done < r.players.length - 1 && spinEnd(r, done) <= t) done++;
+  const k = done; // the spin in progress (or about to start)
+  const turning = k < r.players.length - 1 && t >= spinEnd(r, k) - cfg.spinMs;
+  return { done, k, turning };
+}
+// A stable bit of jitter per round and spin, so every phone stops at the same spot inside the segment.
+const jitter = (id, k) => { let h = k * 7919; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) | 0; return ((Math.abs(h) % 1000) / 1000) * 0.6 - 0.3; };
+
+// ---------- drawing ----------
+const cv = $('c'), ctx = cv.getContext('2d');
+let R = 100, dpr = 1;
+function layout() {
+  const r = $('stage').getBoundingClientRect();
+  dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const size = Math.max(60, Math.min(r.width - 20, r.height - 14));
+  R = size / 2;
+  cv.width = cv.height = Math.round(size * dpr);
+  cv.style.width = cv.style.height = `${size}px`;
+  $('pointer').style.top = `${(r.height - size) / 2 - 8}px`;
+}
+
+function drawWheel(people, rot, out) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, R * 2, R * 2);
+  ctx.save();
+  ctx.translate(R, R);
+  ctx.beginPath(); ctx.arc(0, 0, R - 2, 0, 7); ctx.fillStyle = '#2a1545'; ctx.fill();
+  if (!people.length) {
+    ctx.fillStyle = '#c9b8e8'; ctx.font = `800 ${Math.max(12, R / 8)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Join to spin', 0, 0); ctx.restore(); return;
+  }
+  const seg = (Math.PI * 2) / people.length;
+  people.forEach((p, i) => {
+    const a0 = rot + i * seg - Math.PI / 2 - seg / 2;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, R - 6, a0, a0 + seg); ctx.closePath();
+    ctx.fillStyle = p.userId === out ? '#3a2a3a' : COLORS[i % COLORS.length]; ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.save();
+    ctx.rotate(a0 + seg / 2);
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = p.userId === out ? '#ff6b7a' : '#fff';
+    ctx.font = `800 ${Math.max(10, Math.min(16, R / 9))}px system-ui`;
+    let label = nameOf(p);
+    while (label.length > 3 && ctx.measureText(label).width > R * 0.62) label = label.slice(0, -2) + '…';
+    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 3;
+    ctx.fillText(label, R - 16, 0);
+    ctx.restore();
+  });
+  ctx.beginPath(); ctx.arc(0, 0, R - 4, 0, 7); ctx.strokeStyle = '#ffc94d'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 0, R * 0.16, 0, 7); ctx.fillStyle = '#ffc94d'; ctx.fill();
+  ctx.fillStyle = '#2a1200'; ctx.font = `900 ${R * 0.14}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🎡', 0, 1);
+  ctx.restore();
+}
+
+// Where the wheel stands with segment `i` of `n` under the pointer (pointer at the top).
+const restAngle = (i, n, j) => -(i + j) * ((Math.PI * 2) / n);
+const ease = (x) => 1 - Math.pow(1 - x, 4);
+
+function frame() {
+  requestAnimationFrame(frame);
+  const r = state?.round;
+  if (!r) { drawWheel([], 0); return; }
+  if (state.phase !== 'spinning' && state.phase !== 'finished') { drawWheel(r.players, 0); return; }
+  const t = now();
+  const { done, k, turning } = playback(r, t);
+  const outBefore = new Set(r.order.slice(0, k));
+  const people = r.players.filter((p) => !outBefore.has(p.userId));
+  if (state.phase === 'finished' || done >= r.players.length - 1) {
+    const w = r.players.find((p) => p.userId === r.order.at(-1));
+    drawWheel(w ? [w] : [], 0);
+    return;
+  }
+  const target = r.order[k], ti = people.findIndex((p) => p.userId === target);
+  const j = jitter(r.id, k);
+  if (turning) {
+    const p = Math.min(1, (t - (spinEnd(r, k) - cfg.spinMs)) / cfg.spinMs);
+    const end = restAngle(ti, people.length, j) - Math.PI * 2 * 6;
+    drawWheel(people, end * ease(p), p >= 1 ? target : null);
+  } else if (k > 0) {
+    // the gap after spin k-1: that player is out (shown red at the pointer) before the wheel shrinks
+    const prev = r.players.filter((p) => !new Set(r.order.slice(0, k - 1)).has(p.userId));
+    const pi = prev.findIndex((p) => p.userId === r.order[k - 1]);
+    drawWheel(prev, restAngle(pi, prev.length, jitter(r.id, k - 1)), r.order[k - 1]);
+  } else drawWheel(people, 0);
+}
+
+// ---------- HUD, status, buttons ----------
+function render() {
+  const s = state, r = s?.round;
+  $('potBox').innerHTML = r && s.phase !== 'cancelled' ? `Pot · ${r.players.length}/${cfg.maxPlayers} in<b>${num(s.phase === 'lobby' ? r.pot : r.payout)}</b>` : 'Elimination wheel<b>🎡</b>';
+  $('coinsBox').innerHTML = balance == null ? '' : `Your coins<b>${num(balance)}</b>`;
+  const joined = !!r?.players.some((p) => p.userId === me?.userId);
+  let note = '', acts = '';
+  if (!s) note = 'The wheel is off. The owner or an admin can turn it on.';
+  else if (s.phase === 'idle' || s.phase === 'finished' || s.phase === 'cancelled') {
+    note = s.phase === 'cancelled' ? 'Round cancelled: everyone got their coins back.' : admin ? 'Open a round: pick the entry fee.' : 'Waiting for the owner or an admin to open a round.';
+    if (admin) acts = cfg.fees.map((f) => `<button class="btn fee" data-fee="${f}">${num(f)}</button>`).join('');
+  } else if (s.phase === 'lobby') {
+    note = `Entry ${num(r.fee)} coins · ${cfg.minPlayers}-${cfg.maxPlayers} players · winner takes the pot minus 10%`;
+    acts = joined ? '<button class="btn ghost" data-act="leave">Leave (refund)</button>' : `<button class="btn" data-act="join" ${r.players.length >= cfg.maxPlayers ? 'disabled' : ''}>Join · ${num(r.fee)} coins</button>`;
+    if (admin) acts += `<button class="btn" data-act="spin" ${r.players.length < cfg.minPlayers ? 'disabled' : ''}>Spin</button><button class="btn ghost" data-act="cancel">Cancel</button>`;
+  } else note = `${num(r.payout)} coins to the last one standing`;
+  $('note').textContent = note;
+  $('acts').innerHTML = acts;
+  $('acts').querySelectorAll('[data-fee]').forEach((b) => (b.onclick = () => act('wheel:open', { fee: Number(b.dataset.fee) })));
+  $('acts').querySelectorAll('[data-act]').forEach((b) => (b.onclick = () => {
+    const a = b.dataset.act;
+    if (a === 'join' && !confirm(`Join for ${num(r.fee)} coins? You get them back if you leave before the spin.`)) return;
+    if (a === 'cancel' && !confirm('Cancel this round? Everyone gets their coins back.')) return;
+    act(`wheel:${a}`);
+  }));
+}
+
+// The status line follows the playback clock.
+let lastStatus = '';
+setInterval(() => {
+  const s = state, r = s?.round;
+  let text = '', cls = '';
+  if (r && (s.phase === 'spinning' || s.phase === 'finished')) {
+    const { done, turning } = playback(r, now());
+    if (done >= r.players.length - 1) {
+      const w = r.players.find((p) => p.userId === r.order.at(-1));
+      text = w ? `🏆 ${w.userId === me?.userId ? 'You win' : `${nameOf(w)} wins`} ${num(r.payout)} coins!` : ''; cls = 'win';
+    } else if (turning) text = 'Spinning…';
+    else if (done > 0) { const o = r.players.find((p) => p.userId === r.order[done - 1]); text = `${o ? nameOf(o) : 'Someone'} ${o?.userId === me?.userId ? 'are' : 'is'} out!`; cls = 'out'; }
+  } else if (r && s.phase === 'lobby') text = r.players.length ? r.players.map(nameOf).join(' · ') : 'Be the first to join!';
+  const key = text + cls;
+  if (key !== lastStatus) { lastStatus = key; $('status').textContent = text; $('status').className = cls; }
+}, 200);
+
+let toastTimer;
+function toast(t) {
+  const el = $('toast');
+  el.textContent = t; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+// ---------- state from the server ----------
+async function refresh() {
+  const r = await socket.timeout(8000).emitWithAck('wheel:watch', { roomId: ROOM }).catch(() => null);
+  if (!r?.ok) return toast('Could not open the wheel');
+  me = r.data.me; admin = r.data.me.admin; balance = r.data.balance; offset = new Date(r.data.serverNow) - Date.now();
+  cfg = { fees: r.data.fees, minPlayers: r.data.minPlayers, maxPlayers: r.data.maxPlayers, spinMs: r.data.spinMs, gapMs: r.data.gapMs };
+  state = r.data.state;
+  render();
+}
+
+async function act(event, extra = {}) {
+  const r = await socket.timeout(8000).emitWithAck(event, { roomId: ROOM, ...extra }).catch(() => null);
+  if (!r) return toast('No connection. Check your coins before trying again.');
+  if (!r.ok) return toast(r.error?.code === 'INSUFFICIENT_COINS' ? 'Not enough coins' : r.error?.message || 'That didn’t work');
+  if (typeof r.data?.balance === 'number') { balance = r.data.balance; render(); }
+  return r;
+}
+
+const pendingToken = [];
+window.voyaToken = (t) => pendingToken.splice(0).forEach((r) => r(t));
+function getToken() {
+  if (!window.ReactNativeWebView) return Promise.resolve(new URLSearchParams(location.hash.slice(1)).get('token') || '');
+  return new Promise((r) => { pendingToken.push(r); window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'token' })); });
+}
+
+layout();
+new ResizeObserver(() => layout()).observe($('stage'));
+requestAnimationFrame(frame);
+const socket = io({ path: '/socket.io/', transports: ['websocket'], auth: (cb) => getToken().then((token) => cb({ token })) });
+socket.on('connect', refresh); // a fresh start after every (re)connect
+socket.on('connect_error', () => toast("Can't reach the wheel. Retrying…"));
+socket.on('wheel:state', (e) => {
+  if (e.roomId !== ROOM || (state && e.state && e.state.v < state.v)) return;
+  offset = new Date(e.serverNow) - Date.now();
+  const before = state?.phase;
+  state = e.state;
+  render();
+  if (state?.phase === 'finished' && before !== 'finished') refresh(); // the payout may have landed in my wallet
+});
+</script>
+</body>
+</html>

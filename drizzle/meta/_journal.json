@@ -659,6 +659,13 @@
       "when": 1794827175398,
       "tag": "0093_chess_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1794979545133,
+      "tag": "0094_wheel_mode",
+      "breakpoints": true
     }
   ]
 }
